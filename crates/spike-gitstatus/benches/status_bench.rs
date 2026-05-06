@@ -50,8 +50,12 @@ fn fixtures_root() -> PathBuf {
 
 fn candidate_repos() -> Vec<(&'static str, PathBuf)> {
     let root = fixtures_root();
+    // `ripgrep` is the always-present fixture (~30 MB, ~10k tracked files).
+    // `small` was a contractor placeholder for a synthetic 100-file repo that
+    // never landed; ripgrep covers that role. `chromium`/`linux` are opt-in
+    // via `bench/fetch_fixtures.sh --with-chromium / --with-linux`.
     vec![
-        ("small", root.join("small")),
+        ("ripgrep", root.join("ripgrep")),
         ("chromium", root.join("chromium")),
         ("linux", root.join("linux")),
     ]
