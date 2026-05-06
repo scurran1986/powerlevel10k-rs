@@ -1,0 +1,24 @@
+# Project-wide clippy tuning. Lint levels live in workspace `[workspace.lints.clippy]`;
+# this file is only for thresholds and allowlists.
+msrv = "1.88.0"
+
+# Cognitive-complexity threshold: clippy default 25 is too noisy for prompt rendering
+# code that has legitimate per-segment branching. Raise modestly; reach for refactors
+# when warnings appear, not for `#[allow]`.
+cognitive-complexity-threshold = 30
+
+# Doc-valid identifiers we reference in /// comments and don't want clippy flagging
+# under `clippy::doc_markdown`. Must be bare identifiers (no hyphens).
+doc-valid-idents = [
+    "Powerlevel10k",
+    "Powerlevel9k",
+    "gitstatusd",
+    "gitoxide",
+    "Starship",
+    "OSC",
+    "ANSI",
+    "TOML",
+    "JSON",
+    "WASM",
+    "MSRV",
+]

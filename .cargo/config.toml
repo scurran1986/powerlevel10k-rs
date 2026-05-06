@@ -1,0 +1,21 @@
+# Project-wide cargo settings. Keep this minimal — anything ambitious here
+# (e.g. linker overrides, codegen flags) becomes a long-tail support burden.
+#
+# Linker overrides (mold/lld) are intentionally NOT pinned here: they vary by
+# host and CI runner, and forcing them confuses contributors who don't have
+# them installed. Set via `CARGO_TARGET_*_LINKER` in your shell if desired.
+
+[net]
+# Use the default sparse registry (cargo 1.70+). Faster index updates, smaller cache.
+git-fetch-with-cli = false
+
+[term]
+# Quieter default; CI overrides via `--locked` and `CARGO_TERM_COLOR=always`.
+verbose = false
+
+[alias]
+# Convenience aliases. They mirror what CI runs so contributors can reproduce locally.
+fmt-check = "fmt --all -- --check"
+lint = "clippy --workspace --all-targets -- -D warnings"
+ci-test = "test --workspace --locked"
+ci-doc = "doc --no-deps --workspace --locked"

@@ -1,0 +1,33 @@
+[package]
+name = "p10k-rs"
+description = "A Rust port and spiritual successor to Powerlevel10k. Single static prompt binary."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "p10k-rs"
+path = "src/main.rs"
+
+[dependencies]
+# Only `p10k-rs-segments` is referenced today. The other internal crates are
+# intentionally NOT listed here yet — they get wired in as their respective
+# subcommands light up. Adding an unused workspace dep here would just be
+# rotting the dependency tree before anyone touches it.
+p10k-rs-segments = { workspace = true }
+
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

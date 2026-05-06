@@ -1,0 +1,21 @@
+[package]
+name = "p10k-rs-ipc"
+description = "Daemon protocol scaffold for p10k-rs (post-MVP placeholder)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# v0.1 ships an empty placeholder. Real deps (serde, thiserror, postcard or
+# similar) land with the v0.2 daemon protocol.
+
+[lints]
+workspace = true

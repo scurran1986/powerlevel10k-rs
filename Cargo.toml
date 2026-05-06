@@ -1,0 +1,128 @@
+#
+# p10k-rs workspace
+#
+# A Rust port / spiritual successor to Powerlevel10k. See:
+#   - .planning/powerlevel10k-rs/MVP-SPEC.md
+#   - .planning/powerlevel10k-rs/ARCHITECTURE.md
+#   - .planning/powerlevel10k-rs/09-rust-ecosystem.md
+#
+# Layout follows ARCHITECTURE.md § 1. The `crates/spike-gitstatus` member is
+# owned by a separate contractor and is referenced here so the workspace will
+# resolve once that crate's manifest lands.
+#
+[workspace]
+resolver = "2"
+members = [
+    "crates/p10k-rs",
+    "crates/p10k-rs-core",
+    "crates/p10k-rs-config",
+    "crates/p10k-rs-segments",
+    "crates/p10k-rs-git",
+    "crates/p10k-rs-shell",
+    "crates/p10k-rs-wizard",
+    "crates/p10k-rs-ai",
+    "crates/p10k-rs-ipc",
+    "crates/spike-gitstatus",
+]
+
+# Shared metadata. Individual crate manifests inherit via `package.<key>.workspace = true`.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+authors = ["The p10k-rs contributors"]
+repository = "https://github.com/seaburdz/powerlevel10k-rs"
+homepage = "https://github.com/seaburdz/powerlevel10k-rs"
+documentation = "https://github.com/seaburdz/powerlevel10k-rs"
+readme = "README.md"
+keywords = ["prompt", "shell", "zsh", "fish", "bash"]
+categories = ["command-line-utilities"]
+
+# Centralised dependency versions. Crates pull these in via `dep.workspace = true`.
+# Conservative pinning to the minor (caret-default `^x.y`); update via PR with rationale.
+#
+# TODO(adviser): edition is 2021 because MSRV stable-2 (~1.84 as of May 2026) does not
+# permit edition 2024 with the default features we want from `clap` and `gix`. Revisit
+# once MSRV ratchets to 1.87+.
+[workspace.dependencies]
+# --- core / general ---
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+thiserror = "2.0"
+anyhow = "1.0" # binary glue only — never in libraries
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# --- CLI / styling ---
+clap = { version = "4.5", features = ["derive", "cargo", "env", "wrap_help"] }
+anstyle = "1.0"
+crossterm = "0.28"
+
+# --- I/O / parallelism ---
+rayon = "1.10"
+rustix = { version = "0.38", features = ["fs", "process"] }
+
+# --- git ---
+# `status` is required by spike-gitstatus and the eventual `p10k-rs-git`. Listed
+# explicitly rather than relying on `max-performance-safe` to imply it — gix's
+# feature graph has shifted between minor releases and we want it pinned in writing.
+gix = { version = "0.66", default-features = false, features = ["max-performance-safe", "status", "revision"] }
+
+# --- spike-only / sometimes-shared ---
+# `bincode` 1.x is the last `serde::Serialize`-driven release. The spike's
+# untracked-cache file uses it; if `p10k-rs-git` keeps the same on-disk format,
+# bumping to 2.x means a cache-invalidating migration. Pin to 1.3 for now.
+bincode = "1.3"
+# Human-readable durations in JSON timing output. Spike uses it; segments may.
+humantime = "2.1"
+
+# --- dev / test ---
+insta = { version = "1.40", features = ["yaml"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+# Test fixtures: temp dirs that auto-clean. v3 line is the only one worth pinning.
+tempfile = "3.10"
+
+# Internal crates — referenced via `path` so cargo resolves locally.
+p10k-rs-core = { path = "crates/p10k-rs-core", version = "0.1.0" }
+p10k-rs-config = { path = "crates/p10k-rs-config", version = "0.1.0" }
+p10k-rs-segments = { path = "crates/p10k-rs-segments", version = "0.1.0" }
+p10k-rs-git = { path = "crates/p10k-rs-git", version = "0.1.0" }
+p10k-rs-shell = { path = "crates/p10k-rs-shell", version = "0.1.0" }
+p10k-rs-wizard = { path = "crates/p10k-rs-wizard", version = "0.1.0" }
+p10k-rs-ai = { path = "crates/p10k-rs-ai", version = "0.1.0" }
+p10k-rs-ipc = { path = "crates/p10k-rs-ipc", version = "0.1.0" }
+
+# Workspace-wide lints. Crates opt in via `[lints] workspace = true`.
+[workspace.lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+unsafe_code = "warn"           # crates that need unsafe (only `p10k-rs-git`) override locally
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Pedantic exclusions — these fire too often on legitimate code to be useful as walls.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+multiple_crate_versions = "allow" # transitive duplicates we don't control
+# Hard denials — these are bugs, not style.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1

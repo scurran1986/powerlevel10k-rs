@@ -1,0 +1,65 @@
+# cargo-deny configuration. Run via `cargo deny check` (CI step).
+#
+# We bias toward strict: license, advisories, and bans are all hard fails. Sources
+# are restricted to crates.io plus our own git repo (if/when we vendor anything).
+[graph]
+# Match the Tier-1 targets in ARCHITECTURE.md § 4.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+]
+all-features = false
+no-default-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Allowlist only the licenses our distribution model is comfortable with. Anything
+# else is a deliberate, reviewed exception via the [[licenses.exceptions]] table.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+    "MPL-2.0",
+    "0BSD",
+]
+confidence-threshold = 0.9
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+# Deny crates with a known-better alternative the project standardised on.
+deny = [
+    # Use `OnceLock`/`LazyLock` from std.
+    { crate = "lazy_static", use-instead = "std::sync::OnceLock" },
+    # Time policy: see ARCHITECTURE.md § 3.5.
+    { crate = "chrono", use-instead = "time or jiff" },
+    # No async runtime in MVP.
+    { crate = "tokio", use-instead = "rayon + std::thread (revisit for v0.2 daemon)" },
+    { crate = "async-std", use-instead = "rayon" },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

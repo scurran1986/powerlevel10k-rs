@@ -1,0 +1,4 @@
+# Keeps bench/results/ tracked in git.
+# baseline-*.json and SPIKE-VERDICT-*.md files written here are
+# meant to be committed when interesting (a verdict run), but the
+# directory exists either way.

@@ -1,0 +1,28 @@
+[package]
+name = "p10k-rs-core"
+description = "Core types for p10k-rs: Segment trait, RenderCtx, render pipeline. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anstyle = { workspace = true }
+
+[features]
+default = []
+# Enable serde derives on public types so `--json` consumers can serialise them.
+serde = ["dep:serde"]
+
+[lints]
+workspace = true

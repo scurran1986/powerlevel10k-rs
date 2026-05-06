@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Cargo deps for the workspace root. Single PR per week; group patch+minor to
+  # keep noise down. Major bumps come as their own PR.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels: [dependencies, rust]
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      patch-and-minor:
+        update-types: [patch, minor]
+
+  # GitHub Actions used by ci.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: ci
+      include: scope

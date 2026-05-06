@@ -1,0 +1,22 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Bench fixtures (cloned externally, not committed)
+/bench/fixtures/repos/
+
+# Local secrets / env
+.env
+.env.local
+
+# OMC tooling local state (per-developer; not project code)
+/.omc/

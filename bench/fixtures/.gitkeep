@@ -1,0 +1,2 @@
+# Keeps bench/fixtures/ tracked in git.
+# bench/fixtures/repos/ is excluded by the workspace .gitignore.

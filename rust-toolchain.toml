@@ -1,0 +1,12 @@
+# MSRV policy: stable - 2 (≈ 9 months back), with a hard floor at the *highest*
+# `rust-version` advertised by any transitive dep we pull in.
+#
+# As of 2026-05-05 stable is 1.95; policy floor (stable-2) is 1.93. We pin 1.88
+# instead — that's the minimum the current dep graph compiles on (clap_derive
+# 4.6 needs edition2024 → 1.85; `home` 0.5.12 needs 1.88; gix 0.66 transitives
+# need 1.85+). Bumping below 1.88 requires also pinning back specific deps in
+# Cargo.toml, which we'll defer until a user actually needs an older toolchain.
+[toolchain]
+channel = "1.88.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
