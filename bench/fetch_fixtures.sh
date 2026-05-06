@@ -84,9 +84,14 @@ clone_pinned() {
 
 # ---- ripgrep — always -----------------------------------------------------
 # Tag: 14.1.1 — small repo, validates the harness end-to-end.
+# This is the commit SHA, not the tag-object SHA — pinning the tag SHA
+# (0e8390a66fbcf6eeac1aeb0541b367663a597c79) breaks `clone_pinned`'s
+# idempotency check because `git rev-parse HEAD` reports the commit, not the
+# tag. The original pin had a hallucinated trailing fragment (4649aa9700c388c5...
+# vs the real 4649aa9700619f94...) — leading 8 hex were right.
 clone_pinned ripgrep \
   https://github.com/BurntSushi/ripgrep.git \
-  4649aa9700c388c5108be4cef9bf6c4eaf9a6f76 \
+  4649aa9700619f94cf9c66876e9549d83420e16c \
   30MiB
 
 # ---- linux — opt-in -------------------------------------------------------
