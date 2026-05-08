@@ -98,9 +98,13 @@ clone_pinned ripgrep \
 if [ "$WITH_LINUX" -eq 1 ]; then
   printf '[warn]  linux fixture is ~5 GB; first clone takes several minutes\n' >&2
   # v6.6 LTS — a stable, popular kernel tag with realistic file count (~80k).
+  # This is the v6.6 *commit* SHA, not the annotated-tag-object SHA
+  # (5260836abb7056beed3f3f0d0e4262c11f36f0d0). See ripgrep pin commentary
+  # — pinning the tag SHA breaks `clone_pinned`'s idempotency check.
+  # Original pin (2d1bcbc6cd703e64caf8df314e3669b4f2e1e16a) was hallucinated.
   clone_pinned linux \
     https://github.com/torvalds/linux.git \
-    2d1bcbc6cd703e64caf8df314e3669b4f2e1e16a \
+    ffc253263a1375a65fa6c9f62a893e9767fbebfa \
     5GiB
 fi
 

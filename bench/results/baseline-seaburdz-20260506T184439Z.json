@@ -1,0 +1,12 @@
+{
+  "harness": "run_baseline.sh",
+  "hostname": "seaburdz",
+  "utc": "20260506T184439Z",
+  "gitstatusd_path": "/home/seaburdz/github/powerlevel10k/gitstatus/usrbin/gitstatusd-linux-x86_64",
+  "gitstatusd_version": "v1.5.4",
+  "iterations_per_fixture": 200,
+  "fixtures": {
+    "linux": {"n":200,"mean_ms":83.8421,"p50_ms":83.5010,"p95_ms":86.5430,"min_ms":81.4490,"max_ms":91.5670},
+    "ripgrep": {"n":200,"mean_ms":1.2810,"p50_ms":1.2680,"p95_ms":1.3910,"min_ms":1.2180,"max_ms":2.2470}
+  }
+}

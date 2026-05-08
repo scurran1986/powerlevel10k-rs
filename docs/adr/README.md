@@ -20,10 +20,9 @@ File names: `NNNN-kebab-case-title.md`, four-digit zero-padded.
 
 | ADR | Title | Status |
 |----:|-------|--------|
-| 0001 | gitstatusd-class latency strategy | _to be written by the day-1 spike contractor_ |
+| [0001](0001-git-backend.md) | Git status backend (gitstatusd-rs shim) | Accepted (2026-05-06) |
 
-ADR 0001 is the load-bearing decision for the project: whether `gix` plus a
-`rustix`-based parent-fd walker can match `gitstatusd`'s latency on a clean
-chromium repo. The spike crate (`crates/spike-gitstatus`) produces the data;
-the spike contractor writes the ADR with the verdict. See `MVP-SPEC.md` § 0
-and `07-gitstatus.md` for the full context.
+ADR 0001 records the day-1 spike's verdict: PIVOT to a `gitstatusd-rs` shim,
+because pure-Rust paths (gix-only, gix+rustix hybrid) come in 16-35× slower
+than long-lived gitstatusd on the linux kernel. Numbers and full reasoning in
+`bench/results/SPIKE-VERDICT-20260506T184527Z.md`.
