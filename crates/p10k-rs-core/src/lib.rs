@@ -151,13 +151,12 @@ pub struct Prompt {
 
 /// Render the configured prompt for the given context.
 ///
-/// This is a pure function: given identical `segments` and `ctx`, it returns
-/// identical output. Implementations of [`Segment`] are responsible for the
-/// I/O that builds `ctx` ahead of time.
+/// Walks `segments` in order, calls `enabled` then `render`, joins outputs
+/// with a single space, and post-processes the assembled string for the
+/// target shell (zsh wants ANSI escapes wrapped in `%{…%}` so it can track
+/// prompt width correctly).
 ///
-/// Slice 1: walks `segments` in order, calls `enabled` then `render`,
-/// joins outputs with a single space. No styling, no per-state overrides,
-/// no transient prompt — those land as the segment buildout progresses.
+/// Pure: given identical `segments` and `ctx`, returns identical output.
 #[must_use]
 pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
     let mut left = String::new();
@@ -171,10 +170,99 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
         }
         left.push_str(&out.text);
     }
+    let left = wrap_for_shell(&left, ctx.shell);
     Prompt {
         left,
         right: String::new(),
         transient: None,
+    }
+}
+
+/// Per-shell escape-wrapping for the assembled prompt string.
+///
+/// - **zsh**: each `\x1b[…m` SGR escape is wrapped in `%{…%}` so the prompt
+///   width is computed correctly. Other escapes (cursor movement, OSC) are
+///   left alone — they don't appear in slice 2's segment output.
+/// - **fish / bash**: pass-through. Bash uses `\[…\]` which we'll add when
+///   bash support lands; fish handles ANSI natively in its prompt fns.
+fn wrap_for_shell(s: &str, shell: Shell) -> String {
+    if shell != Shell::Zsh || !s.contains('\x1b') {
+        return s.to_owned();
+    }
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + 16);
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            // Scan to terminating SGR byte ('m' for the only escapes we emit).
+            let mut j = i + 2;
+            while j < bytes.len() && bytes[j] != b'm' {
+                j += 1;
+            }
+            if j < bytes.len() {
+                out.push_str("%{");
+                out.push_str(&s[i..=j]);
+                out.push_str("%}");
+                i = j + 1;
+                continue;
+            }
+        }
+        // Unrecognised byte at i — copy one char's worth and advance.
+        let ch_end = next_char_boundary(s, i);
+        out.push_str(&s[i..ch_end]);
+        i = ch_end;
+    }
+    out
+}
+
+/// Find the byte index of the char boundary strictly after `i`.
+fn next_char_boundary(s: &str, i: usize) -> usize {
+    let mut j = i + 1;
+    while j < s.len() && !s.is_char_boundary(j) {
+        j += 1;
+    }
+    j
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_for_zsh_brackets_each_sgr() {
+        let raw = "\x1b[34mhello\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b[34m%}hello%{\x1b[39m%}");
+    }
+
+    #[test]
+    fn wrap_for_zsh_handles_unicode_between_escapes() {
+        let raw = "\x1b[34m~/code/é\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b[34m%}~/code/é%{\x1b[39m%}");
+    }
+
+    #[test]
+    fn wrap_for_zsh_passes_through_plain_text() {
+        let raw = "no escapes here";
+        assert_eq!(wrap_for_shell(raw, Shell::Zsh), raw);
+    }
+
+    #[test]
+    fn wrap_for_non_zsh_is_passthrough() {
+        let raw = "\x1b[34mhello\x1b[39m";
+        assert_eq!(wrap_for_shell(raw, Shell::Fish), raw);
+        assert_eq!(wrap_for_shell(raw, Shell::Bash), raw);
+    }
+
+    #[test]
+    fn wrap_for_zsh_handles_unterminated_escape_gracefully() {
+        // A stray ESC[ with no terminator: copy bytes through, don't loop.
+        let raw = "\x1b[34mok\x1b[broken";
+        let out = wrap_for_shell(raw, Shell::Zsh);
+        // The well-formed escape gets wrapped; the broken tail is preserved.
+        assert!(out.starts_with("%{\x1b[34m%}ok"));
+        assert!(out.ends_with("\x1b[broken"));
     }
 }
 

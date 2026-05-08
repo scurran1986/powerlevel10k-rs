@@ -1,9 +1,9 @@
 //! `dir` — current working directory segment.
 //!
-//! Slice 1: emit the cwd as plain text, with `$HOME` collapsed to `~`. Color,
-//! truncation policies, and the writable/read-only state come in later
-//! slices. The point of this version is to prove the render pipeline works
-//! end-to-end with at least one segment that has real input.
+//! Slice 2: cwd in blue, with `$HOME` collapsed to `~`. Truncation policies
+//! and the writable / read-only state come in later slices. ANSI escapes are
+//! emitted raw; the renderer post-processes them for the target shell
+//! (e.g. zsh's `%{…%}` bracketing).
 
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -22,8 +22,11 @@ impl Segment for Dir {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let raw = ctx.cwd.display().to_string();
         let home = std::env::var("HOME").ok();
-        let text = home_collapse(&raw, home.as_deref());
-        let plain_len = u16::try_from(text.chars().count()).unwrap_or(u16::MAX);
+        let collapsed = home_collapse(&raw, home.as_deref());
+        let plain_len = u16::try_from(collapsed.chars().count()).unwrap_or(u16::MAX);
+        // 34 = ANSI blue. 39 = default foreground (cheaper than full reset
+        // `0m` which also clears any background a future segment might set).
+        let text = format!("\x1b[34m{collapsed}\x1b[39m");
         SegmentOutput {
             text,
             plain_len,

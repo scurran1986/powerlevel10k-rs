@@ -1,7 +1,8 @@
 //! `prompt_char` — the trailing chevron the user types after.
 //!
-//! Slice 1: a fixed `❯`. Last-status coloring (red on non-zero) and vi-mode
-//! variants land in later slices.
+//! Slice 2: green `❯`. Last-status coloring (red on non-zero `$?`) and
+//! vi-mode variants land in later slices. ANSI escapes raw; renderer
+//! post-processes for the target shell.
 
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -15,8 +16,9 @@ impl Segment for PromptChar {
     }
 
     fn render(&self, _ctx: &RenderCtx<'_>) -> SegmentOutput {
+        // 32 = ANSI green. Red-on-error in slice 3 once `--last-status` lands.
         SegmentOutput {
-            text: "❯".to_owned(),
+            text: "\x1b[32m❯\x1b[39m".to_owned(),
             plain_len: 1,
             state: None,
             icon: None,
