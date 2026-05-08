@@ -31,7 +31,7 @@ autoload -Uz add-zsh-hook
 
 _p10k_rs_precmd() {
   local rs=$?
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh 2>/dev/null) "
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs 2>/dev/null) "
   return $rs
 }
 

@@ -38,6 +38,11 @@ enum Command {
         /// Which shell asked for this prompt.
         #[arg(long)]
         shell: String,
+        /// Exit status of the last command. The shell's `precmd` hook
+        /// captures `$?` and forwards it; defaults to 0 if not provided
+        /// (e.g. ad-hoc CLI invocation).
+        #[arg(long, default_value_t = 0)]
+        last_status: i32,
         /// Emit machine-readable JSON instead of styled text.
         #[arg(long)]
         json: bool,
@@ -69,12 +74,16 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Prompt { shell, json } => {
-            tracing::debug!(shell, json, "prompt invoked");
+        Command::Prompt {
+            shell,
+            last_status,
+            json,
+        } => {
+            tracing::debug!(shell, last_status, json, "prompt invoked");
             if json {
                 anyhow::bail!("--json output lands with the AI integration phase");
             }
-            cmd_prompt(&shell)
+            cmd_prompt(&shell, last_status)
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
@@ -101,8 +110,8 @@ fn main() -> Result<()> {
     }
 }
 
-/// Render the slice-1 prompt: the hardcoded `[dir, prompt_char]` layout.
-fn cmd_prompt(shell: &str) -> Result<()> {
+/// Render the prompt: hardcoded `[dir, prompt_char]` layout for now.
+fn cmd_prompt(shell: &str, last_status: i32) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
 
@@ -114,7 +123,7 @@ fn cmd_prompt(shell: &str) -> Result<()> {
         host: HostKind::None,
         cwd: cwd.as_path(),
         git: None,
-        last_status: 0,
+        last_status,
         last_duration: Duration::ZERO,
         jobs: 0,
         now: SystemTime::now(),
