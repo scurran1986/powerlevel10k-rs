@@ -15,12 +15,11 @@ categories.workspace = true
 
 [dependencies]
 p10k-rs-core = { workspace = true }
+rustix = { workspace = true } # used by gitstatusd backend for poll-with-timeout
 thiserror = { workspace = true }
 tracing = { workspace = true }
-# `gix`, `rustix`, `rayon` were dependencies of the pre-pivot in-process
-# scanner architecture (ADR-0001). They'll come back when the gitstatusd
-# client + `gix-status` fallback land in slice 5+; until then they'd just
-# be unused-dep noise.
+# `gix`, `rayon` will come back when the `gix-status` fallback lands as a
+# correctness alternative to gitstatusd. Today: not used.
 
 [lints]
 workspace = true

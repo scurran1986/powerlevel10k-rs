@@ -5,6 +5,8 @@
 //! daemon client lands in slice 5+ and replaces the producer behind
 //! [`RenderCtx::git`]; this segment doesn't change when that swap happens.
 
+use std::fmt::Write;
+
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Version-control segment: shows current branch + dirty marker.
@@ -35,12 +37,55 @@ impl Segment for Vcs {
                 icon: None,
             };
         };
-        let dirty = if git.dirty { "*" } else { "" };
-        let plain = format!("{}{}", git.branch, dirty);
+
+        // Build the plain (display-width) version first; then wrap with
+        // ANSI escapes. Format: `branch [+ahead] [-behind] [marker]`.
+        // Marker is `!` if there are unmerged conflicts, else `*` if any
+        // uncommitted change. Clean repos have no marker.
+        let mut plain = String::with_capacity(git.branch.len() + 16);
+        plain.push_str(&git.branch);
+        if git.ahead > 0 {
+            let _ = write!(plain, " +{}", git.ahead);
+        }
+        if git.behind > 0 {
+            let _ = write!(plain, " -{}", git.behind);
+        }
+        let marker = if git.has_conflicts {
+            "!"
+        } else if git.dirty {
+            "*"
+        } else {
+            ""
+        };
+        if !marker.is_empty() {
+            plain.push(' ');
+            plain.push_str(marker);
+        }
+
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
-        // 33 = yellow.
-        let text = format!("\x1b[33m{plain}\x1b[39m");
-        let state = if git.dirty { "dirty" } else { "clean" };
+
+        // Color: yellow base. Override the marker red so dirty/conflict
+        // pops without re-coloring the whole branch line. ANSI 33 yellow,
+        // 31 red, 39 default-fg.
+        let text = if marker.is_empty() {
+            format!("\x1b[33m{plain}\x1b[39m")
+        } else {
+            // Split the marker off so we can red-paint just it.
+            let split = plain.len() - marker.len();
+            let head = &plain[..split];
+            let tail = marker;
+            format!("\x1b[33m{head}\x1b[31m{tail}\x1b[39m")
+        };
+
+        let state = if git.has_conflicts {
+            "conflict"
+        } else if git.dirty {
+            "dirty"
+        } else if git.ahead > 0 || git.behind > 0 {
+            "diverged"
+        } else {
+            "clean"
+        };
         SegmentOutput {
             text,
             plain_len,
@@ -91,7 +136,7 @@ mod tests {
         let (cfg, env) = (Config::default(), EnvSnapshot::default());
         let g = GitState {
             branch: "main".into(),
-            dirty: false,
+            ..Default::default()
         };
         let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
         let out = Vcs.render(&ctx);
@@ -107,10 +152,45 @@ mod tests {
         let g = GitState {
             branch: "feat/x".into(),
             dirty: true,
+            ..Default::default()
         };
         let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
         let out = Vcs.render(&ctx);
-        assert!(out.text.contains("feat/x*"));
+        assert!(out.text.contains("feat/x"));
+        assert!(out.text.contains('*'));
+        assert!(out.text.contains("\x1b[31m")); // marker in red
         assert_eq!(out.state, Some("dirty"));
+    }
+
+    #[test]
+    fn renders_ahead_and_behind() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            ahead: 3,
+            behind: 1,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains("+3"));
+        assert!(out.text.contains("-1"));
+        assert_eq!(out.state, Some("diverged"));
+    }
+
+    #[test]
+    fn renders_conflict_takes_priority_over_dirty() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            dirty: true,
+            has_conflicts: true,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains('!'));
+        assert!(!out.text.contains('*'));
+        assert_eq!(out.state, Some("conflict"));
     }
 }

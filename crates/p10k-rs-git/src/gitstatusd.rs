@@ -26,8 +26,12 @@
 #![allow(clippy::result_large_err)]
 
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use rustix::event::{poll, PollFd, PollFlags};
+use rustix::fd::AsFd;
 
 use p10k_rs_core::GitState;
 
@@ -38,18 +42,23 @@ const US: u8 = 0x1F;
 /// RS (record separator) — between records.
 const RS: u8 = 0x1E;
 
+/// Default timeout for the daemon's response. The daemon is fast (sub-ms
+/// on small repos, < 100 ms even on the linux kernel post-warm-up), so 2 s
+/// is a comfortable budget that still keeps a wedged daemon from stalling
+/// the shell forever — `from_env_paths` returns `None` after this timeout
+/// and the binary falls back to `ShellOut`.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Long-lived gitstatusd backend. Talks to a daemon spawned by the shell
 /// init script via two FIFO paths.
 ///
-/// Slice 6 has no read-timeout: a wedged daemon will hang the prompt. The
-/// daemon is fast in practice (sub-ms on small repos, < 100 ms even on the
-/// linux kernel) so this is acceptable as the first cut. Slice 7 adds
-/// non-blocking IO + a select-with-deadline so a stuck daemon falls back
-/// to `ShellOut` instead of stalling the shell.
+/// Slice 7 adds a `poll(2)`-based deadline so a wedged daemon falls back
+/// to `ShellOut` instead of hanging the prompt indefinitely.
 #[derive(Debug, Clone)]
 pub struct Gitstatusd {
     req_fifo: PathBuf,
     resp_fifo: PathBuf,
+    timeout: Duration,
 }
 
 impl Gitstatusd {
@@ -65,7 +74,16 @@ impl Gitstatusd {
         Some(Self {
             req_fifo: req.to_path_buf(),
             resp_fifo: resp.to_path_buf(),
+            timeout: DEFAULT_TIMEOUT,
         })
+    }
+
+    /// Override the default response timeout. Mostly for tests and
+    /// future-config wiring; the default is fine for normal use.
+    #[must_use]
+    pub fn with_timeout(mut self, t: Duration) -> Self {
+        self.timeout = t;
+        self
     }
 }
 
@@ -89,27 +107,61 @@ impl Backend for Gitstatusd {
         // (other writers — namely the shell's keep-alive — keep it open).
         drop(req);
 
-        // Open resp for read with the daemon's view also open. Read until
-        // the first \x1E. We trust that timeout is enforced by the
-        // surrounding context (the shell precmd is willing to wait); a
-        // future slice can add a select-with-timeout for hard guarantees.
+        // Open resp and read until \x1E with a poll-driven deadline. If
+        // the daemon doesn't respond by deadline we return None and the
+        // binary falls back to ShellOut.
         let resp = OpenOptions::new().read(true).open(&self.resp_fifo).ok()?;
-        let mut reader = BufReader::new(resp);
-        let mut record = Vec::with_capacity(4096);
-        let _ = reader.read_until(RS, &mut record).ok()?;
-        // Strip the trailing RS if present.
-        if record.last() == Some(&RS) {
-            record.pop();
-        }
+        let record = read_until_with_deadline(&resp, RS, self.timeout)?;
         parse_response(&record)
+    }
+}
+
+/// Read from `f` into a buffer until `delim` appears or the deadline elapses.
+///
+/// Uses `poll(2)` with the remaining timeout on each loop. Returns `None`
+/// on timeout, EOF before delimiter, or read error. The returned buffer
+/// does **not** include the delimiter byte.
+fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Option<Vec<u8>> {
+    let mut record = Vec::with_capacity(4096);
+    let mut buf = [0u8; 4096];
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return None;
+        }
+        let remaining = deadline - now;
+        // poll's i32 ms argument: clamp to i32::MAX (~24 days). Way past
+        // any reasonable timeout.
+        let ms = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+        let mut fds = [PollFd::new(f, PollFlags::IN)];
+        let revents = match poll(&mut fds, ms) {
+            Ok(0) | Err(_) => return None, // timeout or poll error
+            Ok(_) => fds[0].revents(),
+        };
+        if revents.contains(PollFlags::HUP) && !revents.contains(PollFlags::IN) {
+            // Hangup with nothing to read.
+            return None;
+        }
+        // POLLIN says data is available; read won't block.
+        let n = rustix::io::read(f, &mut buf).ok()?;
+        if n == 0 {
+            // EOF before delimiter.
+            return None;
+        }
+        record.extend_from_slice(&buf[..n]);
+        if let Some(pos) = record.iter().position(|&b| b == delim) {
+            record.truncate(pos);
+            return Some(record);
+        }
     }
 }
 
 /// Parse a single response record (the trailing `\x1E` already stripped).
 ///
-/// Slice 6 only populates the same fields `ShellOut` does (branch, dirty);
-/// future slices map ahead/behind/conflicts/etc into `GitState` once the
-/// segment registry actually consumes them.
+/// Maps the wire-format fields gitstatusd emits onto [`GitState`]. See
+/// `07-gitstatus.md` § 1.3 for the field-index table.
 fn parse_response(record: &[u8]) -> Option<GitState> {
     let fields: Vec<&[u8]> = record.split(|&b| b == US).collect();
     if fields.len() < 2 {
@@ -127,15 +179,36 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     let s = |i: usize| -> &str { std::str::from_utf8(fields[i]).unwrap_or("") };
     let parse_u = |i: usize| -> u32 { s(i).parse().unwrap_or(0) };
 
-    // Field offsets per 07-gitstatus.md § 1.3:
+    // Field offsets per 07-gitstatus.md § 1.3 (0-based here):
+    //   3  = HEAD commit oid
     //   4  = local branch
     //   10 = num staged
     //   11 = num unstaged
     //   12 = num conflicts
     //   13 = num untracked
+    //   14 = ahead
+    //   15 = behind
+    let commit = s(3).to_owned();
     let branch = s(4).to_owned();
-    let dirty = parse_u(10) > 0 || parse_u(11) > 0 || parse_u(12) > 0 || parse_u(13) > 0;
-    Some(GitState { branch, dirty })
+    let staged = parse_u(10);
+    let unstaged = parse_u(11);
+    let conflicts = parse_u(12);
+    let untracked = parse_u(13);
+    let ahead = parse_u(14);
+    let behind = parse_u(15);
+    let has_conflicts = conflicts > 0;
+    let dirty = staged > 0 || unstaged > 0 || conflicts > 0 || untracked > 0;
+    Some(GitState {
+        branch,
+        dirty,
+        ahead,
+        behind,
+        staged,
+        unstaged,
+        untracked,
+        has_conflicts,
+        commit,
+    })
 }
 
 /// Returns `true` if `p` exists and is a named pipe (FIFO).
@@ -209,16 +282,22 @@ mod tests {
             "",
             "",
             "100",
-            "2", // staged → dirty
+            "2", // staged
             "0",
             "0",
-            "1", // untracked → dirty
-            "0",
-            "0",
+            "1", // untracked
+            "3", // ahead
+            "1", // behind
             "0",
         ]);
         let g = parse_response(&bytes).unwrap();
         assert_eq!(g.branch, "feat/x");
+        assert_eq!(g.commit, "deadbeef");
+        assert_eq!(g.staged, 2);
+        assert_eq!(g.untracked, 1);
+        assert_eq!(g.ahead, 3);
+        assert_eq!(g.behind, 1);
+        assert!(!g.has_conflicts);
         assert!(g.dirty);
     }
 
@@ -230,7 +309,21 @@ mod tests {
         ]);
         let g = parse_response(&bytes).unwrap();
         assert_eq!(g.branch, "main");
+        assert_eq!(g.commit, "deadbeef");
         assert!(!g.dirty);
+        assert_eq!(g.ahead, 0);
+        assert_eq!(g.behind, 0);
+    }
+
+    #[test]
+    fn parses_conflict_repo() {
+        let bytes = build_response(&[
+            "id", "1", "/repo", "abc", "main", "", "", "", "", "100", "0", "0", "2", "0", "0", "0",
+            "0",
+        ]);
+        let g = parse_response(&bytes).unwrap();
+        assert!(g.has_conflicts);
+        assert!(g.dirty);
     }
 
     #[test]

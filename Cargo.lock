@@ -1694,6 +1694,7 @@ name = "p10k-rs-git"
 version = "0.1.0"
 dependencies = [
  "p10k-rs-core",
+ "rustix 0.38.44",
  "thiserror 2.0.18",
  "tracing",
 ]

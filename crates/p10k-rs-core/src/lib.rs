@@ -314,16 +314,36 @@ pub enum HostKind {
 /// Pre-computed git state for the current cwd.
 ///
 /// Held by `RenderCtx::git` so segments can render git info without each
-/// of them re-spawning `git`. Producers live in `p10k-rs-git`. Slice 4 has
-/// `branch` + `dirty`; richer fields (ahead/behind, conflicts, stash count,
-/// etc.) come back when the `Gitstatusd` backend lands per ADR-0001.
+/// of them re-spawning `git`. Producers live in `p10k-rs-git`. Fields
+/// match the upstream p10k `VCS_STATUS_*` set we currently consume; new
+/// fields (stash count, push-remote ahead/behind, etc.) land as segments
+/// start needing them.
+///
+/// Backends that can't cheaply populate every field leave the others at
+/// their default. The `ShellOut` fallback only fills `branch` and `dirty`,
+/// for instance — getting ahead/behind out of plain `git` would need
+/// extra subprocess invocations and the fallback is already the slow path.
 #[derive(Debug, Default, Clone)]
 pub struct GitState {
     /// Current branch name. `"HEAD"` for detached. Empty if unknown.
     pub branch: String,
     /// `true` if the working tree has any uncommitted changes (modified,
-    /// staged, or untracked).
+    /// staged, untracked, or conflicted).
     pub dirty: bool,
+    /// Commits ahead of the configured upstream. 0 if no upstream or unknown.
+    pub ahead: u32,
+    /// Commits behind the configured upstream. 0 if no upstream or unknown.
+    pub behind: u32,
+    /// Number of staged changes (tree-vs-index).
+    pub staged: u32,
+    /// Number of unstaged changes (index-vs-worktree).
+    pub unstaged: u32,
+    /// Number of untracked files.
+    pub untracked: u32,
+    /// `true` if any path is in conflict (unmerged stage).
+    pub has_conflicts: bool,
+    /// HEAD commit OID as full hex. Empty if unknown / unborn branch.
+    pub commit: String,
 }
 
 /// Snapshot of environment variables relevant to segments.

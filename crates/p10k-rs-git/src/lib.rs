@@ -83,7 +83,13 @@ fn parse_porcelain_v1(s: &str) -> GitState {
     let branch = parse_branch_header(header);
     // Count *non-empty* remaining lines so a trailing newline doesn't lie.
     let dirty = lines.any(|l| !l.is_empty());
-    GitState { branch, dirty }
+    // ShellOut only fills the cheap fields; richer counts (ahead/behind,
+    // staged/unstaged, etc.) live behind the `Gitstatusd` backend.
+    GitState {
+        branch,
+        dirty,
+        ..Default::default()
+    }
 }
 
 /// Pull the branch name out of the `## …` header line.

@@ -113,6 +113,14 @@ _p10k_rs_precmd() {
     elapsed_ms=$(( (EPOCHSECONDS - _p10k_rs_cmd_start) * 1000 ))
     _p10k_rs_cmd_start=0
   fi
+  # Detect dead daemon and respawn. `kill -0 $pid` exits 0 if the process
+  # exists, non-zero otherwise. ~1ms cost per prompt; a wedged or crashed
+  # daemon would otherwise force every prompt onto the slow ShellOut path
+  # for the rest of the shell's life.
+  if (( _P10K_RS_DAEMON_PID > 0 )) && ! kill -0 -- $_P10K_RS_DAEMON_PID 2>/dev/null; then
+    _p10k_rs_stop_daemon
+    _p10k_rs_start_daemon || true
+  fi
   PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs --last-duration-ms $elapsed_ms 2>/dev/null) "
   return $rs
 }
