@@ -80,7 +80,17 @@ commit `<this commit's parent>` for posterity.
 
 ### Operational
 
-- Distribution: ship one `gitstatusd` binary per supported triple alongside the `p10k-rs` binary. License is GPL-3.0-or-later for `gitstatusd`; check that p10k-rs's MIT/Apache-2.0 licensing remains compatible (combined work distribution implications). **Action item: licensing review before v0.1 ship.**
+- Distribution: ship one `gitstatusd` binary per supported triple alongside the `p10k-rs` binary.
+- Licensing: `gitstatusd` is GPL-3.0-or-later, `p10k-rs` is MIT/Apache-2.0. **Our chosen architecture (subprocess + stdin/stdout pipes) is arms-length IPC, which the FSF and most courts treat as "two independent programs," not a derivative work.** Bundling the binaries in a release tarball is "mere aggregation" under GPL § 0, also not a derivative work. The `p10k-rs` codebase stays MIT/Apache-2.0; the bundled `gitstatusd` stays GPL-3.0; both are distributed without a copyleft trigger on our code.
+  - Concrete obligations when we bundle:
+    1. Include `gitstatusd`'s GPL-3.0 license file alongside its binary in the release artifact.
+    2. Ship a written offer-of-source for the bundled `gitstatusd` (GPL § 6) — a `THIRD-PARTY-LICENSES` section in the README pointing at upstream `https://github.com/romkatv/gitstatus` at the pinned tag is sufficient.
+    3. Preserve upstream copyright notice. We're shipping their unmodified binary, so the `gitstatusd --version` output already does this; reference it in our release docs.
+  - What we explicitly do **not** do (these would change the analysis):
+    - Static-link `libgitstatus` (we don't; we IPC).
+    - Dynamic-link `libgitstatus` as a shared library (we don't; we IPC).
+    - Modify `gitstatusd` source and ship a derivative (we don't; we ship the upstream binary unmodified).
+  - Caveat: this is the consensus-OSS reading, not legal advice. If `p10k-rs` ever attracts a commercial user or downstream packager who needs hard CYA, run the architecture by an attorney. For OSS-to-OSS distribution, the IPC firewall is well-established.
 - Cold-start: daemon spawn takes <50 ms. Instant prompt continues to work because the cached `p10k-dump` is rendered before the daemon is ready; first real prompt blocks on daemon up-and-ready.
 
 ### Schedule
@@ -93,6 +103,6 @@ commit `<this commit's parent>` for posterity.
 
 - Update `ROADMAP.md` to reflect the pivot — drop the in-process scanner phase, add the daemon-client phase.
 - Update `ARCHITECTURE.md` § 2.4 to describe the daemon-client design.
-- File a `gitstatusd` licensing-compatibility check task before v0.1 ship.
+- Wire the GPL-3.0 obligations into the release process: `THIRD-PARTY-LICENSES` section in the README, GPL license file shipped next to the bundled binary in release artifacts, source-offer pointer to upstream tag. (See § Consequences > Operational; not blocking, just don't ship v0.1 without them.)
 - Remove `crates/spike-gitstatus/` from the workspace once the next commit lands.
 - Strip `gix.features = ["status"]` from `[workspace.dependencies]` since the hot path no longer uses it. Keep `revision` for ahead/behind on the daemon-client side; the daemon does not return ahead/behind without a configured upstream, and our own walker for that is cheap.
