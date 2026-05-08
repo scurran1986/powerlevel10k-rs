@@ -86,7 +86,12 @@ pub trait Segment: Send + Sync {
 ///
 /// Borrowed throughout — segments must not retain any reference past the
 /// scope of their `render` call.
-#[non_exhaustive]
+///
+/// Fields are `pub` and the struct is **not** `#[non_exhaustive]` by design:
+/// the binary, every segment, and every test fixture builds one of these,
+/// so locking the constructor would create churn for every field addition.
+/// Adding a field is a `SemVer` minor for downstream segment crates; we accept
+/// that contract.
 pub struct RenderCtx<'a> {
     /// The parsed configuration for this prompt invocation.
     pub config: &'a Config,
@@ -146,17 +151,31 @@ pub struct Prompt {
 
 /// Render the configured prompt for the given context.
 ///
-/// This is a pure function: given identical `cfg` and `ctx`, it returns
+/// This is a pure function: given identical `segments` and `ctx`, it returns
 /// identical output. Implementations of [`Segment`] are responsible for the
 /// I/O that builds `ctx` ahead of time.
 ///
-/// # Panics
-///
-/// Currently unimplemented; calls panic with `unimplemented!()`. Wired in by
-/// the segment-buildout phase. See `ROADMAP.md`.
+/// Slice 1: walks `segments` in order, calls `enabled` then `render`,
+/// joins outputs with a single space. No styling, no per-state overrides,
+/// no transient prompt — those land as the segment buildout progresses.
 #[must_use]
-pub fn render_prompt(_cfg: &Config, _ctx: &RenderCtx<'_>) -> Prompt {
-    unimplemented!("render_prompt is wired in during the segment buildout phase")
+pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
+    let mut left = String::new();
+    for seg in segments {
+        if !seg.enabled(ctx) {
+            continue;
+        }
+        let out = seg.render(ctx);
+        if !left.is_empty() {
+            left.push(' ');
+        }
+        left.push_str(&out.text);
+    }
+    Prompt {
+        left,
+        right: String::new(),
+        transient: None,
+    }
 }
 
 // -- Shared placeholder types ------------------------------------------------

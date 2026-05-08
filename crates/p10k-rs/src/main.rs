@@ -1,14 +1,21 @@
 //! `p10k-rs` binary entrypoint.
 //!
 //! Subcommands track `MVP-SPEC.md` § 1.4: `prompt`, `init`, `configure`,
-//! `import`, `statusline`, `segment-list`. Behaviour lands in the
-//! foundation phase; today this is a clap scaffold that compiles and runs.
+//! `import`, `statusline`, `segment-list`. Slice 1 lights up `prompt` and
+//! `init` for zsh end-to-end; the others remain stubs until their phases.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use anyhow::Result;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::time::{Duration, SystemTime};
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+
+use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Shell as CoreShell};
+use p10k_rs_shell::Shell as ShellInit;
 
 /// Top-level CLI for `p10k-rs`.
 #[derive(Debug, Parser)]
@@ -64,23 +71,26 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Prompt { shell, json } => {
             tracing::debug!(shell, json, "prompt invoked");
-            anyhow::bail!("prompt rendering lands in the foundation phase");
+            if json {
+                anyhow::bail!("--json output lands with the AI integration phase");
+            }
+            cmd_prompt(&shell)
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
-            anyhow::bail!("init scripts land in the foundation phase");
+            cmd_init(&shell)
         }
         Command::Configure => {
             tracing::debug!("configure invoked");
-            anyhow::bail!("the configure wizard lands in its own roadmap phase");
+            anyhow::bail!("the configure wizard lands in its own roadmap phase")
         }
         Command::Import { path } => {
             tracing::debug!(?path, "import invoked");
-            anyhow::bail!("p9k import lands in the foundation phase");
+            anyhow::bail!("p9k import lands in the foundation phase")
         }
         Command::Statusline { host } => {
             tracing::debug!(host, "statusline invoked");
-            anyhow::bail!("statusline lands with the AI integration phase");
+            anyhow::bail!("statusline lands with the AI integration phase")
         }
         Command::SegmentList => {
             for name in p10k_rs_segments::segment_names() {
@@ -88,6 +98,70 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+/// Render the slice-1 prompt: the hardcoded `[dir, prompt_char]` layout.
+fn cmd_prompt(shell: &str) -> Result<()> {
+    let core_shell = parse_core_shell(shell)?;
+    let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
+
+    let cfg = Config::default();
+    let env = EnvSnapshot::default();
+    let ctx = RenderCtx {
+        config: &cfg,
+        shell: core_shell,
+        host: HostKind::None,
+        cwd: cwd.as_path(),
+        git: None,
+        last_status: 0,
+        last_duration: Duration::ZERO,
+        jobs: 0,
+        now: SystemTime::now(),
+        env: &env,
+    };
+
+    let segments = p10k_rs_segments::default_layout();
+    let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
+
+    // Slice 1: left side only, plain text, no trailing newline. The init
+    // script appends a single space when assigning to PROMPT.
+    print!("{}", prompt.left);
+    Ok(())
+}
+
+/// Print the per-shell init script for `eval` / `source`.
+///
+/// Substitutes the literal `__P10K_RS_BIN__` token in the script template
+/// with the absolute path of the currently-running binary, so the hook
+/// can call us back even when our install dir isn't on `PATH`.
+fn cmd_init(shell: &str) -> Result<()> {
+    let target = ShellInit::from_str(shell).map_err(anyhow::Error::from)?;
+    let template = p10k_rs_shell::init_script(target).map_err(anyhow::Error::from)?;
+    let exe = std::env::current_exe().context("resolve current exe path")?;
+    let exe_str = exe.to_str().context(
+        "current exe path is not valid UTF-8; the init script can't embed it as a shell literal",
+    )?;
+    if exe_str.contains('\'') {
+        anyhow::bail!(
+            "exe path contains a single quote: {exe_str:?}. Won't risk emitting a malformed shell single-quoted literal — move/symlink the binary first."
+        );
+    }
+    let script = template.replace("__P10K_RS_BIN__", exe_str);
+    print!("{script}");
+    Ok(())
+}
+
+/// Map the CLI shell string to the [`CoreShell`] enum used in `RenderCtx`.
+///
+/// Returns an error for shells the binary doesn't know how to render for
+/// today. The error message lists the supported shells.
+fn parse_core_shell(s: &str) -> Result<CoreShell> {
+    match s.to_ascii_lowercase().as_str() {
+        "zsh" => Ok(CoreShell::Zsh),
+        "fish" => Ok(CoreShell::Fish),
+        "bash" => Ok(CoreShell::Bash),
+        other => anyhow::bail!("unknown shell '{other}': supported = zsh, fish, bash"),
     }
 }
 

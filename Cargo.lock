@@ -1651,7 +1651,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "p10k-rs-core",
  "p10k-rs-segments",
+ "p10k-rs-shell",
  "tracing",
  "tracing-subscriber",
 ]

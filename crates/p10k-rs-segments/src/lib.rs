@@ -12,6 +12,11 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use p10k_rs_core::Segment;
+
+pub mod dir;
+pub mod prompt_char;
+
 /// Returns the static list of segment names this crate ships.
 ///
 /// Intentionally returns a slice of `&'static str`s rather than constructed
@@ -45,4 +50,14 @@ pub fn segment_names() -> &'static [&'static str] {
         "python_version",
         "rust_version",
     ]
+}
+
+/// Build the slice-1 default layout: `[dir, prompt_char]`.
+///
+/// Returns segment instances in render order. Future slices replace this
+/// with config-driven assembly via `p10k-rs-config`. Until then this is the
+/// hardcoded shape every prompt invocation gets.
+#[must_use]
+pub fn default_layout() -> Vec<Box<dyn Segment>> {
+    vec![Box::new(dir::Dir), Box::new(prompt_char::PromptChar)]
 }
