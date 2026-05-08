@@ -14,6 +14,7 @@
 
 use p10k_rs_core::Segment;
 
+pub mod command_execution_time;
 pub mod dir;
 pub mod prompt_char;
 pub mod vcs;
@@ -53,17 +54,18 @@ pub fn segment_names() -> &'static [&'static str] {
     ]
 }
 
-/// Build the slice-4 default layout: `[dir, vcs, prompt_char]`.
+/// Build the slice-5 default layout: dir, vcs, command-execution-time, prompt-char.
 ///
-/// Returns segment instances in render order. `vcs` is `enabled()`-gated
-/// on the binary having populated `RenderCtx::git`, so non-repo cwds skip
-/// it cleanly. Future slices replace this with config-driven assembly via
-/// `p10k-rs-config`.
+/// Returns segment instances in render order. Each segment's `enabled()` is
+/// the gate (`vcs` hides when not in a repo, `command_execution_time` hides
+/// below the 3-second threshold). Future slices replace this hardcoded
+/// layout with config-driven assembly via `p10k-rs-config`.
 #[must_use]
 pub fn default_layout() -> Vec<Box<dyn Segment>> {
     vec![
         Box::new(dir::Dir),
         Box::new(vcs::Vcs),
+        Box::new(command_execution_time::CommandExecutionTime),
         Box::new(prompt_char::PromptChar),
     ]
 }

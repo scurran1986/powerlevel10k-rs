@@ -44,6 +44,12 @@ enum Command {
         /// (e.g. ad-hoc CLI invocation).
         #[arg(long, default_value_t = 0)]
         last_status: i32,
+        /// Wall-clock duration of the last foreground command, in
+        /// milliseconds. The shell's `preexec`/`precmd` pair tracks the
+        /// delta. Defaults to 0; the `command_execution_time` segment
+        /// stays hidden below its 3-second threshold.
+        #[arg(long, default_value_t = 0)]
+        last_duration_ms: u64,
         /// Emit machine-readable JSON instead of styled text.
         #[arg(long)]
         json: bool,
@@ -78,13 +84,14 @@ fn main() -> Result<()> {
         Command::Prompt {
             shell,
             last_status,
+            last_duration_ms,
             json,
         } => {
-            tracing::debug!(shell, last_status, json, "prompt invoked");
+            tracing::debug!(shell, last_status, last_duration_ms, json, "prompt invoked");
             if json {
                 anyhow::bail!("--json output lands with the AI integration phase");
             }
-            cmd_prompt(&shell, last_status)
+            cmd_prompt(&shell, last_status, last_duration_ms)
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
@@ -111,14 +118,14 @@ fn main() -> Result<()> {
     }
 }
 
-/// Render the prompt: hardcoded `[dir, vcs, prompt_char]` layout for now.
-fn cmd_prompt(shell: &str, last_status: i32) -> Result<()> {
+/// Render the prompt: hardcoded slice-5 layout for now.
+fn cmd_prompt(shell: &str, last_status: i32, last_duration_ms: u64) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
 
     // Slice 4: probe via the shell-out backend. ADR-0001's gitstatusd
-    // client lands in slice 5+ and replaces this line; the rest of the
-    // pipeline doesn't change.
+    // client lands later and replaces this line; the rest of the pipeline
+    // doesn't change.
     let git = GitShellOut.status(cwd.as_path());
 
     let cfg = Config::default();
@@ -130,7 +137,7 @@ fn cmd_prompt(shell: &str, last_status: i32) -> Result<()> {
         cwd: cwd.as_path(),
         git: git.as_ref(),
         last_status,
-        last_duration: Duration::ZERO,
+        last_duration: Duration::from_millis(last_duration_ms),
         jobs: 0,
         now: SystemTime::now(),
         env: &env,

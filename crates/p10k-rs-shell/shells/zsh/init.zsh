@@ -27,12 +27,33 @@ typeset -g _P10K_RS_INSTALLED=1
 # zsh)"` if the binary moves.
 typeset -g _P10K_RS_BIN='__P10K_RS_BIN__'
 
+# `zsh/datetime` exposes `$EPOCHSECONDS` for command-time tracking. The
+# bare `zmodload zsh/datetime` form is the one that actually populates the
+# parameter; the `-F b:EPOCHSECONDS` filter form (in earlier slice 5) leaves
+# it empty in some shells.
+zmodload zsh/datetime
+
 autoload -Uz add-zsh-hook
+
+# Wall-clock seconds at the start of the current foreground command. Set in
+# `preexec`, consumed and reset in `precmd`. Zero means "no command since
+# last prompt" — covers the very first prompt and ^C-on-empty-line cases.
+typeset -gi _p10k_rs_cmd_start=0
+
+_p10k_rs_preexec() {
+  _p10k_rs_cmd_start=$EPOCHSECONDS
+}
 
 _p10k_rs_precmd() {
   local rs=$?
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs 2>/dev/null) "
+  local elapsed_ms=0
+  if (( _p10k_rs_cmd_start > 0 )); then
+    elapsed_ms=$(( (EPOCHSECONDS - _p10k_rs_cmd_start) * 1000 ))
+    _p10k_rs_cmd_start=0
+  fi
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs --last-duration-ms $elapsed_ms 2>/dev/null) "
   return $rs
 }
 
+add-zsh-hook preexec _p10k_rs_preexec
 add-zsh-hook precmd _p10k_rs_precmd
