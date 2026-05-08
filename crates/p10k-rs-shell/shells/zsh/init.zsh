@@ -27,11 +27,73 @@ typeset -g _P10K_RS_INSTALLED=1
 # zsh)"` if the binary moves.
 typeset -g _P10K_RS_BIN='__P10K_RS_BIN__'
 
+# Absolute path to the `gitstatusd` daemon binary, injected the same way.
+# Empty if `p10k-rs init` couldn't locate one — the prompt then falls
+# back to the slow `git`-shell-out backend automatically.
+typeset -g _P10K_RS_GITSTATUSD_BIN='__P10K_RS_GITSTATUSD_BIN__'
+
 # `zsh/datetime` exposes `$EPOCHSECONDS` for command-time tracking. The
 # bare `zmodload zsh/datetime` form is the one that actually populates the
 # parameter; the `-F b:EPOCHSECONDS` filter form (in earlier slice 5) leaves
 # it empty in some shells.
 zmodload zsh/datetime
+
+# ---------------------------------------------------------------------------
+# gitstatusd daemon orchestration (slice 6, ADR-0001).
+#
+# Strategy: spawn one long-lived `gitstatusd` per shell. Talk to it via two
+# named FIFOs that the parent shell holds open R/W for life — that keeps
+# both ends alive across `p10k-rs prompt` invocations without us having to
+# pass numbered fds into children.
+#
+# `p10k-rs prompt` discovers the FIFO paths via two env vars and chooses
+# the `Gitstatusd` backend over the slow `ShellOut` fallback.
+# ---------------------------------------------------------------------------
+typeset -g _P10K_RS_FIFO_DIR=""
+typeset -gi _P10K_RS_FIFO_REQ_FD=0
+typeset -gi _P10K_RS_FIFO_RESP_FD=0
+typeset -gi _P10K_RS_DAEMON_PID=0
+
+_p10k_rs_start_daemon() {
+  [[ -n "$_P10K_RS_GITSTATUSD_BIN" && -x "$_P10K_RS_GITSTATUSD_BIN" ]] || return 1
+
+  local dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/p10k-rs-$$"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  local req="$dir/req" resp="$dir/resp"
+  [[ -p "$req" ]] || mkfifo "$req" 2>/dev/null || return 1
+  [[ -p "$resp" ]] || mkfifo "$resp" 2>/dev/null || return 1
+
+  # Keep both FIFOs alive for the lifetime of this shell. R/W opens (`<>`)
+  # don't block, so this is safe even before the daemon attaches.
+  exec {_P10K_RS_FIFO_REQ_FD}<>"$req"
+  exec {_P10K_RS_FIFO_RESP_FD}<>"$resp"
+
+  # Launch daemon in the background. `-t 4` gives it 4 worker threads
+  # (matches upstream p10k's default for non-monorepo workloads). stderr
+  # to /dev/null because the daemon is chatty on info-level logs.
+  "$_P10K_RS_GITSTATUSD_BIN" -t 4 < "$req" > "$resp" 2>/dev/null &!
+  _P10K_RS_DAEMON_PID=$!
+
+  _P10K_RS_FIFO_DIR="$dir"
+  export _P10K_RS_GITSTATUSD_REQ="$req"
+  export _P10K_RS_GITSTATUSD_RESP="$resp"
+  return 0
+}
+
+_p10k_rs_stop_daemon() {
+  if (( _P10K_RS_DAEMON_PID > 0 )); then
+    kill -- $_P10K_RS_DAEMON_PID 2>/dev/null
+  fi
+  if (( _P10K_RS_FIFO_REQ_FD > 0 )); then
+    exec {_P10K_RS_FIFO_REQ_FD}>&-
+  fi
+  if (( _P10K_RS_FIFO_RESP_FD > 0 )); then
+    exec {_P10K_RS_FIFO_RESP_FD}<&-
+  fi
+  if [[ -n "$_P10K_RS_FIFO_DIR" && -d "$_P10K_RS_FIFO_DIR" ]]; then
+    rm -rf -- "$_P10K_RS_FIFO_DIR"
+  fi
+}
 
 autoload -Uz add-zsh-hook
 
@@ -57,3 +119,8 @@ _p10k_rs_precmd() {
 
 add-zsh-hook preexec _p10k_rs_preexec
 add-zsh-hook precmd _p10k_rs_precmd
+add-zsh-hook zshexit _p10k_rs_stop_daemon
+
+# Best-effort daemon start. If it fails (binary missing, mkfifo denied,
+# etc.) the prompt silently uses the ShellOut fallback.
+_p10k_rs_start_daemon || true

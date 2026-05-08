@@ -24,6 +24,9 @@ use std::process::{Command, Stdio};
 
 use p10k_rs_core::GitState;
 
+pub mod gitstatusd;
+pub use gitstatusd::{locate_binary as locate_gitstatusd, Gitstatusd};
+
 /// A producer of [`GitState`] for a working directory.
 ///
 /// Returns `None` when the path isn't inside any git repo (the most common

@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Shell as CoreShell};
-use p10k_rs_git::{Backend as GitBackend, ShellOut as GitShellOut};
+use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
 /// Top-level CLI for `p10k-rs`.
@@ -123,10 +123,11 @@ fn cmd_prompt(shell: &str, last_status: i32, last_duration_ms: u64) -> Result<()
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
 
-    // Slice 4: probe via the shell-out backend. ADR-0001's gitstatusd
-    // client lands later and replaces this line; the rest of the pipeline
-    // doesn't change.
-    let git = GitShellOut.status(cwd.as_path());
+    // Slice 6: prefer the `Gitstatusd` backend when the shell init script
+    // has set up FIFOs and started the daemon (ADR-0001). Fall back to the
+    // slower `ShellOut` for ad-hoc CLI invocations and shells where the
+    // daemon couldn't start.
+    let git = git_status(cwd.as_path());
 
     let cfg = Config::default();
     let env = EnvSnapshot::default();
@@ -169,9 +170,38 @@ fn cmd_init(shell: &str) -> Result<()> {
             "exe path contains a single quote: {exe_str:?}. Won't risk emitting a malformed shell single-quoted literal — move/symlink the binary first."
         );
     }
-    let script = template.replace("__P10K_RS_BIN__", exe_str);
+    let gsd = p10k_rs_git::locate_gitstatusd()
+        .and_then(|p| p.to_str().map(str::to_owned))
+        .unwrap_or_default();
+    if gsd.contains('\'') {
+        anyhow::bail!(
+            "gitstatusd path contains a single quote: {gsd:?}. Won't risk emitting a malformed shell single-quoted literal — symlink the binary first."
+        );
+    }
+    let script = template
+        .replace("__P10K_RS_BIN__", exe_str)
+        .replace("__P10K_RS_GITSTATUSD_BIN__", &gsd);
     print!("{script}");
     Ok(())
+}
+
+/// Probe the active git backend and run the status query.
+///
+/// Prefers `Gitstatusd` (long-lived daemon, ~ms latency) when the shell init
+/// script has exported `_P10K_RS_GITSTATUSD_REQ` / `_P10K_RS_GITSTATUSD_RESP`
+/// pointing at live FIFOs. Falls back to `ShellOut` (spawns `git`) otherwise.
+fn git_status(path: &std::path::Path) -> Option<p10k_rs_core::GitState> {
+    if let (Some(req), Some(resp)) = (
+        std::env::var_os("_P10K_RS_GITSTATUSD_REQ"),
+        std::env::var_os("_P10K_RS_GITSTATUSD_RESP"),
+    ) {
+        let req_path = std::path::Path::new(&req);
+        let resp_path = std::path::Path::new(&resp);
+        if let Some(d) = Gitstatusd::from_env_paths(req_path, resp_path) {
+            return d.status(path);
+        }
+    }
+    GitShellOut.status(path)
 }
 
 /// Map the CLI shell string to the [`CoreShell`] enum used in `RenderCtx`.
