@@ -14,11 +14,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-gix = { workspace = true }
-rustix = { workspace = true }
-rayon = { workspace = true }
+p10k-rs-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# `gix`, `rustix`, `rayon` were dependencies of the pre-pivot in-process
+# scanner architecture (ADR-0001). They'll come back when the gitstatusd
+# client + `gix-status` fallback land in slice 5+; until then they'd just
+# be unused-dep noise.
 
 [lints]
 workspace = true

@@ -313,11 +313,18 @@ pub enum HostKind {
 
 /// Pre-computed git state for the current cwd.
 ///
-/// Owned by `p10k-rs-git`; placeholder here until the spike crate decides
-/// the final shape.
+/// Held by `RenderCtx::git` so segments can render git info without each
+/// of them re-spawning `git`. Producers live in `p10k-rs-git`. Slice 4 has
+/// `branch` + `dirty`; richer fields (ahead/behind, conflicts, stash count,
+/// etc.) come back when the `Gitstatusd` backend lands per ADR-0001.
 #[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct GitState {}
+pub struct GitState {
+    /// Current branch name. `"HEAD"` for detached. Empty if unknown.
+    pub branch: String,
+    /// `true` if the working tree has any uncommitted changes (modified,
+    /// staged, or untracked).
+    pub dirty: bool,
+}
 
 /// Snapshot of environment variables relevant to segments.
 ///

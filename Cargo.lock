@@ -1652,6 +1652,7 @@ dependencies = [
  "anyhow",
  "clap",
  "p10k-rs-core",
+ "p10k-rs-git",
  "p10k-rs-segments",
  "p10k-rs-shell",
  "tracing",
@@ -1692,9 +1693,7 @@ dependencies = [
 name = "p10k-rs-git"
 version = "0.1.0"
 dependencies = [
- "gix",
- "rayon",
- "rustix 0.38.44",
+ "p10k-rs-core",
  "thiserror 2.0.18",
  "tracing",
 ]

@@ -16,6 +16,7 @@ use p10k_rs_core::Segment;
 
 pub mod dir;
 pub mod prompt_char;
+pub mod vcs;
 
 /// Returns the static list of segment names this crate ships.
 ///
@@ -52,12 +53,17 @@ pub fn segment_names() -> &'static [&'static str] {
     ]
 }
 
-/// Build the slice-1 default layout: `[dir, prompt_char]`.
+/// Build the slice-4 default layout: `[dir, vcs, prompt_char]`.
 ///
-/// Returns segment instances in render order. Future slices replace this
-/// with config-driven assembly via `p10k-rs-config`. Until then this is the
-/// hardcoded shape every prompt invocation gets.
+/// Returns segment instances in render order. `vcs` is `enabled()`-gated
+/// on the binary having populated `RenderCtx::git`, so non-repo cwds skip
+/// it cleanly. Future slices replace this with config-driven assembly via
+/// `p10k-rs-config`.
 #[must_use]
 pub fn default_layout() -> Vec<Box<dyn Segment>> {
-    vec![Box::new(dir::Dir), Box::new(prompt_char::PromptChar)]
+    vec![
+        Box::new(dir::Dir),
+        Box::new(vcs::Vcs),
+        Box::new(prompt_char::PromptChar),
+    ]
 }

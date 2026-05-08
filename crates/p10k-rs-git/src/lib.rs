@@ -1,162 +1,151 @@
-//! Git status engine for `p10k-rs`.
+//! Git state producers for `p10k-rs`.
 //!
-//! This is the `gitstatusd` replacement. Two implementation paths share one
-//! [`status`] entrypoint:
+//! Per ADR-0001 (`docs/adr/0001-git-backend.md`), the production hot path is
+//! a long-lived `gitstatusd` client. That landing slice ships the
+//! `Gitstatusd` backend; for now this crate exposes:
 //!
-//! - **Slow / clean path:** `gix-status` end-to-end. Used as a correctness
-//!   reference and on platforms where the parent-fd walker doesn't pay off.
-//! - **Hot path:** `gix` for index parse, packed-refs, tag DB, ahead/behind,
-//!   and push-remote resolution; a custom `rustix`-based walker
-//!   (`openat`/`fstatat`/`getdents`) for the dirty-tree scan, fed by a
-//!   per-directory mtime cache in `$XDG_CACHE_HOME/p10k-rs/`.
+//! - [`Backend`] — the trait every producer implements.
+//! - [`ShellOut`] — slow but always-available fallback that spawns `git`.
 //!
-//! The day-1 spike (`crates/spike-gitstatus`) decides which path wins.
+//! The shape returned to consumers ([`p10k_rs_core::GitState`]) is owned by
+//! `p10k-rs-core` so [`p10k_rs_core::RenderCtx`] can hold an `Option<&'_>`
+//! without a dependency cycle. This crate produces values; segments consume.
 //!
-//! See `ARCHITECTURE.md` § 2.4 and `07-gitstatus.md` for the full plan.
+//! The pre-pivot placeholder API (rich `HeadRef`/`Oid`/`StagedSummary`/etc.)
+//! was scaffolding for an in-process scanner architecture that ADR-0001
+//! superseded. The richer fields come back as needed when the `Gitstatusd`
+//! backend lands and starts populating them from the daemon's wire response.
 
-// `unsafe` is permitted in this crate only — see the workspace policy in
-// `ARCHITECTURE.md` § 3.5. Every `unsafe` block must carry a SAFETY comment
-// per the contractor brief.
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use std::path::PathBuf;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
-use thiserror::Error;
+use p10k_rs_core::GitState;
 
-/// Snapshot of git state for a working directory.
+/// A producer of [`GitState`] for a working directory.
 ///
-/// Mirrors `ARCHITECTURE.md` § 2.4. Built once per prompt and reused across
-/// segments through [`p10k_rs_core::RenderCtx::git`].
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct GitState {
-    /// Absolute path to the working directory root.
-    pub workdir: PathBuf,
-    /// What HEAD currently points at.
-    pub head: HeadRef,
-    /// Commits ahead of upstream.
-    pub ahead: u32,
-    /// Commits behind upstream.
-    pub behind: u32,
-    /// Commits ahead of the configured push remote.
-    pub push_ahead: u32,
-    /// Commits behind the configured push remote.
-    pub push_behind: u32,
-    /// Number of stashed states.
-    pub stash_count: u32,
-    /// Active multi-step operation, if any (`"rebase"`, `"merge"`, ...).
-    pub action: Option<&'static str>,
-    /// Number of unmerged paths.
-    pub conflicts: u32,
-    /// Counts of staged changes, by kind.
-    pub staged: StagedSummary,
-    /// Counts of unstaged changes, by kind.
-    pub unstaged: UnstagedSummary,
-    /// Untracked file count.
-    pub untracked: u32,
-    /// Files marked `assume-unchanged`.
-    pub assume_unchanged: u32,
-    /// Files marked `skip-worktree`.
-    pub skip_worktree: u32,
-    /// HEAD commit OID as bytes (rendering decides hex/short).
-    pub commit: Oid,
-    /// Subject line of the HEAD commit.
-    pub commit_summary: String,
-    /// Configured upstream tracking ref.
-    pub remote: Option<RemoteRef>,
-    /// Configured push remote ref.
-    pub push_remote: Option<RemoteRef>,
+/// Returns `None` when the path isn't inside any git repo (the most common
+/// case during prompt rendering — most cwds aren't repos). Implementations
+/// must never panic on cwds outside a repo; that's the no-op signal.
+pub trait Backend {
+    /// Probe `path` for git state. Returns `None` if not a repo.
+    fn status(&self, path: &Path) -> Option<GitState>;
 }
 
-/// Where HEAD points.
-#[derive(Debug, Clone)]
-pub enum HeadRef {
-    /// Attached to a branch by name.
-    Branch(String),
-    /// Detached at a specific commit.
-    DetachedAt(Oid),
-    /// Detached at an annotated tag.
-    Tagged(String),
+/// Shell-out backend: spawns `git`. Slow but always available wherever
+/// `git` is on `$PATH`. Used as the slice-4 default and as the post-slice-5
+/// fallback when no `gitstatusd` is present for the host triple.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ShellOut;
+
+impl Backend for ShellOut {
+    fn status(&self, path: &Path) -> Option<GitState> {
+        // One git invocation does both jobs: branch on the first line,
+        // dirty-flag from any subsequent lines.
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["status", "--porcelain=v1", "--branch", "--no-renames"])
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            // `not a repo` exits non-zero. Stay silent.
+            return None;
+        }
+        let stdout = String::from_utf8(out.stdout).ok()?;
+        Some(parse_porcelain_v1(&stdout))
+    }
 }
 
-/// Object identifier (raw 20-byte SHA-1 or 32-byte SHA-256).
+/// Parse `git status --porcelain=v1 --branch` output into a [`GitState`].
 ///
-/// Carried as bytes so we don't allocate a hex string per prompt; the
-/// renderer formats once at the end of the pipeline.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Oid(pub Vec<u8>);
-
-/// Counts of staged changes, broken out by kind.
-#[derive(Debug, Clone, Copy, Default)]
-#[non_exhaustive]
-pub struct StagedSummary {
-    /// Newly added files.
-    pub new: u32,
-    /// Deleted files.
-    pub deleted: u32,
-    /// Modified files.
-    pub modified: u32,
-}
-
-/// Counts of unstaged changes, broken out by kind.
-#[derive(Debug, Clone, Copy, Default)]
-#[non_exhaustive]
-pub struct UnstagedSummary {
-    /// Deleted files.
-    pub deleted: u32,
-    /// Modified files.
-    pub modified: u32,
-}
-
-/// A remote tracking ref (e.g. `origin/main`).
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct RemoteRef {
-    /// Remote name, typically `origin`.
-    pub remote: String,
-    /// Branch name on the remote.
-    pub branch: String,
-}
-
-/// Inputs to a git-status query.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct StatusRequest {
-    /// Working directory whose state we want.
-    pub workdir: PathBuf,
-    /// Hard cap on file scanning. `-1` means "no limit".
-    pub max_index_size_dirty: i64,
-    /// Whether to count untracked files (an upstream knob; expensive on
-    /// repositories with large `node_modules`).
-    pub count_untracked: bool,
-}
-
-/// Errors returned from git-status calls.
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum GitError {
-    /// The path is not inside any git working tree.
-    #[error("not a git repository: {0}")]
-    NotARepo(PathBuf),
-    /// Index parsing failed; passed through from `gix`.
-    #[error("git index parse failed: {0}")]
-    Index(String),
-    /// Generic I/O failure during the walk.
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-}
-
-/// Compute git state for the working directory in `req`.
+/// Format we expect (`LC_ALL=C`):
 ///
-/// # Errors
-///
-/// Returns [`GitError::NotARepo`] when no `.git` directory is found upward
-/// from `req.workdir`. Other variants surface I/O and parse failures.
-///
-/// # Panics
-///
-/// Currently unimplemented; calls panic with `unimplemented!()`. The day-1
-/// spike crate (`crates/spike-gitstatus`) is what drives the implementation.
-pub fn status(_req: &StatusRequest) -> Result<GitState, GitError> {
-    unimplemented!("status() lands after the spike picks an implementation path")
+/// - First line is always `## <branch-info>`. Examples:
+///   `## main...origin/main`,
+///   `## main...origin/main [ahead 1, behind 2]`,
+///   `## main` (no upstream configured),
+///   `## HEAD (no branch)` (detached HEAD),
+///   `## No commits yet on main` (unborn branch).
+/// - Subsequent lines = working-tree changes. Any line means dirty.
+fn parse_porcelain_v1(s: &str) -> GitState {
+    let mut lines = s.split('\n');
+    let header = lines.next().unwrap_or("");
+    let branch = parse_branch_header(header);
+    // Count *non-empty* remaining lines so a trailing newline doesn't lie.
+    let dirty = lines.any(|l| !l.is_empty());
+    GitState { branch, dirty }
+}
+
+/// Pull the branch name out of the `## …` header line.
+fn parse_branch_header(header: &str) -> String {
+    let rest = header.strip_prefix("## ").unwrap_or(header);
+    if let Some(name) = rest.strip_prefix("No commits yet on ") {
+        return name.trim().to_owned();
+    }
+    if rest.starts_with("HEAD (no branch)") {
+        return "HEAD".to_owned();
+    }
+    // `main...origin/main` or `main...origin/main [ahead 1]` → first segment
+    // before `...` (or the whole thing if no upstream is configured).
+    let local = rest.split("...").next().unwrap_or(rest);
+    local.split_whitespace().next().unwrap_or("").to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_branch_with_upstream() {
+        let out = "## main...origin/main\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.branch, "main");
+        assert!(!s.dirty);
+    }
+
+    #[test]
+    fn parse_branch_with_ahead_behind_and_dirt() {
+        let out = "## main...origin/main [ahead 1, behind 2]\n M README.md\n?? new.txt\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.branch, "main");
+        assert!(s.dirty);
+    }
+
+    #[test]
+    fn parse_no_upstream() {
+        let out = "## feat/widget\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.branch, "feat/widget");
+        assert!(!s.dirty);
+    }
+
+    #[test]
+    fn parse_detached_head() {
+        let out = "## HEAD (no branch)\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.branch, "HEAD");
+        assert!(!s.dirty);
+    }
+
+    #[test]
+    fn parse_unborn_branch() {
+        let out = "## No commits yet on main\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.branch, "main");
+        assert!(!s.dirty);
+    }
+
+    #[test]
+    fn parse_dirty_only() {
+        let out = "## main\n M lib.rs\n";
+        let s = parse_porcelain_v1(out);
+        assert!(s.dirty);
+    }
 }

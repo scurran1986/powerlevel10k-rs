@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Shell as CoreShell};
+use p10k_rs_git::{Backend as GitBackend, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
 /// Top-level CLI for `p10k-rs`.
@@ -110,10 +111,15 @@ fn main() -> Result<()> {
     }
 }
 
-/// Render the prompt: hardcoded `[dir, prompt_char]` layout for now.
+/// Render the prompt: hardcoded `[dir, vcs, prompt_char]` layout for now.
 fn cmd_prompt(shell: &str, last_status: i32) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
+
+    // Slice 4: probe via the shell-out backend. ADR-0001's gitstatusd
+    // client lands in slice 5+ and replaces this line; the rest of the
+    // pipeline doesn't change.
+    let git = GitShellOut.status(cwd.as_path());
 
     let cfg = Config::default();
     let env = EnvSnapshot::default();
@@ -122,7 +128,7 @@ fn cmd_prompt(shell: &str, last_status: i32) -> Result<()> {
         shell: core_shell,
         host: HostKind::None,
         cwd: cwd.as_path(),
-        git: None,
+        git: git.as_ref(),
         last_status,
         last_duration: Duration::ZERO,
         jobs: 0,
