@@ -17,6 +17,7 @@ use p10k_rs_core::Segment;
 pub mod command_execution_time;
 pub mod dir;
 pub mod prompt_char;
+pub mod status;
 pub mod vcs;
 
 /// Returns the static list of segment names this crate ships.
@@ -66,6 +67,7 @@ pub fn default_layout() -> Vec<Box<dyn Segment>> {
         Box::new(dir::Dir),
         Box::new(vcs::Vcs),
         Box::new(command_execution_time::CommandExecutionTime),
+        Box::new(status::Status),
         Box::new(prompt_char::PromptChar),
     ]
 }
