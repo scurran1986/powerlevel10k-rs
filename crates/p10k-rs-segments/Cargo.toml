@@ -16,7 +16,6 @@ categories.workspace = true
 [dependencies]
 p10k-rs-core = { workspace = true }
 p10k-rs-config = { workspace = true }
-p10k-rs-git = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 anstyle = { workspace = true }

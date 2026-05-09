@@ -20,9 +20,9 @@ File names: `NNNN-kebab-case-title.md`, four-digit zero-padded.
 
 | ADR | Title | Status |
 |----:|-------|--------|
-| [0001](0001-git-backend.md) | Git status backend (gitstatusd-rs shim) | Accepted (2026-05-06) |
+| [0001](0001-git-backend.md) | Git Status Backend | Accepted (2026-05-06) |
 
-ADR 0001 records the day-1 spike's verdict: PIVOT to a `gitstatusd-rs` shim,
-because pure-Rust paths (gix-only, gix+rustix hybrid) come in 16-35× slower
-than long-lived gitstatusd on the linux kernel. Numbers and full reasoning in
-`bench/results/SPIKE-VERDICT-20260506T184527Z.md`.
+ADR 0001 records the day-1 spike's verdict: PIVOT to a gitstatusd subprocess
+client, because pure-Rust paths (gix-only, gix+rustix hybrid) come in 16-35×
+slower than long-lived gitstatusd on the linux kernel. Numbers and full
+reasoning in `bench/results/SPIKE-VERDICT-20260506T184527Z.md`.

@@ -1,24 +1,25 @@
 # p10k-rs
 
 A Rust port and spiritual successor to [Powerlevel10k][p10k]. Single static
-binary, declarative TOML config, multi-shell on day one (zsh, fish, bash),
-with `gitstatusd`-class git latency as the load-bearing performance claim.
+binary, declarative TOML config, multi-shell support, with `gitstatusd`-class
+git latency as the load-bearing performance claim.
 
-> **Status:** pre-alpha. Workspace skeleton only. The day-1 spike
-> (`crates/spike-gitstatus`) gates whether the project proceeds. Don't
-> install this yet.
+> **Status:** Early-alpha. Daily-driver-grade for the maintainer. Not packaged
+> for general use yet. Eight slices complete: minimum runnable prompt, ANSI
+> colors, `$?`-aware prompt_char, vcs via `git`, command_execution_time,
+> gitstatusd long-lived daemon, rich vcs render + timeout + auto-respawn,
+> instant prompt. Quickstart: `./install.sh && exec zsh`.
 
 ## Why this project exists
 
 Starship is the polished baseline. It deliberately ships none of the four
-features Powerlevel10k users actually leave for: instant prompt, transient
+features Powerlevel10k users actually value: instant prompt, transient
 prompt, show-on-command, and the configuration wizard — plus
 sub-millisecond git status. We ship those.
 
-See [`MVP-SPEC.md`][spec] in the planning bundle for the v0.1 scope.
+Architectural decisions documented in `docs/adr/0001-git-backend.md`.
 
 [p10k]: https://github.com/romkatv/powerlevel10k
-[spec]: ../.planning/powerlevel10k-rs/MVP-SPEC.md
 
 ## Workspace layout
 
@@ -28,17 +29,12 @@ crates/
   p10k-rs-core       # Segment trait, render pipeline (no I/O)
   p10k-rs-config     # TOML schema + Powerlevel9k import
   p10k-rs-segments   # segment implementations
-  p10k-rs-git        # gitstatus replacement (gix + rustix hot loop)
+  p10k-rs-git        # gitstatusd client + git shell-out fallback
   p10k-rs-shell      # per-shell init scripts
   p10k-rs-wizard     # `configure` TUI
   p10k-rs-ai         # OSC, host detection, statusline
   p10k-rs-ipc        # daemon protocol (post-MVP placeholder)
-  spike-gitstatus    # day-1 latency spike (separate ownership)
 ```
-
-See [`ARCHITECTURE.md`][arch] for crate APIs and rationale.
-
-[arch]: ../.planning/powerlevel10k-rs/ARCHITECTURE.md
 
 ## Building
 

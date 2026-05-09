@@ -6,9 +6,9 @@
 #   - .planning/powerlevel10k-rs/ARCHITECTURE.md
 #   - .planning/powerlevel10k-rs/09-rust-ecosystem.md
 #
-# Layout follows ARCHITECTURE.md § 1. The `crates/spike-gitstatus` member is
-# owned by a separate contractor and is referenced here so the workspace will
-# resolve once that crate's manifest lands.
+# Layout follows ARCHITECTURE.md § 1. `crates/spike-gitstatus` was the day-1
+# latency spike; it discharged its purpose at slice-final and was removed in
+# slice 9 per ADR-0001 § Follow-ups.
 #
 [workspace]
 resolver = "2"
@@ -22,7 +22,6 @@ members = [
     "crates/p10k-rs-wizard",
     "crates/p10k-rs-ai",
     "crates/p10k-rs-ipc",
-    "crates/spike-gitstatus",
 ]
 
 # Shared metadata. Individual crate manifests inherit via `package.<key>.workspace = true`.
@@ -64,25 +63,12 @@ crossterm = "0.28"
 rayon = "1.10"
 rustix = { version = "0.38", features = ["fs", "process", "event"] }
 
-# --- git ---
-# `status` is required by spike-gitstatus and the eventual `p10k-rs-git`. Listed
-# explicitly rather than relying on `max-performance-safe` to imply it — gix's
-# feature graph has shifted between minor releases and we want it pinned in writing.
-gix = { version = "0.66", default-features = false, features = ["max-performance-safe", "status", "revision"] }
-
-# --- spike-only / sometimes-shared ---
-# `bincode` 1.x is the last `serde::Serialize`-driven release. The spike's
-# untracked-cache file uses it; if `p10k-rs-git` keeps the same on-disk format,
-# bumping to 2.x means a cache-invalidating migration. Pin to 1.3 for now.
-bincode = "1.3"
-# Human-readable durations in JSON timing output. Spike uses it; segments may.
-humantime = "2.1"
-
 # --- dev / test ---
 insta = { version = "1.40", features = ["yaml"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-# Test fixtures: temp dirs that auto-clean. v3 line is the only one worth pinning.
-tempfile = "3.10"
+# `gix`, `bincode`, `humantime`, `tempfile` were spike-only and went away
+# with the spike crate in slice 9. They will come back individually if a
+# `gix-status` correctness fallback or daemon-respawn cache lands.
 
 # Internal crates — referenced via `path` so cargo resolves locally.
 p10k-rs-core = { path = "crates/p10k-rs-core", version = "0.1.0" }

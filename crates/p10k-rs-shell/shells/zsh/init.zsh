@@ -72,11 +72,16 @@ typeset -gi _P10K_RS_DAEMON_PID=0
 _p10k_rs_start_daemon() {
   [[ -n "$_P10K_RS_GITSTATUSD_BIN" && -x "$_P10K_RS_GITSTATUSD_BIN" ]] || return 1
 
-  local dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/p10k-rs-$$"
-  mkdir -p "$dir" 2>/dev/null || return 1
+  # Slice 9 security: unpredictable directory name (`mktemp` template) instead
+  # of `$$` so a co-tenant on a multi-user host can't pre-plant FIFOs at a
+  # guessable path. `chmod 0700` and `mkfifo -m 0600` (in a `umask 077`
+  # subshell, belt-and-braces) ensure no other UID can read the IPC channel.
+  local base="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  local dir
+  dir="$(mktemp -d -- "$base/p10k-rs.XXXXXXXX" 2>/dev/null)" || return 1
+  chmod 0700 "$dir" 2>/dev/null
   local req="$dir/req" resp="$dir/resp"
-  [[ -p "$req" ]] || mkfifo "$req" 2>/dev/null || return 1
-  [[ -p "$resp" ]] || mkfifo "$resp" 2>/dev/null || return 1
+  ( umask 077 && mkfifo -m 0600 "$req" "$resp" ) 2>/dev/null || return 1
 
   # Keep both FIFOs alive for the lifetime of this shell. R/W opens (`<>`)
   # don't block, so this is safe even before the daemon attaches.
@@ -105,7 +110,10 @@ _p10k_rs_stop_daemon() {
   if (( _P10K_RS_FIFO_RESP_FD > 0 )); then
     exec {_P10K_RS_FIFO_RESP_FD}<&-
   fi
-  if [[ -n "$_P10K_RS_FIFO_DIR" && -d "$_P10K_RS_FIFO_DIR" ]]; then
+  # Slice 9 security: refuse to `rm -rf` anything that doesn't match our
+  # `mktemp` template — defends against accidental clobber if the variable
+  # gets corrupted by a misbehaving plugin.
+  if [[ -n "$_P10K_RS_FIFO_DIR" && "$_P10K_RS_FIFO_DIR" == */p10k-rs.* && -d "$_P10K_RS_FIFO_DIR" ]]; then
     rm -rf -- "$_P10K_RS_FIFO_DIR"
   fi
 }

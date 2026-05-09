@@ -99,10 +99,10 @@ commit `<this commit's parent>` for posterity.
 - Adds the daemon-lifecycle work, ~1 week.
 - Net effect: roughly schedule-neutral, with much higher confidence.
 
-## Follow-ups (tracked separately)
+## Follow-ups
 
-- Update `ROADMAP.md` to reflect the pivot — drop the in-process scanner phase, add the daemon-client phase.
-- Update `ARCHITECTURE.md` § 2.4 to describe the daemon-client design.
-- Wire the GPL-3.0 obligations into the release process: `THIRD-PARTY-LICENSES` section in the README, GPL license file shipped next to the bundled binary in release artifacts, source-offer pointer to upstream tag. (See § Consequences > Operational; not blocking, just don't ship v0.1 without them.)
-- Remove `crates/spike-gitstatus/` from the workspace once the next commit lands.
-- Strip `gix.features = ["status"]` from `[workspace.dependencies]` since the hot path no longer uses it. Keep `revision` for ahead/behind on the daemon-client side; the daemon does not return ahead/behind without a configured upstream, and our own walker for that is cheap.
+- **Update `ROADMAP.md`** — DEFERRED (planning bundle outside repo).
+- **Update `ARCHITECTURE.md` § 2.4** — DEFERRED.
+- **Wire GPL-3.0 release-process obligations** — DONE (slice 9). `THIRD-PARTY-LICENSES.md` created at repo root with attribution, bundling rationale, and source-offer pointer per § Consequences > Operational. GPL license file and source-offer will be shipped alongside `gitstatusd` binary in release artifacts.
+- **Remove `crates/spike-gitstatus/`** — DONE (scheduled for slice 9 commit).
+- **Strip `gix.features = ["status"]`** — DONE (scheduled for slice 9 commit).

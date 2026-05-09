@@ -248,23 +248,34 @@ fn cmd_init(shell: &str) -> Result<()> {
     let exe_str = exe.to_str().context(
         "current exe path is not valid UTF-8; the init script can't embed it as a shell literal",
     )?;
-    if exe_str.contains('\'') {
-        anyhow::bail!(
-            "exe path contains a single quote: {exe_str:?}. Won't risk emitting a malformed shell single-quoted literal — move/symlink the binary first."
-        );
-    }
+    safe_for_single_quote(exe_str, "exe path")?;
     let gsd = p10k_rs_git::locate_gitstatusd()
         .and_then(|p| p.to_str().map(str::to_owned))
         .unwrap_or_default();
-    if gsd.contains('\'') {
-        anyhow::bail!(
-            "gitstatusd path contains a single quote: {gsd:?}. Won't risk emitting a malformed shell single-quoted literal — symlink the binary first."
-        );
-    }
+    safe_for_single_quote(&gsd, "gitstatusd path")?;
     let script = template
         .replace("__P10K_RS_BIN__", exe_str)
         .replace("__P10K_RS_GITSTATUSD_BIN__", &gsd);
     print!("{script}");
+    Ok(())
+}
+
+/// Reject paths that can't safely live inside a shell single-quoted literal.
+///
+/// Single-quoted POSIX strings preserve every byte literally except `'`
+/// itself, but newlines, NULs, and other control characters can break the
+/// surrounding script in line-oriented contexts (sourcing, `eval`, log
+/// inspection). Reject any `'`, any byte below `0x20`, and `0x7F` (DEL).
+fn safe_for_single_quote(s: &str, kind: &str) -> Result<()> {
+    for b in s.bytes() {
+        if b == b'\'' || b < 0x20 || b == 0x7F {
+            anyhow::bail!(
+                "{kind} contains an unsafe byte (single quote, control char, or DEL): {s:?}. \
+                 The init script embeds this in a single-quoted shell literal; \
+                 these bytes would break the script. Move or symlink the binary first."
+            );
+        }
+    }
     Ok(())
 }
 
@@ -300,14 +311,16 @@ fn parse_core_shell(s: &str) -> Result<CoreShell> {
     }
 }
 
-/// Install `tracing-subscriber` with sane defaults.
-///
-/// Default level is `warn` so the binary is silent in normal use; users get
-/// debug output by setting `RUST_LOG=p10k_rs=debug`. See `ARCHITECTURE.md`
-/// § 3.3.
+/// Install `tracing-subscriber` only when the user explicitly opts in via
+/// `RUST_LOG`. Skipping the subscriber on the silent path saves ~100-300 µs
+/// per prompt invocation — significant against gitstatusd's sub-ms response
+/// on small repos. Users get debug output with `RUST_LOG=p10k_rs=debug`.
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 
+    if std::env::var_os("RUST_LOG").is_none() {
+        return;
+    }
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
     let _ = fmt()
         .with_env_filter(filter)

@@ -211,18 +211,35 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     })
 }
 
-/// Returns `true` if `p` exists and is a named pipe (FIFO).
+/// Returns `true` if `p` exists, is a named pipe (FIFO), and is owned by
+/// the current effective UID. Slice-9 security:
+///
+/// - `symlink_metadata` (lstat) instead of `metadata` (stat) — refuses to
+///   follow a symlink. Defends against an attacker swapping our FIFO path
+///   for a symlink to their own pipe, which would otherwise hijack IPC.
+/// - Owner-UID check — refuses FIFOs not owned by us. Defends against a
+///   co-tenant pre-planting a FIFO in a path we'd otherwise trust.
 fn is_fifo(p: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
-    std::fs::metadata(p)
-        .map(|m| m.file_type().is_fifo())
-        .unwrap_or(false)
+    use std::os::unix::fs::MetadataExt;
+    let Ok(md) = std::fs::symlink_metadata(p) else {
+        return false;
+    };
+    if !md.file_type().is_fifo() {
+        return false;
+    }
+    let me = rustix::process::geteuid().as_raw();
+    md.uid() == me
 }
 
 /// Locate `gitstatusd` on the host. Probes (in order):
 ///   1. `$P10K_RS_GITSTATUSD_BIN` (explicit override).
-///   2. The vendored upstream path used by the spike harness.
-///   3. `gitstatusd` and `gitstatusd-linux-x86_64` on `$PATH`.
+///   2. `gitstatusd` and `gitstatusd-linux-x86_64` on `$PATH`.
+///
+/// Slice 9 dropped the dev-machine fallback path (`/home/seaburdz/...`)
+/// flagged across multiple review lanes — it never resolved on any other
+/// machine and would happily pick up any binary that happened to live there
+/// on a multi-user host.
 #[must_use]
 pub fn locate_binary() -> Option<PathBuf> {
     if let Some(env) = std::env::var_os("P10K_RS_GITSTATUSD_BIN") {
@@ -230,12 +247,6 @@ pub fn locate_binary() -> Option<PathBuf> {
         if p.is_file() {
             return Some(p);
         }
-    }
-    let vendored = PathBuf::from(
-        "/home/seaburdz/github/powerlevel10k/gitstatus/usrbin/gitstatusd-linux-x86_64",
-    );
-    if vendored.is_file() {
-        return Some(vendored);
     }
     if let Ok(path_env) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_env) {

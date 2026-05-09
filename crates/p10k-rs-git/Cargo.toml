@@ -1,6 +1,6 @@
 [package]
 name = "p10k-rs-git"
-description = "Git status engine for p10k-rs: gix for index/refs, rustix for the hot walker."
+description = "gitstatusd daemon client + git shell-out fallback (ADR-0001)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

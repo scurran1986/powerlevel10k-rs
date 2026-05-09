@@ -115,6 +115,33 @@ if [ -z "$INSTALLED_BIN" ]; then
 fi
 echo "[install] binary at $INSTALLED_BIN"
 
+# ---------- gitstatusd discovery -------------------------------------------
+#
+# `p10k-rs init zsh` substitutes the gitstatusd binary path it found at init
+# time. After slice 9 (which dropped a dev-machine fallback for security
+# reasons), the binary only probes `$P10K_RS_GITSTATUSD_BIN` and `$PATH`.
+# If a known canonical install isn't already on PATH, symlink it next to
+# the p10k-rs binary so the daemon path stays intact for new shells.
+GITSTATUSD_CANDIDATES=(
+  "$HOME/github/powerlevel10k/gitstatus/usrbin/gitstatusd-linux-x86_64"
+  "/opt/homebrew/bin/gitstatusd"
+  "/usr/local/bin/gitstatusd"
+)
+if ! command -v gitstatusd >/dev/null 2>&1; then
+  for cand in "${GITSTATUSD_CANDIDATES[@]}"; do
+    if [ -x "$cand" ]; then
+      ln -sfn "$cand" "$HOME/.cargo/bin/gitstatusd"
+      echo "[gitstatusd] symlinked $cand -> ~/.cargo/bin/gitstatusd"
+      break
+    fi
+  done
+  if ! command -v gitstatusd >/dev/null 2>&1; then
+    echo "[warn] gitstatusd not found — vcs segment will use the slow shell-out fallback." >&2
+    echo "       Install one of: \`brew install gitstatusd\`, \`apt install zsh-gitstatus\`," >&2
+    echo "       or set \$P10K_RS_GITSTATUSD_BIN before sourcing the eval." >&2
+  fi
+fi
+
 # ---------- rc edit --------------------------------------------------------
 
 if [ "$DO_RC" -eq 1 ]; then

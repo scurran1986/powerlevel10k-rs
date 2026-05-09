@@ -16,7 +16,6 @@ categories.workspace = true
 [dependencies]
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 anstyle = { workspace = true }
 
 [features]
