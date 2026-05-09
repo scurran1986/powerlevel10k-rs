@@ -50,6 +50,14 @@ enum Command {
         /// stays hidden below its 3-second threshold.
         #[arg(long, default_value_t = 0)]
         last_duration_ms: u64,
+        /// Path to write the instant-prompt cache file. When set, the
+        /// rendered prompt is also serialised to `<path>` as a sourceable
+        /// shell snippet (atomic temp+rename). The shell init script
+        /// sources this file at startup so PROMPT is set before any
+        /// segment-renderer runs — masking gitstatusd's first-call cold
+        /// cost on big repos. Slice 8.
+        #[arg(long)]
+        dump: Option<PathBuf>,
         /// Emit machine-readable JSON instead of styled text.
         #[arg(long)]
         json: bool,
@@ -85,13 +93,21 @@ fn main() -> Result<()> {
             shell,
             last_status,
             last_duration_ms,
+            dump,
             json,
         } => {
-            tracing::debug!(shell, last_status, last_duration_ms, json, "prompt invoked");
+            tracing::debug!(
+                shell,
+                last_status,
+                last_duration_ms,
+                ?dump,
+                json,
+                "prompt invoked"
+            );
             if json {
                 anyhow::bail!("--json output lands with the AI integration phase");
             }
-            cmd_prompt(&shell, last_status, last_duration_ms)
+            cmd_prompt(&shell, last_status, last_duration_ms, dump.as_deref())
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
@@ -119,7 +135,12 @@ fn main() -> Result<()> {
 }
 
 /// Render the prompt: hardcoded slice-5 layout for now.
-fn cmd_prompt(shell: &str, last_status: i32, last_duration_ms: u64) -> Result<()> {
+fn cmd_prompt(
+    shell: &str,
+    last_status: i32,
+    last_duration_ms: u64,
+    dump: Option<&std::path::Path>,
+) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
 
@@ -147,10 +168,72 @@ fn cmd_prompt(shell: &str, last_status: i32, last_duration_ms: u64) -> Result<()
     let segments = p10k_rs_segments::default_layout();
     let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
 
-    // Slice 1: left side only, plain text, no trailing newline. The init
+    // Stdout: left side only, plain text, no trailing newline. The init
     // script appends a single space when assigning to PROMPT.
     print!("{}", prompt.left);
+
+    // Slice 8: dump the rendered prompt to disk for the instant-prompt
+    // path. Failure is non-fatal — the next invocation will retry, and
+    // the user just sees a slightly slower first prompt next shell.
+    if let Some(dump_path) = dump {
+        if let Err(e) = write_instant_dump(dump_path, &prompt.left, core_shell) {
+            tracing::warn!("instant-prompt dump write failed (non-fatal): {e}");
+        }
+    }
     Ok(())
+}
+
+/// Serialise the rendered PROMPT to a sourceable shell snippet at `path`,
+/// using a temp-file + rename for atomicity (so a half-written dump never
+/// corrupts the next shell's instant prompt).
+///
+/// The trailing literal space inside the quoted value matches the precmd
+/// hook's `"$(... ) "` shape, so sourcing the dump produces the same
+/// PROMPT bytes the precmd would have set.
+fn write_instant_dump(
+    path: &std::path::Path,
+    rendered: &str,
+    shell: CoreShell,
+) -> std::io::Result<()> {
+    // Slice 8: only zsh's init script sources the dump today. Bash and fish
+    // get the same single-quote-and-escape treatment for now; their init
+    // scripts will swap to the right per-shell syntax when they ship.
+    let _ = shell;
+    let content = zsh_dump_line(rendered);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Atomic write: same-directory tempfile + rename. The tempfile must
+    // be on the same filesystem as the destination for `rename` to be
+    // atomic; placing it next to the destination guarantees that.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, content.as_bytes())?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Build the dump file's content for zsh: `PROMPT='<escaped-rendered> '\n`.
+///
+/// Escaping uses the standard zsh single-quote idiom: every `'` in the
+/// rendered string is closed, written as `\'`, then re-opened. ANSI
+/// escape bytes (`\x1b`), `%`, `{`, `}`, and unicode pass through cleanly
+/// in single-quoted literals.
+fn zsh_dump_line(rendered: &str) -> String {
+    let mut out = String::with_capacity(rendered.len() + 16);
+    out.push_str("PROMPT='");
+    for c in rendered.chars() {
+        if c == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(c);
+        }
+    }
+    // Trailing space inside the literal so the cached value matches
+    // precmd's `"$(... ) "` output byte-for-byte.
+    out.push(' ');
+    out.push('\'');
+    out.push('\n');
+    out
 }
 
 /// Print the per-shell init script for `eval` / `source`.

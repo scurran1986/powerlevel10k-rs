@@ -32,6 +32,21 @@ typeset -g _P10K_RS_BIN='__P10K_RS_BIN__'
 # back to the slow `git`-shell-out backend automatically.
 typeset -g _P10K_RS_GITSTATUSD_BIN='__P10K_RS_GITSTATUSD_BIN__'
 
+# Slice 8 — instant prompt cache.
+#
+# Path to the dump file the binary writes after every render. Sourced
+# below before any heavy init (zmodload, daemon spawn, hook setup) so
+# PROMPT is set immediately on shell startup; user can type before the
+# rest of init finishes. The real precmd then overwrites PROMPT with a
+# fresh render at the first prompt.
+#
+# Per-user: `${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-<user>.zsh`.
+# A stale cache shows the previous shell session's last cwd until the
+# first precmd fires — acceptable trade for masking gitstatusd's
+# ~2 s first-call cost on kernel-class repos.
+typeset -g _p10k_rs_dump="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-${USER:-${USERNAME:-default}}.zsh"
+[[ -r $_p10k_rs_dump ]] && source $_p10k_rs_dump 2>/dev/null
+
 # `zsh/datetime` exposes `$EPOCHSECONDS` for command-time tracking. The
 # bare `zmodload zsh/datetime` form is the one that actually populates the
 # parameter; the `-F b:EPOCHSECONDS` filter form (in earlier slice 5) leaves
@@ -121,7 +136,7 @@ _p10k_rs_precmd() {
     _p10k_rs_stop_daemon
     _p10k_rs_start_daemon || true
   fi
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs --last-duration-ms $elapsed_ms 2>/dev/null) "
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs --last-duration-ms $elapsed_ms --dump "$_p10k_rs_dump" 2>/dev/null) "
   return $rs
 }
 
