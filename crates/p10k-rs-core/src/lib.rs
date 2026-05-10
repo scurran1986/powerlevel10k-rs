@@ -21,6 +21,7 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+pub mod safety;
 pub mod style;
 
 /// A single prompt segment.
@@ -181,12 +182,21 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
 /// Per-shell escape-wrapping for the assembled prompt string.
 ///
 /// - **zsh**: each `\x1b[…m` SGR escape is wrapped in `%{…%}` so the prompt
-///   width is computed correctly. Other escapes (cursor movement, OSC) are
-///   left alone — they don't appear in slice 2's segment output.
+///   width is computed correctly. Outside of those wrapped escapes, every
+///   literal `%` is doubled to `%%` because zsh treats `%` in PROMPT as the
+///   start of a prompt-expansion escape (`%n` → username, `%/` → cwd, …),
+///   and that is how an attacker who controls a branch name or directory
+///   name can leak information through the prompt — or, with `PROMPT_SUBST`
+///   set, execute commands. SGR escape bodies emitted by segments contain
+///   no literal `%`, so the doubling pass only ever fires on text content.
 /// - **fish / bash**: pass-through. Bash uses `\[…\]` which we'll add when
 ///   bash support lands; fish handles ANSI natively in its prompt fns.
+///   Neither shell interprets `%` in its prompt, so no doubling is needed.
 fn wrap_for_shell(s: &str, shell: Shell) -> String {
-    if shell != Shell::Zsh || !s.contains('\x1b') {
+    if shell != Shell::Zsh {
+        return s.to_owned();
+    }
+    if !s.contains('\x1b') && !s.contains('%') {
         return s.to_owned();
     }
     let bytes = s.as_bytes();
@@ -206,6 +216,11 @@ fn wrap_for_shell(s: &str, shell: Shell) -> String {
                 i = j + 1;
                 continue;
             }
+        }
+        if bytes[i] == b'%' {
+            out.push_str("%%");
+            i += 1;
+            continue;
         }
         // Unrecognised byte at i — copy one char's worth and advance.
         let ch_end = next_char_boundary(s, i);
@@ -263,6 +278,46 @@ mod tests {
         // The well-formed escape gets wrapped; the broken tail is preserved.
         assert!(out.starts_with("%{\x1b[34m%}ok"));
         assert!(out.ends_with("\x1b[broken"));
+    }
+
+    #[test]
+    fn wrap_for_zsh_doubles_literal_percent_in_text() {
+        // The C1 fix: `%n` in segment output (e.g. a branch named "%n@%m")
+        // must come out as `%%n@%%m` so zsh PROMPT-expansion sees a literal
+        // `%` instead of the user-name escape.
+        let raw = "\x1b[33m%n@%m\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b[33m%}%%n@%%m%{\x1b[39m%}");
+    }
+
+    #[test]
+    fn wrap_for_zsh_doubles_percent_with_no_sgr() {
+        // No ANSI escapes anywhere — only the `%` doubling fires.
+        let raw = "branch%n";
+        assert_eq!(wrap_for_shell(raw, Shell::Zsh), "branch%%n");
+    }
+
+    #[test]
+    fn wrap_for_zsh_does_not_double_brackets_we_emit() {
+        // `wrap_for_shell` itself emits `%{` and `%}` around SGRs. Those
+        // come from the wrapper, not the input — they must not be doubled
+        // again on the way out.
+        let raw = "\x1b[34mhello\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b[34m%}hello%{\x1b[39m%}");
+        // Quick guard: count `%{` / `%}` should match the SGR count, not
+        // be doubled.
+        assert_eq!(wrapped.matches("%{").count(), 2);
+        assert_eq!(wrapped.matches("%}").count(), 2);
+    }
+
+    #[test]
+    fn wrap_for_non_zsh_leaves_percent_alone() {
+        // Bash and fish don't expand `%` in their prompts — doubling
+        // would render literal `%%` in the user's terminal.
+        let raw = "branch%n";
+        assert_eq!(wrap_for_shell(raw, Shell::Bash), raw);
+        assert_eq!(wrap_for_shell(raw, Shell::Fish), raw);
     }
 }
 

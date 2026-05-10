@@ -22,6 +22,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::GitState;
 
 pub mod gitstatusd;
@@ -93,7 +94,18 @@ fn parse_porcelain_v1(s: &str) -> GitState {
 }
 
 /// Pull the branch name out of the `## …` header line.
+///
+/// The returned string passes through [`sanitize_for_terminal`] before being
+/// handed back, so a branch with embedded control bytes can't reach the
+/// prompt unsanitised — git's `check-ref-format` rejects such names at
+/// commit time, but a malicious `.git/refs/heads/<name>` written by hand
+/// or by a misbehaving tool can still surface here.
 fn parse_branch_header(header: &str) -> String {
+    let raw = parse_branch_header_raw(header);
+    sanitize_for_terminal(&raw)
+}
+
+fn parse_branch_header_raw(header: &str) -> String {
     let rest = header.strip_prefix("## ").unwrap_or(header);
     if let Some(name) = rest.strip_prefix("No commits yet on ") {
         return name.trim().to_owned();
@@ -156,5 +168,20 @@ mod tests {
         let out = "## main\n M lib.rs\n";
         let s = parse_porcelain_v1(out);
         assert!(s.dirty);
+    }
+
+    #[test]
+    fn parse_branch_with_control_chars_strips_them() {
+        // Git's `check-ref-format` rejects control bytes in normal flows,
+        // but a hand-written `.git/refs/heads/<name>` (or a misbehaving
+        // tool) can bypass that check. Defend the prompt anyway.
+        //
+        // Note that `\r` is Unicode `White_Space`, so `split_whitespace`
+        // in the parser cuts at it before `sanitize_for_terminal` even
+        // runs — `\x1b`, `\x07`, `\x08` are not whitespace and rely on
+        // sanitisation to be stripped.
+        assert_eq!(parse_branch_header("## \x1b[2Jmain"), "[2Jmain");
+        assert_eq!(parse_branch_header("## main\x07evil"), "mainevil");
+        assert_eq!(parse_branch_header("## main\rEVIL"), "main");
     }
 }

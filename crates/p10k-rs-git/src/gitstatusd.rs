@@ -33,6 +33,7 @@ use std::time::{Duration, Instant};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::AsFd;
 
+use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::GitState;
 
 use crate::Backend;
@@ -178,6 +179,13 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     }
     let s = |i: usize| -> &str { std::str::from_utf8(fields[i]).unwrap_or("") };
     let parse_u = |i: usize| -> u32 { s(i).parse().unwrap_or(0) };
+    // Untrusted field — the daemon emits whatever bytes it read from the
+    // repo (branch names, paths, commit OIDs). `from_utf8_lossy` turns
+    // non-UTF-8 byte sequences into the Unicode replacement char instead
+    // of dropping the whole string (M2 finding); `sanitize_for_terminal`
+    // then strips control bytes that would otherwise reach the TTY (C2).
+    let untrusted_field =
+        |i: usize| -> String { sanitize_for_terminal(&String::from_utf8_lossy(fields[i])) };
 
     // Field offsets per 07-gitstatus.md § 1.3 (0-based here):
     //   3  = HEAD commit oid
@@ -188,8 +196,8 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     //   13 = num untracked
     //   14 = ahead
     //   15 = behind
-    let commit = s(3).to_owned();
-    let branch = s(4).to_owned();
+    let commit = untrusted_field(3);
+    let branch = untrusted_field(4);
     let staged = parse_u(10);
     let unstaged = parse_u(11);
     let conflicts = parse_u(12);
@@ -275,6 +283,80 @@ mod tests {
             }
         }
         buf
+    }
+
+    #[test]
+    fn parses_branch_with_control_chars_stripped() {
+        // C2: branch name carrying an OSC 0 sequence (the daemon emits
+        // raw bytes; the parser is the chokepoint that prevents them
+        // from reaching the prompt).
+        let bytes = build_response(&[
+            "p10k-rs-prompt",
+            "1",
+            "/repo",
+            "deadbeef",
+            "main\x1b]0;TARS-OWNED\x07",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+        ]);
+        let s = parse_response(&bytes).unwrap();
+        assert!(!s.branch.contains('\x1b'), "ESC in branch: {:?}", s.branch);
+        assert!(!s.branch.contains('\x07'), "BEL in branch: {:?}", s.branch);
+        assert_eq!(s.branch, "main]0;TARS-OWNED");
+    }
+
+    #[test]
+    fn parses_non_utf8_branch_lossily_rather_than_dropping() {
+        // M2: pre-fix `from_utf8(...).unwrap_or("")` made non-UTF-8
+        // branch names render as empty. `from_utf8_lossy` keeps the
+        // non-malformed bytes and substitutes U+FFFD for the bad ones,
+        // so the user can see something meaningful.
+        let mut branch_bytes = Vec::from(b"main");
+        branch_bytes.push(0xFF); // invalid UTF-8 continuation byte
+        branch_bytes.push(0xFE);
+        let mut record = Vec::new();
+        for (i, f) in [
+            b"p10k-rs-prompt".as_ref(),
+            b"1".as_ref(),
+            b"/repo".as_ref(),
+            b"deadbeef".as_ref(),
+            branch_bytes.as_ref(),
+            b"".as_ref(),
+            b"".as_ref(),
+            b"".as_ref(),
+            b"".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+            b"0".as_ref(),
+        ]
+        .iter()
+        .enumerate()
+        {
+            record.extend_from_slice(f);
+            if i + 1 < 17 {
+                record.push(US);
+            }
+        }
+        let s = parse_response(&record).unwrap();
+        assert!(s.branch.starts_with("main"), "branch: {:?}", s.branch);
+        // Replacement char `\u{FFFD}` is itself a non-control char, so
+        // it survives sanitisation.
+        assert!(s.branch.contains('\u{FFFD}'));
     }
 
     #[test]
