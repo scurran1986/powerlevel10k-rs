@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::AsFd;
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::GitState;
 
 use crate::Backend;
@@ -180,12 +180,11 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     let s = |i: usize| -> &str { std::str::from_utf8(fields[i]).unwrap_or("") };
     let parse_u = |i: usize| -> u32 { s(i).parse().unwrap_or(0) };
     // Untrusted field — the daemon emits whatever bytes it read from the
-    // repo (branch names, paths, commit OIDs). `from_utf8_lossy` turns
-    // non-UTF-8 byte sequences into the Unicode replacement char instead
-    // of dropping the whole string (M2 finding); `sanitize_for_terminal`
-    // then strips control bytes that would otherwise reach the TTY (C2).
-    let untrusted_field =
-        |i: usize| -> String { sanitize_for_terminal(&String::from_utf8_lossy(fields[i])) };
+    // repo (branch names, paths, commit OIDs). `SafeText::from_untrusted_bytes`
+    // does the lossy-UTF-8 → sanitise pipeline in one step and bakes the
+    // sanitised invariant into the type so the consumer can't accidentally
+    // re-introduce control bytes.
+    let untrusted_field = |i: usize| -> SafeText { SafeText::from_untrusted_bytes(fields[i]) };
 
     // Field offsets per 07-gitstatus.md § 1.3 (0-based here):
     //   3  = HEAD commit oid
@@ -309,8 +308,16 @@ mod tests {
             "0",
         ]);
         let s = parse_response(&bytes).unwrap();
-        assert!(!s.branch.contains('\x1b'), "ESC in branch: {:?}", s.branch);
-        assert!(!s.branch.contains('\x07'), "BEL in branch: {:?}", s.branch);
+        assert!(
+            !s.branch.as_str().contains('\x1b'),
+            "ESC in branch: {:?}",
+            s.branch
+        );
+        assert!(
+            !s.branch.as_str().contains('\x07'),
+            "BEL in branch: {:?}",
+            s.branch
+        );
         assert_eq!(s.branch, "main]0;TARS-OWNED");
     }
 
@@ -352,10 +359,14 @@ mod tests {
             }
         }
         let s = parse_response(&record).unwrap();
-        assert!(s.branch.starts_with("main"), "branch: {:?}", s.branch);
+        assert!(
+            s.branch.as_str().starts_with("main"),
+            "branch: {:?}",
+            s.branch
+        );
         // Replacement char `\u{FFFD}` is itself a non-control char, so
         // it survives sanitisation.
-        assert!(s.branch.contains('\u{FFFD}'));
+        assert!(s.branch.as_str().contains('\u{FFFD}'));
     }
 
     #[test]

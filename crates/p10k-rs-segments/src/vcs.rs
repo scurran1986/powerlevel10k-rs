@@ -43,7 +43,7 @@ impl Segment for Vcs {
         // Marker is `!` if there are unmerged conflicts, else `*` if any
         // uncommitted change. Clean repos have no marker.
         let mut plain = String::with_capacity(git.branch.len() + 16);
-        plain.push_str(&git.branch);
+        plain.push_str(git.branch.as_str());
         if git.ahead > 0 {
             let _ = write!(plain, " +{}", git.ahead);
         }

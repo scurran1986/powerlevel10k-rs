@@ -22,7 +22,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::GitState;
 
 pub mod gitstatusd;
@@ -95,14 +95,13 @@ fn parse_porcelain_v1(s: &str) -> GitState {
 
 /// Pull the branch name out of the `## …` header line.
 ///
-/// The returned string passes through [`sanitize_for_terminal`] before being
-/// handed back, so a branch with embedded control bytes can't reach the
-/// prompt unsanitised — git's `check-ref-format` rejects such names at
-/// commit time, but a malicious `.git/refs/heads/<name>` written by hand
-/// or by a misbehaving tool can still surface here.
-fn parse_branch_header(header: &str) -> String {
-    let raw = parse_branch_header_raw(header);
-    sanitize_for_terminal(&raw)
+/// Returns a [`SafeText`] — branches with embedded control bytes get
+/// sanitised at construction time so they can't reach the prompt
+/// unsanitised. Git's `check-ref-format` rejects such names at commit
+/// time, but a malicious `.git/refs/heads/<name>` written by hand or
+/// by a misbehaving tool can still surface here.
+fn parse_branch_header(header: &str) -> SafeText {
+    SafeText::from_untrusted(&parse_branch_header_raw(header))
 }
 
 fn parse_branch_header_raw(header: &str) -> String {

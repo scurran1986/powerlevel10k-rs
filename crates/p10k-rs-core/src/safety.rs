@@ -54,6 +54,113 @@ pub fn sanitize_for_terminal(s: &str) -> String {
     out
 }
 
+/// A string whose every codepoint has passed [`sanitize_for_terminal`].
+///
+/// Producer-side guarantee: no control byte (except `\t`), no DEL. The
+/// inner string is private so the only way to put bytes into a `SafeText`
+/// is through a sanitising constructor — there's no `assume_safe` escape
+/// hatch by design. Literals like `"HEAD"` go through sanitisation too;
+/// the cost is one no-op pass over a tiny string.
+///
+/// Implements `AsRef<str>` and `Display` so segments can format it
+/// transparently:
+///
+/// ```
+/// use p10k_rs_core::safety::SafeText;
+/// let branch = SafeText::from_untrusted("main\rEVIL");
+/// assert_eq!(branch.as_str(), "mainEVIL");
+/// assert_eq!(format!("on {branch}"), "on mainEVIL");
+/// ```
+///
+/// `From<&str>` is provided as ergonomic sugar for the same constructor;
+/// the implicit form is what makes test fixtures readable. Either form
+/// upholds the invariant.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct SafeText(String);
+
+impl SafeText {
+    /// Construct a `SafeText` from a `&str`, stripping unsafe bytes.
+    ///
+    /// Idempotent on already-safe strings — the no-change path still
+    /// allocates a fresh `String`, since the inner type is owned.
+    #[must_use]
+    pub fn from_untrusted(s: &str) -> Self {
+        Self(sanitize_for_terminal(s))
+    }
+
+    /// Construct a `SafeText` from raw bytes that may not be valid UTF-8.
+    ///
+    /// Non-UTF-8 sequences are replaced with `U+FFFD` (the Unicode
+    /// replacement character) before sanitisation, mirroring
+    /// `String::from_utf8_lossy`. This is the right constructor for
+    /// data coming off the `gitstatusd` wire or any other byte-stream
+    /// boundary where encoding can't be assumed.
+    #[must_use]
+    pub fn from_untrusted_bytes(b: &[u8]) -> Self {
+        Self(sanitize_for_terminal(&String::from_utf8_lossy(b)))
+    }
+
+    /// Borrow the inner string. Always-safe `&str` for pushing into
+    /// rendered output.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// `true` if the safe string is the empty string.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Length in bytes (matches `str::len`).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl AsRef<str> for SafeText {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SafeText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for SafeText {
+    fn from(s: &str) -> Self {
+        Self::from_untrusted(s)
+    }
+}
+
+// String-equality conveniences: `assert_eq!(safe_text, "main")` and
+// `assert_eq!(safe_text, String::from("main"))` work without an explicit
+// `.as_str()` on the LHS. The reverse direction (`"main" == safe_text`)
+// is intentionally not provided — the cost is one `.as_str()` at the
+// call site, in exchange for keeping the foreign-impl footprint small.
+impl PartialEq<str> for SafeText {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for SafeText {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<String> for SafeText {
+    fn eq(&self, other: &String) -> bool {
+        &self.0 == other
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +231,45 @@ mod tests {
         // wrapping pass; this function must leave `%` alone so non-zsh
         // shells aren't double-processed.
         assert_eq!(sanitize_for_terminal("%n@%m"), "%n@%m");
+    }
+
+    #[test]
+    fn safe_text_strips_controls_at_construction() {
+        let t = SafeText::from_untrusted("main\rEVIL");
+        assert_eq!(t.as_str(), "mainEVIL");
+    }
+
+    #[test]
+    fn safe_text_from_bytes_handles_non_utf8() {
+        let t = SafeText::from_untrusted_bytes(&[b'm', b'a', b'i', b'n', 0xFF, 0xFE]);
+        assert!(t.as_str().starts_with("main"));
+        assert!(t.as_str().contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn safe_text_from_bytes_strips_controls() {
+        let t = SafeText::from_untrusted_bytes(b"main\x1b]0;TARS\x07");
+        assert_eq!(t.as_str(), "main]0;TARS");
+    }
+
+    #[test]
+    fn safe_text_default_is_empty() {
+        let t = SafeText::default();
+        assert!(t.is_empty());
+        assert_eq!(t.len(), 0);
+        assert_eq!(t.as_str(), "");
+    }
+
+    #[test]
+    fn safe_text_displays_as_inner_string() {
+        let t = SafeText::from_untrusted("feat/x");
+        assert_eq!(format!("{t}"), "feat/x");
+    }
+
+    #[test]
+    fn safe_text_from_str_via_into_strips_controls() {
+        // `From<&str>` sugar for tests and constants — same guarantee.
+        let t: SafeText = "with\rcontrol".into();
+        assert_eq!(t.as_str(), "withcontrol");
     }
 }

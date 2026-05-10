@@ -24,6 +24,8 @@ use std::time::{Duration, SystemTime};
 pub mod safety;
 pub mod style;
 
+use safety::SafeText;
+
 /// A single prompt segment.
 ///
 /// Implementations must be cheap to construct and side-effect free outside of
@@ -381,7 +383,12 @@ pub enum HostKind {
 #[derive(Debug, Default, Clone)]
 pub struct GitState {
     /// Current branch name. `"HEAD"` for detached. Empty if unknown.
-    pub branch: String,
+    ///
+    /// Wrapped in [`SafeText`] so the type system enforces the
+    /// "this string has passed `sanitize_for_terminal`" invariant —
+    /// segments cannot accidentally re-introduce control bytes that
+    /// would steer the terminal or zsh's prompt-expansion engine.
+    pub branch: SafeText,
     /// `true` if the working tree has any uncommitted changes (modified,
     /// staged, untracked, or conflicted).
     pub dirty: bool,
@@ -398,7 +405,8 @@ pub struct GitState {
     /// `true` if any path is in conflict (unmerged stage).
     pub has_conflicts: bool,
     /// HEAD commit OID as full hex. Empty if unknown / unborn branch.
-    pub commit: String,
+    /// Same `SafeText` invariant as [`GitState::branch`].
+    pub commit: SafeText,
 }
 
 /// Snapshot of environment variables relevant to segments.
