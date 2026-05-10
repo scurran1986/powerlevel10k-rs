@@ -46,6 +46,35 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 - zsh init script sources the dump at the top (before daemon spawn, before hooks) so first shell renders PROMPT immediately.
 - First real precmd overwrites with fresh render; masks ~2s cold gitstatusd cache hit on kernel-sized repos.
 
+### Slice 9: Triage — close ADR-0001 follow-ups, doc refresh, FIFO security (de0072c)
+- Removed `crates/spike-gitstatus`; stripped the `gix`, `bincode`, `humantime`, `tempfile` workspace deps it pulled in.
+- Removed phantom `p10k-rs-git` dep from `p10k-rs-segments` and unused `tracing` from `p10k-rs-core`.
+- FIFO security hardening: `mktemp -d` for unpredictable run dirs, `chmod 0700` parent + `mkfifo -m 0600` under `umask 077`, `_p10k_rs_stop_daemon` validates the dir template before `rm -rf`, `is_fifo` uses `symlink_metadata` + UID ownership check.
+- `cmd_init` shell-literal escape now rejects every byte < 0x20, byte 0x7F (DEL), and single quote — was previously single-quote only.
+- `init_tracing` early-returns when `RUST_LOG` is unset (saves ~100-300 µs per silent-path prompt invocation).
+- `locate_binary` no longer probes the dev-machine `/home/seaburdz/...` path; install.sh symlinks a found `gitstatusd` next to the binary.
+- README, CHANGELOG, ADR-0001 follow-ups refreshed; new `THIRD-PARTY-LICENSES.md` documents the GPL-3.0 `gitstatusd` bundle per ADR-0001 § Operational.
+
+### Slice 10: status segment — exit code shown red on non-zero $? (d99a514)
+- New `Status` segment renders `✘<code>` in red between `command_execution_time` and `prompt_char` when `$?` is non-zero. Hidden on success.
+- Default layout: `[dir, vcs, command_execution_time, status, prompt_char]`.
+- Pure additive — last-status plumbing was already in place from slice 3.
+
+### Slice 11: harden render path against %-expansion + ANSI injection (e657779)
+- Closes two CRITICAL findings from the prior audit cycle (`.review/20260509T130000Z/02-render-injection.md`). Both reproducible in 30 s against the pre-fix binary; both neutralised here.
+- **C1 (zsh PROMPT %-expansion via untrusted branch / cwd):** `wrap_for_shell` now doubles every literal `%` to `%%` in the zsh case, alongside its existing `%{ }` SGR wrapping. SGR escape bodies emitted by segments contain no literal `%`, so the doubling pass only fires on text content. Bash and fish are pass-through unchanged.
+- **C2 (terminal-escape injection via untrusted cwd):** new `p10k-rs-core::safety::sanitize_for_terminal` strips every Unicode control codepoint (`is_control()`) except `\t`, plus `\x7F`. Applied at three boundaries: `gitstatusd::parse_response` (branch + commit fields), `git::parse_branch_header` (porcelain backend), `segments::dir::Dir::render` (cwd display).
+- `gitstatusd::parse_response` switches from `from_utf8` to `from_utf8_lossy`, closing M2 (silent-empty on non-UTF-8 branch names).
+- H1 (instant-prompt dump persists C1 across shell restarts) closes automatically: the dump file writes whatever `wrap_for_shell` produced, so the doubled `%%` survives across shell-restart sourcing.
+- 53 tests pass workspace-wide (was 33). End-to-end reproducer rerun against the rebuilt binary confirms `%n@%m` → `%%n@%%m`, OSC `\x1b]…\x07` stripped, CR overwrite stripped.
+
+### Slice 12-a: doc / changelog hygiene (this commit)
+- Backfilled CHANGELOG entries for slices 9, 10, 11.
+- README rewritten with single-command quickstart and current 11-slice list (separate commit `cab03c8`).
+- CONTRIBUTING.md MSRV: 1.84 → 1.88 (matches `rust-toolchain.toml`).
+- `init.zsh`: removed the "Slice 2 escapes them" comment that slice 11 just satisfied; rewritten as a description of what the surrounding glue actually does.
+- Stripped 21 stale slice-number comments from source — readability + documentation lanes flagged forecasts and history that rot. Concrete present-tense descriptions replace them.
+
 ### Added
 - Workspace scaffold: eight crates wired through `[workspace.dependencies]` with centralised pinning, lints, release profile, rustfmt/clippy/cargo-deny/dependabot.
 - CI: fmt, clippy, test, doc, and cargo-deny on stable Rust across ubuntu-latest and macos-latest.

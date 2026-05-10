@@ -5,7 +5,7 @@
 //! `p10k-rs init <shell>` prints the right snippet without reading from
 //! disk at runtime. See `ARCHITECTURE.md` § 2.5.
 //!
-//! Slice 1 ships zsh only; fish and bash come in later phases.
+//! Today only zsh ships; fish and bash come in later phases.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -55,7 +55,7 @@ pub struct InitScriptUnimplemented(pub Shell);
 /// # Errors
 ///
 /// Returns [`InitScriptUnimplemented`] for shells whose init script hasn't
-/// been written yet (slice 1: only zsh).
+/// been written yet (today: only zsh).
 pub fn init_script(shell: Shell) -> Result<&'static str, InitScriptUnimplemented> {
     match shell {
         Shell::Zsh => Ok(include_str!("../shells/zsh/init.zsh")),

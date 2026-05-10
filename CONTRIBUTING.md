@@ -20,7 +20,7 @@ read this whole document before opening a PR.
    abstraction-for-its-own-sake. The next contributor reads this in six months.
 6. **Tests where they matter.** Pure logic gets `#[test]`. I/O gets
    integration tests in `tests/`. Theatre tests get deleted.
-7. **MSRV pinned and respected.** stable - 2 (currently 1.84). Don't reach
+7. **MSRV pinned and respected.** stable - 2 (currently 1.88). Don't reach
    for unstable features.
 8. **No `tokio` in MVP.** The architecture is spawn-per-prompt synchronous.
    Async dependencies are a v0.2 conversation.

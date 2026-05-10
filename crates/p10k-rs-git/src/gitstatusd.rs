@@ -53,8 +53,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Long-lived gitstatusd backend. Talks to a daemon spawned by the shell
 /// init script via two FIFO paths.
 ///
-/// Slice 7 adds a `poll(2)`-based deadline so a wedged daemon falls back
-/// to `ShellOut` instead of hanging the prompt indefinitely.
+/// A `poll(2)`-based deadline ensures a wedged daemon falls back to
+/// `ShellOut` instead of hanging the prompt indefinitely.
 #[derive(Debug, Clone)]
 pub struct Gitstatusd {
     req_fifo: PathBuf,
@@ -220,7 +220,7 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
 }
 
 /// Returns `true` if `p` exists, is a named pipe (FIFO), and is owned by
-/// the current effective UID. Slice-9 security:
+/// the current effective UID. Security rationale:
 ///
 /// - `symlink_metadata` (lstat) instead of `metadata` (stat) — refuses to
 ///   follow a symlink. Defends against an attacker swapping our FIFO path
@@ -244,10 +244,9 @@ fn is_fifo(p: &Path) -> bool {
 ///   1. `$P10K_RS_GITSTATUSD_BIN` (explicit override).
 ///   2. `gitstatusd` and `gitstatusd-linux-x86_64` on `$PATH`.
 ///
-/// Slice 9 dropped the dev-machine fallback path (`/home/seaburdz/...`)
-/// flagged across multiple review lanes — it never resolved on any other
-/// machine and would happily pick up any binary that happened to live there
-/// on a multi-user host.
+/// The dev-machine fallback path (`/home/seaburdz/...`) was deliberately
+/// removed: it never resolved on any other machine and would happily pick
+/// up any binary that happened to live there on a multi-user host.
 #[must_use]
 pub fn locate_binary() -> Option<PathBuf> {
     if let Some(env) = std::env::var_os("P10K_RS_GITSTATUSD_BIN") {

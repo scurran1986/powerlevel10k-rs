@@ -55,12 +55,12 @@ pub fn segment_names() -> &'static [&'static str] {
     ]
 }
 
-/// Build the slice-5 default layout: dir, vcs, command-execution-time, prompt-char.
+/// Build the default layout: dir, vcs, command-execution-time, prompt-char.
 ///
 /// Returns segment instances in render order. Each segment's `enabled()` is
 /// the gate (`vcs` hides when not in a repo, `command_execution_time` hides
-/// below the 3-second threshold). Future slices replace this hardcoded
-/// layout with config-driven assembly via `p10k-rs-config`.
+/// below the 3-second threshold). This hardcoded layout will be replaced
+/// later with config-driven assembly via `p10k-rs-config`.
 #[must_use]
 pub fn default_layout() -> Vec<Box<dyn Segment>> {
     vec![

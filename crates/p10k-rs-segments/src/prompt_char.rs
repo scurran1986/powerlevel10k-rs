@@ -1,11 +1,11 @@
 //! `prompt_char` — the trailing chevron the user types after.
 //!
-//! Slice 3: green `❯` when the previous command exited 0, red `❯` when it
-//! exited non-zero. The exit status arrives via `RenderCtx::last_status`,
-//! which the binary fills from the `--last-status` CLI arg, which the zsh
-//! init script captures from `$?` at the top of its `precmd` hook.
+//! Green `❯` when the previous command exited 0, red `❯` when it exited
+//! non-zero. The exit status arrives via `RenderCtx::last_status`, which the
+//! binary fills from the `--last-status` CLI arg, which the zsh init script
+//! captures from `$?` at the top of its `precmd` hook.
 //!
-//! Vi-mode variants land in later slices.
+//! Vi-mode variants will land later.
 
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 

@@ -1,11 +1,11 @@
 //! Git state producers for `p10k-rs`.
 //!
 //! Per ADR-0001 (`docs/adr/0001-git-backend.md`), the production hot path is
-//! a long-lived `gitstatusd` client. That landing slice ships the
-//! `Gitstatusd` backend; for now this crate exposes:
+//! a long-lived `gitstatusd` client. This crate exposes:
 //!
 //! - [`Backend`] — the trait every producer implements.
 //! - [`ShellOut`] — slow but always-available fallback that spawns `git`.
+//! - [`Gitstatusd`] — the daemon-backed fast path.
 //!
 //! The shape returned to consumers ([`p10k_rs_core::GitState`]) is owned by
 //! `p10k-rs-core` so [`p10k_rs_core::RenderCtx`] can hold an `Option<&'_>`
@@ -39,8 +39,8 @@ pub trait Backend {
 }
 
 /// Shell-out backend: spawns `git`. Slow but always available wherever
-/// `git` is on `$PATH`. Used as the slice-4 default and as the post-slice-5
-/// fallback when no `gitstatusd` is present for the host triple.
+/// `git` is on `$PATH`. Used as the fallback when no `gitstatusd` is
+/// present for the host triple.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ShellOut;
 

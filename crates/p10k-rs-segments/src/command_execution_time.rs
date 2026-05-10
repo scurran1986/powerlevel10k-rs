@@ -1,10 +1,9 @@
 //! `command_execution_time` — duration of the last foreground command.
 //!
-//! Slice 5: cyan duration string when the last command took ≥ 3 seconds.
-//! Below the threshold the segment is `enabled() == false` and the renderer
-//! skips it. The threshold is hardcoded for now; slice 6+ exposes it via
-//! TOML config (matches upstream p10k's
-//! `POWERLEVEL9K_COMMAND_EXECUTION_TIME_THRESHOLD`).
+//! Cyan duration string when the last command took ≥ 3 seconds. Below the
+//! threshold the segment is `enabled() == false` and the renderer skips it.
+//! The threshold is hardcoded for now; TOML config will expose it later
+//! (matches upstream p10k's `POWERLEVEL9K_COMMAND_EXECUTION_TIME_THRESHOLD`).
 //!
 //! Duration arrives via [`RenderCtx::last_duration`], which the binary fills
 //! from the `--last-duration` CLI arg, which the zsh init script computes
@@ -46,9 +45,9 @@ impl Segment for CommandExecutionTime {
 
 /// Format a millisecond count as `"NNs"`, `"MmSSs"`, or `"HhMMm"`.
 ///
-/// Sub-second precision (e.g. `1.5s`) lands when the zsh init script gets
-/// `$EPOCHREALTIME` plumbing in a later slice; slice 5 only sees integer
-/// seconds from `$EPOCHSECONDS`, so showing `1.234s` here would be a lie.
+/// Sub-second precision (e.g. `1.5s`) will land when the zsh init script
+/// gets `$EPOCHREALTIME` plumbing; today only integer seconds arrive from
+/// `$EPOCHSECONDS`, so showing `1.234s` here would be a lie.
 fn format_duration_ms(ms: u128) -> String {
     // Clamp to u64 — anything past 584 million years isn't a real prompt.
     let secs = u64::try_from(ms / 1000).unwrap_or(u64::MAX);

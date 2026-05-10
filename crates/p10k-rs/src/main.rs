@@ -1,8 +1,8 @@
 //! `p10k-rs` binary entrypoint.
 //!
 //! Subcommands track `MVP-SPEC.md` § 1.4: `prompt`, `init`, `configure`,
-//! `import`, `statusline`, `segment-list`. Slice 1 lights up `prompt` and
-//! `init` for zsh end-to-end; the others remain stubs until their phases.
+//! `import`, `statusline`, `segment-list`. Today `prompt` and `init` light
+//! up for zsh end-to-end; the others remain stubs until their phases.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -55,7 +55,7 @@ enum Command {
         /// shell snippet (atomic temp+rename). The shell init script
         /// sources this file at startup so PROMPT is set before any
         /// segment-renderer runs — masking gitstatusd's first-call cold
-        /// cost on big repos. Slice 8.
+        /// cost on big repos.
         #[arg(long)]
         dump: Option<PathBuf>,
         /// Emit machine-readable JSON instead of styled text.
@@ -134,7 +134,7 @@ fn main() -> Result<()> {
     }
 }
 
-/// Render the prompt: hardcoded slice-5 layout for now.
+/// Render the prompt: hardcoded layout for now.
 fn cmd_prompt(
     shell: &str,
     last_status: i32,
@@ -144,10 +144,10 @@ fn cmd_prompt(
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
 
-    // Slice 6: prefer the `Gitstatusd` backend when the shell init script
-    // has set up FIFOs and started the daemon (ADR-0001). Fall back to the
-    // slower `ShellOut` for ad-hoc CLI invocations and shells where the
-    // daemon couldn't start.
+    // Prefer the `Gitstatusd` backend when the shell init script has set up
+    // FIFOs and started the daemon (ADR-0001). Fall back to the slower
+    // `ShellOut` for ad-hoc CLI invocations and shells where the daemon
+    // couldn't start.
     let git = git_status(cwd.as_path());
 
     let cfg = Config::default();
@@ -172,9 +172,9 @@ fn cmd_prompt(
     // script appends a single space when assigning to PROMPT.
     print!("{}", prompt.left);
 
-    // Slice 8: dump the rendered prompt to disk for the instant-prompt
-    // path. Failure is non-fatal — the next invocation will retry, and
-    // the user just sees a slightly slower first prompt next shell.
+    // Dump the rendered prompt to disk for the instant-prompt path. Failure
+    // is non-fatal — the next invocation will retry, and the user just sees
+    // a slightly slower first prompt next shell.
     if let Some(dump_path) = dump {
         if let Err(e) = write_instant_dump(dump_path, &prompt.left, core_shell) {
             tracing::warn!("instant-prompt dump write failed (non-fatal): {e}");
@@ -195,9 +195,9 @@ fn write_instant_dump(
     rendered: &str,
     shell: CoreShell,
 ) -> std::io::Result<()> {
-    // Slice 8: only zsh's init script sources the dump today. Bash and fish
-    // get the same single-quote-and-escape treatment for now; their init
-    // scripts will swap to the right per-shell syntax when they ship.
+    // Only zsh's init script sources the dump today. Bash and fish get the
+    // same single-quote-and-escape treatment for now; their init scripts
+    // will swap to the right per-shell syntax when they ship.
     let _ = shell;
     let content = zsh_dump_line(rendered);
     if let Some(parent) = path.parent() {

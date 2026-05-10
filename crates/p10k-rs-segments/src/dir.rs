@@ -1,9 +1,9 @@
 //! `dir` — current working directory segment.
 //!
-//! Slice 2: cwd in blue, with `$HOME` collapsed to `~`. Truncation policies
-//! and the writable / read-only state come in later slices. ANSI escapes are
-//! emitted raw; the renderer post-processes them for the target shell
-//! (e.g. zsh's `%{…%}` bracketing).
+//! Cwd in blue, with `$HOME` collapsed to `~`. Truncation policies and the
+//! writable / read-only state will land later. ANSI escapes are emitted raw;
+//! the renderer post-processes them for the target shell (e.g. zsh's
+//! `%{…%}` bracketing).
 
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};

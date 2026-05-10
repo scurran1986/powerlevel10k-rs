@@ -1,4 +1,4 @@
-# p10k-rs zsh init script — slice 1.
+# p10k-rs zsh init script.
 #
 # Sourced into the user's interactive zsh via:
 #   eval "$(p10k-rs init zsh)"
@@ -7,14 +7,18 @@
 # prompt string before every prompt render. Re-sourcing is a no-op so users
 # can `source` it more than once without doubling the hook.
 #
-# Limitations until later slices:
-#  - Plain text only; no ANSI colors yet (those need %{...%} bracketing for
-#    correct width tracking).
-#  - No instant prompt; the binary always recomputes from scratch.
-#  - No transient prompt collapse on accept-line.
-#  - PROMPT_SUBST is left at the user's setting; output is captured at
-#    assignment time, so `%` characters in cwd would be re-interpreted by
-#    zsh. Slice 2 escapes them.
+# Render-path safety:
+#  - The binary's `wrap_for_shell` pass doubles literal `%` to `%%` in text
+#    content so an attacker-controlled branch name or cwd can't trigger zsh
+#    PROMPT-expansion (`%n`, `%m`, `%/`, `$(…)` under PROMPT_SUBST). SGR
+#    escapes from segments are wrapped in `%{ }` for correct width tracking.
+#  - `sanitize_for_terminal` strips control bytes (CR, ESC, BEL, …) at every
+#    untrusted-input boundary so OSC/CSI/DCS sequences can't ride a branch
+#    name or directory path into the terminal's state machine.
+#
+# Not yet shipped:
+#  - Transient prompt collapse on accept-line.
+#  - Right-side prompt (`RPROMPT`).
 
 if [[ -n "${_P10K_RS_INSTALLED:-}" ]]; then
   return 0

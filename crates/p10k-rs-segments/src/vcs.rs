@@ -1,9 +1,9 @@
 //! `vcs` — version-control segment.
 //!
-//! Slice 4: yellow branch name, with a trailing `*` when the working tree is
-//! dirty. Disabled (skipped by the renderer) when not in a repo. ADR-0001's
-//! daemon client lands in slice 5+ and replaces the producer behind
-//! [`RenderCtx::git`]; this segment doesn't change when that swap happens.
+//! Yellow branch name, with a trailing `*` when the working tree is dirty.
+//! Disabled (skipped by the renderer) when not in a repo. ADR-0001's daemon
+//! client will replace the producer behind [`RenderCtx::git`] later; this
+//! segment doesn't change when that swap happens.
 
 use std::fmt::Write;
 
@@ -23,8 +23,8 @@ impl Segment for Vcs {
     }
 
     fn is_fast(&self) -> bool {
-        // Shell-out backend (slice 4) spawns `git` — definitely not "fast".
-        // Daemon backend in slice 5+ flips this to true.
+        // Shell-out backend spawns `git` — definitely not "fast".
+        // The daemon backend will flip this to true.
         false
     }
 
