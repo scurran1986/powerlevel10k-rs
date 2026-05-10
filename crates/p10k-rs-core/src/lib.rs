@@ -329,18 +329,17 @@ mod tests {
 // real fields as crates land. Each one is documented; the field-level docs
 // will arrive with the implementation.
 
-/// Top-level configuration.
-///
-/// The full shape lives in `p10k-rs-config`; this re-export point exists so
-/// `p10k-rs-core` can reference `Config` in trait signatures without a
-/// dependency cycle.
-///
-// TODO(adviser): once `p10k-rs-config` lands, replace this with a re-export
-// (`pub use p10k_rs_config::Config;`) or invert the dependency. The current
-// duplication keeps `-core` build-clean before `-config` exists.
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct Config {}
+// Top-level configuration.
+//
+// The full shape lives in `p10k-rs-config`; we re-export it here so
+// `p10k-rs-core` can reference `Config` in `RenderCtx` and trait signatures
+// without consumers needing to depend on `p10k-rs-config` directly.
+//
+// Dependency direction is one-way: `p10k-rs-core` depends on
+// `p10k-rs-config`, never the other way around. The sanitiser
+// `p10k-rs-config` runs at parse time is a small inlined copy of
+// `crate::safety::sanitize_for_terminal` — see that module's docs.
+pub use p10k_rs_config::Config;
 
 /// Which shell is asking for a prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

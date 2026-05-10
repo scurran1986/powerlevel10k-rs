@@ -294,6 +294,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "p10k-rs-config",
  "p10k-rs-core",
  "p10k-rs-git",
  "p10k-rs-segments",
@@ -327,6 +328,7 @@ name = "p10k-rs-core"
 version = "0.1.0"
 dependencies = [
  "anstyle",
+ "p10k-rs-config",
  "serde",
  "thiserror",
 ]

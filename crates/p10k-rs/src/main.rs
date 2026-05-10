@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Shell as CoreShell};
+use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell as CoreShell};
 use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
@@ -134,7 +134,8 @@ fn main() -> Result<()> {
     }
 }
 
-/// Render the prompt: hardcoded layout for now.
+/// Render the prompt: discover the user's TOML config, fall back to a
+/// hardcoded factory default if anything goes wrong.
 fn cmd_prompt(
     shell: &str,
     last_status: i32,
@@ -150,7 +151,16 @@ fn cmd_prompt(
     // couldn't start.
     let git = git_status(cwd.as_path());
 
-    let cfg = Config::default();
+    // Resolve the user's config. Missing file or parse error → factory
+    // default. The contract for this slice is byte-identical output to the
+    // pre-config-loader behaviour when no config is present.
+    let cfg = match Config::load_default() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!("config load failed: {e}, falling back to factory default");
+            factory_default_config()
+        }
+    };
     let env = EnvSnapshot::default();
     let ctx = RenderCtx {
         config: &cfg,
@@ -165,7 +175,7 @@ fn cmd_prompt(
         env: &env,
     };
 
-    let segments = p10k_rs_segments::default_layout();
+    let segments = assemble_segments(&cfg.layout.left);
     let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
 
     // Stdout: left side only, plain text, no trailing newline. The init
@@ -181,6 +191,53 @@ fn cmd_prompt(
         }
     }
     Ok(())
+}
+
+/// Build the factory-default `Config`.
+///
+/// The layout is byte-identical to the pre-loader hardcoded list — `[dir,
+/// vcs, command_execution_time, status, prompt_char]` — because slice 13's
+/// no-config-file behaviour must be byte-identical to today's prompt
+/// output. Slice 13.5 deletes `p10k_rs_segments::default_layout()` once
+/// the loader is the only assembly path; until then, both lists must stay
+/// in lock-step.
+fn factory_default_config() -> Config {
+    // Build the TOML on-the-fly rather than constructing the schema by
+    // hand. `Config` is `#[non_exhaustive]` and uses `#[serde(transparent)]`
+    // newtypes that can't be field-initialised from outside the crate, so
+    // round-tripping through `from_toml` is the only ergonomic path. The
+    // string is `const` and parses in single-digit microseconds.
+    const FACTORY_TOML: &str = r#"
+schema_version = 1
+[layout]
+left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+"#;
+    // `from_toml` is fallible only on parse error — the literal above is a
+    // compile-time constant, so failing here is a programmer bug. The
+    // workspace lints deny `panic!` and `expect`, but parsing a hard-coded
+    // valid TOML literal is one of the few places where a panic is the
+    // right shape: any failure is a programming error in this file, not a
+    // user-facing condition. The factory-default-toml test below pins the
+    // contract.
+    #[allow(clippy::expect_used)]
+    Config::from_toml(FACTORY_TOML).expect("factory-default TOML must always parse")
+}
+
+/// Walk a layout segment list and instantiate each known segment.
+///
+/// Unknown names produce a `tracing::warn!` and are skipped — a typo'd
+/// segment in a user config is a non-fatal warning, not a crash. Returns
+/// in render order.
+fn assemble_segments(refs: &[p10k_rs_config::SegmentRef]) -> Vec<Box<dyn Segment>> {
+    let mut out: Vec<Box<dyn Segment>> = Vec::with_capacity(refs.len());
+    for r in refs {
+        if let Some(seg) = p10k_rs_segments::build(&r.0) {
+            out.push(seg);
+        } else {
+            tracing::warn!("unknown segment {:?} in layout.left, skipping", r.0);
+        }
+    }
+    out
 }
 
 /// Serialise the rendered PROMPT to a sourceable shell snippet at `path`,

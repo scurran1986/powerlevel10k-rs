@@ -59,8 +59,11 @@ pub fn segment_names() -> &'static [&'static str] {
 ///
 /// Returns segment instances in render order. Each segment's `enabled()` is
 /// the gate (`vcs` hides when not in a repo, `command_execution_time` hides
-/// below the 3-second threshold). This hardcoded layout will be replaced
-/// later with config-driven assembly via `p10k-rs-config`.
+/// below the 3-second threshold).
+///
+/// Kept as a backstop while slice 13 wires the config loader in. Slice 13.5
+/// will delete this in favour of the [`build`] registry once the binary
+/// always assembles its layout from a `Config`.
 #[must_use]
 pub fn default_layout() -> Vec<Box<dyn Segment>> {
     vec![
@@ -70,4 +73,62 @@ pub fn default_layout() -> Vec<Box<dyn Segment>> {
         Box::new(status::Status),
         Box::new(prompt_char::PromptChar),
     ]
+}
+
+/// Construct a `Segment` instance by its config name.
+///
+/// Returns `None` for names not in this build's MVP set. Callers are expected
+/// to log and skip — an unknown name in a user config should be a non-fatal
+/// `tracing::warn!`, not an error.
+///
+/// Mapping today (slice 13):
+///
+/// | name | type |
+/// |------|------|
+/// | `dir` | [`dir::Dir`] |
+/// | `vcs` | [`vcs::Vcs`] |
+/// | `command_execution_time` | [`command_execution_time::CommandExecutionTime`] |
+/// | `status` | [`status::Status`] |
+/// | `prompt_char` | [`prompt_char::PromptChar`] |
+///
+/// Names from [`segment_names`] that don't appear above (e.g. `time`,
+/// `kubecontext`) are accepted by [`segment_names`] as advertisement but
+/// not yet implemented; `build` returns `None` for them and the renderer
+/// drops the slot. They light up segment-by-segment in later slices.
+#[must_use]
+pub fn build(name: &str) -> Option<Box<dyn Segment>> {
+    match name {
+        "dir" => Some(Box::new(dir::Dir)),
+        "vcs" => Some(Box::new(vcs::Vcs)),
+        "command_execution_time" => Some(Box::new(command_execution_time::CommandExecutionTime)),
+        "status" => Some(Box::new(status::Status)),
+        "prompt_char" => Some(Box::new(prompt_char::PromptChar)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::panic)]
+mod tests {
+    use super::build;
+
+    #[test]
+    fn build_returns_known_segments() {
+        for name in [
+            "dir",
+            "vcs",
+            "command_execution_time",
+            "status",
+            "prompt_char",
+        ] {
+            let seg = build(name).unwrap_or_else(|| panic!("build({name}) returned None"));
+            assert_eq!(seg.name(), name, "build({name}).name() mismatch");
+        }
+    }
+
+    #[test]
+    fn build_returns_none_for_unknown() {
+        assert!(build("definitely_not_a_segment").is_none());
+        assert!(build("").is_none());
+    }
 }

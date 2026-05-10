@@ -14,6 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+p10k-rs-config = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 anstyle = { workspace = true }

@@ -20,6 +20,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal crates wire in as their respective subcommands light up.
 p10k-rs-core = { workspace = true }
+p10k-rs-config = { workspace = true }
 p10k-rs-git = { workspace = true }
 p10k-rs-segments = { workspace = true }
 p10k-rs-shell = { workspace = true }
