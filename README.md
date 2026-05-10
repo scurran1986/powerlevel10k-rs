@@ -8,25 +8,34 @@ static binary, declarative TOML config, multi-shell support, with
 
 ## Quickstart
 
-One command. Clones the repo, builds the binary, wires zsh:
+One line. Clones the repo to `~/.local/share/powerlevel10k-rs`,
+builds the binary, wires zsh:
 
 ```bash
-git clone https://github.com/scurran1986/powerlevel10k-rs.git ~/.local/share/powerlevel10k-rs && ~/.local/share/powerlevel10k-rs/install.sh
+curl -fsSL https://raw.githubusercontent.com/scurran1986/powerlevel10k-rs/main/get.sh | bash
 ```
 
 Open a new zsh terminal — the prompt is live.
 
-Requirements: `cargo` (install via [rustup](https://rustup.rs)), zsh,
-git. The installer drops the binary at `~/.cargo/bin/p10k-rs`,
-appends an `eval "$(p10k-rs init zsh)"` line to `~/.zshrc`, and
-symlinks `gitstatusd` next to the binary if a canonical install is
-on `PATH` (otherwise the slow `git` shell-out fallback kicks in;
-see [docs/adr/0001-git-backend.md](docs/adr/0001-git-backend.md)).
+Requirements: `cargo` (install via [rustup](https://rustup.rs)),
+`zsh`, `git`, `curl`. The installer drops the binary at
+`~/.cargo/bin/p10k-rs`, appends an `eval "$(p10k-rs init zsh)"`
+line to `~/.zshrc`, and symlinks `gitstatusd` next to the binary
+if a canonical install is on `PATH` (otherwise the slow `git`
+shell-out fallback kicks in; see
+[docs/adr/0001-git-backend.md](docs/adr/0001-git-backend.md)).
 
-To uninstall:
+Re-piping the same command upgrades an existing install. To
+uninstall:
 
 ```bash
 ~/.local/share/powerlevel10k-rs/install.sh --uninstall
+```
+
+Prefer to clone yourself? The bootstrap is just:
+
+```bash
+git clone https://github.com/scurran1986/powerlevel10k-rs.git ~/.local/share/powerlevel10k-rs && ~/.local/share/powerlevel10k-rs/install.sh
 ```
 
 ## Status
