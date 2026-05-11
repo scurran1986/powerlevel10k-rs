@@ -100,6 +100,18 @@ jobs:
             ${{ steps.package.outputs.asset }}
             ${{ steps.package.outputs.shasum }}
 
+      - name: locate release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: notes
+        run: |
+          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [[ -f "$notes" ]]; then
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "::warning::no release notes at $notes — release body will be empty"
+          fi
+
       - name: attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -107,6 +119,8 @@ jobs:
           files: |
             ${{ steps.package.outputs.asset }}
             ${{ steps.package.outputs.shasum }}
-          # Don't auto-generate release notes — the maintainer writes them
-          # alongside the slice that cuts the tag.
+          # body_path is optional — empty when no per-version notes file
+          # exists. Don't auto-generate from commits: the maintainer's
+          # version-pinned notes file is the source of truth.
+          body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: false

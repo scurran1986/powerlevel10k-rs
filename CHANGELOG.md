@@ -6,7 +6,136 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
-## [Unreleased]
+## [0.1.0] - 2026-05-11
+
+First tagged release. Feature-complete for the MVP segment surface and
+the ROADMAP Phase 6 release gates: 21 configurable segments, three
+colour modes with Powerlevel9k-compat names, Powerlevel10k importer,
+zsh + bash + fish init scripts, configure wizard, multi-arch binaries
+on tag push. See `.github/release-notes/v0.1.0.md` for the user-facing
+write-up; the section below documents every slice that landed.
+
+### Slice 21: Multi-arch release workflow (315354b)
+- New `.github/workflows/release.yml` runs on semver tag push (`v*`). Matrix
+  builds release binaries for `x86_64-unknown-linux-gnu` (native),
+  `aarch64-unknown-linux-gnu` (cross via `gcc-aarch64-linux-gnu`),
+  `x86_64-apple-darwin` (macos-13), and `aarch64-apple-darwin` (macos-14).
+- Each binary is stripped, tarred with `LICENSE-*`, `README.md`, and
+  `THIRD-PARTY-LICENSES.md`, sha256summed, and uploaded as a release
+  asset via `softprops/action-gh-release@v2`.
+
+### Slice 20: Configure wizard (c66cd0d)
+- New `p10k-rs-wizard` crate; `p10k-rs configure` now produces a real
+  three-question Q&A flow (style preset / glyph mode / colour palette)
+  instead of bailing.
+- Driver core takes `BufRead + Write` so the flow is fully unit-testable
+  without a real terminal — 7 tests cover defaults, every preset path,
+  invalid-input retries, EOF→Cancelled, and `to_toml`/`from_toml` round-trip.
+- Output is TOML on stdout for the `>~/.config/p10k-rs/config.toml`
+  redirect pattern; prompts on stderr.
+- Dropped `crossterm` and `tracing` from wizard deps for the MVP — the
+  30-screen raw-mode TUI from `06-wizard-and-presets.md` lands when it lands.
+
+### Slice 19: bash and fish init scripts (fa8541c)
+- `p10k-rs init bash` emits a `PROMPT_COMMAND`-driven hook that calls the
+  binary with `$?`. No timing (bash lacks a clean preexec; `trap DEBUG`
+  interacts badly with completion), no gitstatusd FIFO orchestration
+  (zsh-specific), idempotent via `_P10K_RS_INSTALLED` sentinel.
+- `p10k-rs init fish` emits `fish_prompt` + an `--on-event fish_preexec`
+  handler. Has timing via `date +%s%3N` (falls back to second resolution
+  on systems without GNU coreutils).
+- `p10k_rs_shell::init_script` becomes infallible; drops the
+  `InitScriptUnimplemented` error type.
+
+### Slice 18: Powerlevel9k importer (932ddbb)
+- New `p10k_rs_config::import` module. `p10k-rs import ~/.p10k.zsh` reads
+  a P9k zsh config and emits equivalent TOML to stdout. The importer
+  never executes the input — pure textual translation.
+- Coverage: layout arrays (`LEFT_PROMPT_ELEMENTS` / `RIGHT_PROMPT_ELEMENTS`,
+  filters `=newline` pseudo-elements), `POWERLEVEL9K_MODE`,
+  `POWERLEVEL9K_INSTANT_PROMPT`, per-segment and per-state foreground /
+  background. Colour values: indexed (0–255), named, or `#rrggbb` hex.
+- Longest-prefix match against a snapshot of `segment_names()`
+  disambiguates `vcs_clean` (state) from `command_execution_time`
+  (multi-word segment) cleanly. Cross-crate test
+  `importer_known_segment_names_match` keeps the lists in sync.
+- New `Config::to_toml(&self)` serialiser used by both `import` and
+  `configure`.
+- Unrecognised variables go to stderr with the original key; stdout is
+  pure TOML.
+
+### Slice 17: Finish the MVP segment set (aa08061)
+- Implements the last 8 segments from `MVP-SPEC.md` § 1.2: `time` (local
+  with UTC fallback via the `time` crate's `local-offset` feature),
+  `context` (user@host with root/ssh/normal state tags), `vi_mode`
+  (reads `$P10K_RS_VI_MODE` for now — zsh `zle-keymap-select` plumbing
+  lands later), `kubecontext` (hand-parses `current-context:` from
+  `~/.kube/config` or `$KUBECONFIG`), `terraform` (walks for
+  `.terraform/environment` or reads `$TF_WORKSPACE`), `node_version`,
+  `python_version`, `rust_version` (each spawns a subprocess when its
+  cwd-marker file exists in any parent dir up to depth 64).
+- Workspace deps: `time = "0.3"` with `formatting` / `local-offset` /
+  `macros`; `rustix` gains the `system` feature for `uname()`.
+- All 21 segments resolve via `p10k_rs_segments::build()`.
+
+### Slice 16: env-driven segments (f9cc420)
+- 4 new segments mirroring the `virtualenv` template: `aws` (probes
+  `AWS_VAULT` / `AWS_PROFILE` / `AWS_DEFAULT_PROFILE` in order),
+  `pyenv` (reads `PYENV_VERSION`), `nodenv` (reads `NODENV_VERSION`),
+  `anaconda` (reads `CONDA_DEFAULT_ENV`; takes basename when activated
+  via `-p <path>`).
+- Each factors the env read into a private helper; the pure
+  sanitisation helpers are unit-tested without env mutation.
+
+### Slice 15: four new segments (79334cd)
+- New segments: `background_jobs` (`ctx.jobs > 0` → `⚙N` in cyan),
+  `root_indicator` (`geteuid() == 0` → `⚡` in red),
+  `virtualenv` (`$VIRTUAL_ENV` set → basename in yellow),
+  `os_icon` (Nerd Font codepoints per `target_os`, `?` fallback).
+- `rustix` added to segments crate deps for the EUID query.
+
+### Slice 14: per-segment styling threads through render (c875ea2)
+- `p10k_rs_core::style` grows from a stub into the styling chokepoint:
+  `render_fg` / `render_bg` resolve `[segment.<name>].states.<state>`
+  → `[segment.<name>]` → default and emit the SGR escape under the
+  active `ColorMode`.
+- 16 P9k-compatible named colours; `Color::Indexed(0..=255)` and
+  `Color::Rgb([r,g,b])` lower correctly under each `ColorMode`
+  (truecolor passthrough, Ansi256 cube quantisation, Ansi8 3-bit cube).
+- All 5 existing segments refactored to call `style::render_fg` /
+  `style::reset_fg` instead of writing raw escapes. Marker colour in
+  `vcs` (the `*` / `!`) stays hardcoded red — single-fg-per-state config
+  can't distinguish branch from marker.
+- End-to-end integration test
+  `segment_foreground_override_reaches_render` proves a TOML override
+  actually flips the emitted SGR.
+
+### Slice 13.5: delete default_layout() (9fc45c0)
+- `p10k_rs_segments::default_layout()` had zero callers after slice 13
+  — `cmd_prompt` already assembled segments from `cfg.layout.left`.
+  Function removed; docstrings + README + workspace CLAUDE.md updated.
+- `factory_default_config()` in `main.rs` remains as the no-config-file
+  fallback.
+
+### Slice 13: TOML config loader (0a74ee6)
+- `cmd_prompt` reads `Config::load_default()` and assembles segments
+  via `p10k_rs_segments::build()` from the parsed `layout.left`.
+- Discovery order: `$P10K_RS_CONFIG`, `$XDG_CONFIG_HOME/p10k-rs/config.toml`,
+  `~/.config/p10k-rs/config.toml`. Missing or broken file falls back
+  silently to the factory-default TOML; the binary's no-config behaviour
+  is byte-identical to the pre-loader prompt.
+- `Config::sanitize_in_place` runs at parse time over every prompt-bound
+  string (separators, icons, frame glyphs) so the renderer can hand
+  imported values straight through `SafeText`.
+
+### Slice 12-b: SafeText newtype (1c8f80b)
+- New `p10k_rs_core::safety::SafeText`: a `String` wrapper whose
+  constructors run `sanitize_for_terminal`. Producers can't bypass it
+  (no `assume_safe` escape hatch); consumers see an always-safe `&str`.
+- `GitState::branch` and `GitState::commit` are now `SafeText` —
+  producers in `p10k-rs-git` allocate via `SafeText::from_untrusted_bytes`
+  at the wire-format boundary. Encodes the slice-11 invariant in the
+  type system.
 
 ### Slice 1: Minimum runnable prompt (acdfb4a)
 - Wired `dir` and `prompt_char` segments end-to-end; rendered prompt via `p10k-rs prompt` after `eval "$(p10k-rs init zsh)"`.
