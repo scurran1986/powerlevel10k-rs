@@ -9,6 +9,7 @@
 //! from the `--last-duration` CLI arg, which the zsh init script computes
 //! from `$EPOCHSECONDS` deltas in the `preexec` / `precmd` hook pair.
 
+use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Below this many milliseconds the segment hides. Mirrors upstream p10k's
@@ -32,8 +33,8 @@ impl Segment for CommandExecutionTime {
         let ms = ctx.last_duration.as_millis();
         let formatted = format_duration_ms(ms);
         let plain_len = u16::try_from(formatted.chars().count()).unwrap_or(u16::MAX);
-        // 36 = ANSI cyan.
-        let text = format!("\x1b[36m{formatted}\x1b[39m");
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
+        let text = format!("{fg}{formatted}{}", style::reset_fg());
         SegmentOutput {
             text,
             plain_len,
@@ -104,7 +105,7 @@ mod tests {
         let c = ctx(&cfg, &env, Duration::from_secs(7));
         let out = CommandExecutionTime.render(&c);
         assert!(out.text.contains("7s"));
-        assert!(out.text.contains("\x1b[36m"));
+        assert!(out.text.contains("\x1b[38;5;6m"));
     }
 
     #[test]

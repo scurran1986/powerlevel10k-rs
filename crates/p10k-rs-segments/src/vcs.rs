@@ -7,6 +7,7 @@
 
 use std::fmt::Write;
 
+use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Version-control segment: shows current branch + dirty marker.
@@ -64,19 +65,7 @@ impl Segment for Vcs {
 
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
 
-        // Color: yellow base. Override the marker red so dirty/conflict
-        // pops without re-coloring the whole branch line. ANSI 33 yellow,
-        // 31 red, 39 default-fg.
-        let text = if marker.is_empty() {
-            format!("\x1b[33m{plain}\x1b[39m")
-        } else {
-            // Split the marker off so we can red-paint just it.
-            let split = plain.len() - marker.len();
-            let head = &plain[..split];
-            let tail = marker;
-            format!("\x1b[33m{head}\x1b[31m{tail}\x1b[39m")
-        };
-
+        // Compute state first so we can pass it to the style resolver below.
         let state = if git.has_conflicts {
             "conflict"
         } else if git.dirty {
@@ -86,6 +75,29 @@ impl Segment for Vcs {
         } else {
             "clean"
         };
+
+        // Head colour goes through the config-aware style resolver; default
+        // is yellow when no override is configured. Marker stays hardcoded
+        // red — it's a subsegment, not the segment-level fg, and threading
+        // it through config would conflict with the single per-state fg
+        // field. Future slice can add separate marker control.
+        let head_fg = style::render_fg(
+            ctx.config,
+            self.name(),
+            Some(state),
+            Color::Named("yellow".into()),
+        );
+        let reset = style::reset_fg();
+        let text = if marker.is_empty() {
+            format!("{head_fg}{plain}{reset}")
+        } else {
+            // Split the marker off so we can red-paint just it.
+            let split = plain.len() - marker.len();
+            let head = &plain[..split];
+            let tail = marker;
+            format!("{head_fg}{head}\x1b[31m{tail}{reset}")
+        };
+
         SegmentOutput {
             text,
             plain_len,
@@ -142,7 +154,7 @@ mod tests {
         let out = Vcs.render(&ctx);
         assert!(out.text.contains("main"));
         assert!(!out.text.contains('*'));
-        assert!(out.text.contains("\x1b[33m"));
+        assert!(out.text.contains("\x1b[38;5;3m"));
         assert_eq!(out.state, Some("clean"));
     }
 

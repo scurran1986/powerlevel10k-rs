@@ -6,6 +6,7 @@
 //! with" (this segment) — useful for `137` (OOM-kill), `130` (SIGINT),
 //! arbitrary user codes, etc.
 
+use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Status (exit-code) segment.
@@ -25,8 +26,13 @@ impl Segment for Status {
         let code = ctx.last_status;
         let plain = format!("✘{code}");
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
-        // 31 = red, 39 = default-fg.
-        let text = format!("\x1b[31m{plain}\x1b[39m");
+        let fg = style::render_fg(
+            ctx.config,
+            self.name(),
+            Some("error"),
+            Color::Named("red".into()),
+        );
+        let text = format!("{fg}{plain}{}", style::reset_fg());
         SegmentOutput {
             text,
             plain_len,
@@ -74,7 +80,7 @@ mod tests {
         assert!(Status.enabled(&ctx));
         let out = Status.render(&ctx);
         assert!(out.text.contains("✘1"));
-        assert!(out.text.contains("\x1b[31m"));
+        assert!(out.text.contains("\x1b[38;5;1m"));
         assert_eq!(out.state, Some("error"));
     }
 

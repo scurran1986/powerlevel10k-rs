@@ -6,6 +6,7 @@
 //! `%{…%}` bracketing).
 
 use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Current-directory segment.
@@ -27,9 +28,8 @@ impl Segment for Dir {
         let home = std::env::var("HOME").ok();
         let collapsed = home_collapse(&raw, home.as_deref());
         let plain_len = u16::try_from(collapsed.chars().count()).unwrap_or(u16::MAX);
-        // 34 = ANSI blue. 39 = default foreground (cheaper than full reset
-        // `0m` which also clears any background a future segment might set).
-        let text = format!("\x1b[34m{collapsed}\x1b[39m");
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("blue".into()));
+        let text = format!("{fg}{collapsed}{}", style::reset_fg());
         SegmentOutput {
             text,
             plain_len,

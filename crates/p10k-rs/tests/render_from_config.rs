@@ -122,6 +122,68 @@ fn config_with_default_layout_matches_baseline() {
 }
 
 #[test]
+fn segment_foreground_override_reaches_render() {
+    // End-to-end proof of slice 14: a `[segment.dir].foreground = "red"`
+    // entry actually changes the SGR escape the renderer emits. Without
+    // this wiring, every styling field in `SegmentConfig` would be
+    // silently inert.
+    let cwd = scratch_dir("override-cwd");
+    let home = scratch_dir("override-home");
+
+    let default_cfg = home.join("default.toml");
+    std::fs::write(
+        &default_cfg,
+        b"schema_version = 1\n[layout]\nleft = [\"dir\"]\n",
+    )
+    .expect("write default");
+
+    let red_cfg = home.join("red.toml");
+    std::fs::write(
+        &red_cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n\
+          [segment.dir]\n\
+          foreground = \"red\"\n",
+    )
+    .expect("write red");
+
+    let default_out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", default_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let red_out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", red_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+
+    // Default ColorMode is Ansi256: blue = \x1b[38;5;4m, red = \x1b[38;5;1m.
+    let default_str = String::from_utf8_lossy(&default_out);
+    let red_str = String::from_utf8_lossy(&red_out);
+    assert!(
+        default_str.contains("\x1b[38;5;4m"),
+        "default dir should be blue: {default_str:?}"
+    );
+    assert!(
+        red_str.contains("\x1b[38;5;1m"),
+        "overridden dir should be red: {red_str:?}"
+    );
+    assert!(
+        !red_str.contains("\x1b[38;5;4m"),
+        "overridden dir must not still be blue: {red_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn unknown_segment_is_skipped_with_warning() {
     let cwd = scratch_dir("unknown-cwd");
     let home = scratch_dir("unknown-home");

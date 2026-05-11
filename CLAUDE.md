@@ -118,10 +118,13 @@ runtime-authoritative version of the segment list.
   `status`, `prompt_char`) is byte-identical to the historical default,
   so a fresh install with no `~/.config/p10k-rs/config.toml` looks the
   same as it always has.
-- **Per-segment styling fields parse but don't render.** `[segment.<name>]`
-  with `foreground` / `background` / `icon` / `padding` deserialise into
-  `SegmentConfig`, but the five segments hardcode their SGR escapes and
-  ignore that config. Threading lands next slice.
+- **Per-segment styling routes through `p10k_rs_core::style`, not raw
+  SGR escapes.** Every segment that emits colour must call
+  `style::render_fg` / `style::reset_fg` (or `_bg` variants) — that's
+  how `[segment.<name>].foreground` overrides reach the prompt. New
+  segments that build escape strings by hand will silently ignore user
+  config. Marker / subsegment colours (e.g. `vcs`'s dirty `*`) currently
+  stay hardcoded because `SegmentConfig` has one foreground per state.
 - **gitstatusd is GPL-3.0**, bundled as a separate static binary
   (not statically linked into our MIT/Apache-2.0 binary). See
   `THIRD-PARTY-LICENSES.md` and ADR-0001 § Operational. Don't link it in.

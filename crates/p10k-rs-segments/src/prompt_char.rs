@@ -7,6 +7,7 @@
 //!
 //! Vi-mode variants will land later.
 
+use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 /// Trailing prompt character.
@@ -19,12 +20,14 @@ impl Segment for PromptChar {
     }
 
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
-        // 32 = ANSI green (success), 31 = red (failure). 39 = default-fg.
-        let (text, state) = if ctx.last_status == 0 {
-            ("\x1b[32m❯\x1b[39m".to_owned(), "ok")
+        let state = if ctx.last_status == 0 { "ok" } else { "error" };
+        let default = if state == "ok" {
+            Color::Named("green".into())
         } else {
-            ("\x1b[31m❯\x1b[39m".to_owned(), "error")
+            Color::Named("red".into())
         };
+        let fg = style::render_fg(ctx.config, self.name(), Some(state), default);
+        let text = format!("{fg}❯{}", style::reset_fg());
         SegmentOutput {
             text,
             plain_len: 1,
@@ -73,7 +76,7 @@ mod tests {
         let ctx = make_ctx(&cfg, &env, Path::new("/"), 0);
         let out = PromptChar.render(&ctx);
         assert!(
-            out.text.contains("\x1b[32m"),
+            out.text.contains("\x1b[38;5;2m"),
             "expected green: {:?}",
             out.text
         );
@@ -86,7 +89,7 @@ mod tests {
         let ctx = make_ctx(&cfg, &env, Path::new("/"), 1);
         let out = PromptChar.render(&ctx);
         assert!(
-            out.text.contains("\x1b[31m"),
+            out.text.contains("\x1b[38;5;1m"),
             "expected red: {:?}",
             out.text
         );
@@ -99,6 +102,6 @@ mod tests {
         let (cfg, env) = defaults();
         let ctx = make_ctx(&cfg, &env, Path::new("/"), 130);
         let out = PromptChar.render(&ctx);
-        assert!(out.text.contains("\x1b[31m"));
+        assert!(out.text.contains("\x1b[38;5;1m"));
     }
 }

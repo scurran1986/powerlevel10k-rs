@@ -129,20 +129,36 @@ Drop a TOML file at `~/.config/p10k-rs/config.toml` (or point
 Missing or broken file falls back silently to the factory default
 (byte-identical to no-config behaviour).
 
-Today, only `[layout].left` is wired to anything — it picks which
-segments render and in what order. Per-segment styling fields
-(`[segment.<name>]` with `foreground` / `background` / `icon` /
-`padding` / `states`) parse cleanly but don't yet drive render
-output; the colors are hardcoded in each segment. That changes in
-the next slice.
+`[layout].left` picks which segments render and in what order.
+`[segment.<name>]` overrides per-segment foreground / background
+under the active `ColorMode` (8-color, 256-color, or truecolor).
+State-specific overrides — e.g. `[segment.vcs.states.dirty]` —
+fire when the segment tags its output with that state.
 
 ```toml
 schema_version = 1
+
 [layout]
 left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+
+# Colour the cwd in red instead of the default blue.
+[segment.dir]
+foreground = "red"
+
+# Magenta branch name when the working tree is dirty;
+# yellow otherwise (the default).
+[segment.vcs.states.dirty]
+foreground = "magenta"
 ```
 
-Schema lives in `crates/p10k-rs-config/src/lib.rs`.
+Colour values: a Powerlevel9k-style name (`"blue"`, `"brightred"`,
+…), an ANSI 256 index (`0`–`255`), or an `[r, g, b]` triple for
+truecolor. Padding, icons, separators, frame / ruler decoration,
+and `show_in_dir` / `show_on_command` gating are accepted by the
+parser but not yet driven into render — those land in subsequent
+slices.
+
+Full schema lives in `crates/p10k-rs-config/src/lib.rs`.
 
 ## Architecture
 
