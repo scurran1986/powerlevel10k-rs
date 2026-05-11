@@ -14,11 +14,15 @@
 
 use p10k_rs_core::Segment;
 
+pub mod background_jobs;
 pub mod command_execution_time;
 pub mod dir;
+pub mod os_icon;
 pub mod prompt_char;
+pub mod root_indicator;
 pub mod status;
 pub mod vcs;
+pub mod virtualenv;
 
 /// Returns the static list of segment names this crate ships.
 ///
@@ -65,11 +69,15 @@ pub fn segment_names() -> &'static [&'static str] {
 ///
 /// | name | type |
 /// |------|------|
-/// | `dir` | [`dir::Dir`] |
-/// | `vcs` | [`vcs::Vcs`] |
+/// | `background_jobs` | [`background_jobs::BackgroundJobs`] |
 /// | `command_execution_time` | [`command_execution_time::CommandExecutionTime`] |
-/// | `status` | [`status::Status`] |
+/// | `dir` | [`dir::Dir`] |
+/// | `os_icon` | [`os_icon::OsIcon`] |
 /// | `prompt_char` | [`prompt_char::PromptChar`] |
+/// | `root_indicator` | [`root_indicator::RootIndicator`] |
+/// | `status` | [`status::Status`] |
+/// | `vcs` | [`vcs::Vcs`] |
+/// | `virtualenv` | [`virtualenv::Virtualenv`] |
 ///
 /// Names from [`segment_names`] that don't appear above (e.g. `time`,
 /// `kubecontext`) are accepted as advertisement but not yet implemented;
@@ -77,11 +85,15 @@ pub fn segment_names() -> &'static [&'static str] {
 #[must_use]
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {
-        "dir" => Some(Box::new(dir::Dir)),
-        "vcs" => Some(Box::new(vcs::Vcs)),
+        "background_jobs" => Some(Box::new(background_jobs::BackgroundJobs)),
         "command_execution_time" => Some(Box::new(command_execution_time::CommandExecutionTime)),
-        "status" => Some(Box::new(status::Status)),
+        "dir" => Some(Box::new(dir::Dir)),
+        "os_icon" => Some(Box::new(os_icon::OsIcon)),
         "prompt_char" => Some(Box::new(prompt_char::PromptChar)),
+        "root_indicator" => Some(Box::new(root_indicator::RootIndicator)),
+        "status" => Some(Box::new(status::Status)),
+        "vcs" => Some(Box::new(vcs::Vcs)),
+        "virtualenv" => Some(Box::new(virtualenv::Virtualenv)),
         _ => None,
     }
 }
@@ -94,11 +106,15 @@ mod tests {
     #[test]
     fn build_returns_known_segments() {
         for name in [
-            "dir",
-            "vcs",
+            "background_jobs",
             "command_execution_time",
-            "status",
+            "dir",
+            "os_icon",
             "prompt_char",
+            "root_indicator",
+            "status",
+            "vcs",
+            "virtualenv",
         ] {
             let seg = build(name).unwrap_or_else(|| panic!("build({name}) returned None"));
             assert_eq!(seg.name(), name, "build({name}).name() mismatch");
