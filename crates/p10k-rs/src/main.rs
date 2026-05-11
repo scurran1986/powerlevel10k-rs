@@ -119,7 +119,7 @@ fn main() -> Result<()> {
         }
         Command::Import { path } => {
             tracing::debug!(?path, "import invoked");
-            anyhow::bail!("p9k import lands in the foundation phase")
+            cmd_import(&path)
         }
         Command::Statusline { host } => {
             tracing::debug!(host, "statusline invoked");
@@ -351,6 +351,26 @@ fn git_status(path: &std::path::Path) -> Option<p10k_rs_core::GitState> {
         }
     }
     GitShellOut.status(path)
+}
+
+/// Translate a Powerlevel10k `.p10k.zsh` config to TOML and write it to stdout.
+///
+/// Warnings (unrecognised variables, unparseable values) go to stderr so a
+/// pipe like `p10k-rs import ~/.p10k.zsh > ~/.config/p10k-rs/config.toml` does
+/// the right thing.
+fn cmd_import(path: &std::path::Path) -> Result<()> {
+    let input = std::fs::read_to_string(path)
+        .with_context(|| format!("read p10k config {}", path.display()))?;
+    let outcome = p10k_rs_config::import::import_p10k_zsh(&input);
+    for warning in &outcome.warnings {
+        eprintln!("import: {warning}");
+    }
+    let toml = outcome
+        .config
+        .to_toml()
+        .context("serialise imported config")?;
+    print!("{toml}");
+    Ok(())
 }
 
 /// Map the CLI shell string to the [`CoreShell`] enum used in `RenderCtx`.

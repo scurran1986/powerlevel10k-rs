@@ -154,6 +154,22 @@ mod tests {
     }
 
     #[test]
+    fn importer_known_segment_names_match() {
+        // The p9k importer in `p10k-rs-config::import` keeps a static snapshot
+        // of segment names so it can disambiguate per-segment color variables
+        // without depending on this crate. Pin the lists in sync — any new
+        // segment added here must also appear there.
+        let mut local: Vec<&'static str> = super::segment_names().to_vec();
+        let mut remote: Vec<&'static str> = p10k_rs_config::import::KNOWN_SEGMENT_NAMES.to_vec();
+        local.sort_unstable();
+        remote.sort_unstable();
+        assert_eq!(
+            local, remote,
+            "segment_names() and p10k_rs_config::import::KNOWN_SEGMENT_NAMES drifted"
+        );
+    }
+
+    #[test]
     fn build_returns_none_for_unknown() {
         assert!(build("definitely_not_a_segment").is_none());
         assert!(build("").is_none());

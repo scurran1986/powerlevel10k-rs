@@ -74,25 +74,37 @@ path is a long-lived `gitstatusd` daemon over FIFOs.
 
 | Feature | State |
 |---|---|
-| `dir` segment with `~` collapse | done |
-| `vcs` segment (branch + dirty + ahead/behind + conflict) | done |
-| `command_execution_time` segment | done |
-| `status` segment (exit-code on failure) | done |
-| `prompt_char` segment ($?-aware) | done |
+| All 21 MVP segments (`MVP-SPEC.md` § 1.2) | done |
+| Per-segment styling via TOML (`foreground` / `background` / states) | done |
+| Three colour modes (Ansi8 / Ansi256 / Truecolor) with 16 P9k-compat names | done |
 | Instant prompt (sub-ms first shell) | done |
 | `gitstatusd` long-lived daemon backend | done |
 | `git` shell-out fallback | done |
 | Branch / cwd render-path sanitization | done |
-| TOML config | placeholder |
+| `p10k-rs import ~/.p10k.zsh` (P9k importer) | done |
 | `p10k-rs configure` wizard | placeholder |
-| `p10k-rs import ~/.p10k.zsh` (P9k import) | placeholder |
 | `bash` / `fish` init scripts | placeholder |
 | Multi-arch binary distribution | linux-x86_64 only |
 
-The remaining MVP segments (`background_jobs`, `time`, `context`,
-`vi_mode`, `kubecontext`, etc.) are enumerated in `MVP-SPEC.md`
-§ 1.2 and surface in `segment_names()` in
-`crates/p10k-rs-segments/src/lib.rs`.
+## Importing an existing Powerlevel10k config
+
+If you already have a `~/.p10k.zsh`, get a head-start:
+
+```bash
+p10k-rs import ~/.p10k.zsh > ~/.config/p10k-rs/config.toml
+```
+
+The importer is best-effort textual translation — it doesn't execute
+your zsh config, just reads it. It handles:
+
+- `POWERLEVEL9K_LEFT_PROMPT_ELEMENTS` / `RIGHT_PROMPT_ELEMENTS` → `[layout]`
+- `POWERLEVEL9K_MODE`, `POWERLEVEL9K_INSTANT_PROMPT`
+- `POWERLEVEL9K_<SEG>_FOREGROUND` / `BACKGROUND` (indexed, named, or `#rrggbb`)
+- `POWERLEVEL9K_<SEG>_<STATE>_FOREGROUND` / `BACKGROUND`
+
+Unrecognised variables are reported to stderr — you'll see exactly
+what didn't translate. Pipe just stdout to your config file; stderr
+is for you.
 
 ## Workspace layout
 

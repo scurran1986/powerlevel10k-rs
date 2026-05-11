@@ -27,6 +27,8 @@ use thiserror::Error;
 // shared invariant test in `crate::safety::tests`.
 use crate::safety::sanitize_for_terminal;
 
+pub mod import;
+
 mod safety {
     //! Local copy of [`p10k_rs_core::safety::sanitize_for_terminal`].
     //!
@@ -93,6 +95,11 @@ pub enum ConfigError {
     /// `from_toml` was called directly (no path context) and parsing failed.
     #[error("config parse error: {0}")]
     ParseString(#[from] toml::de::Error),
+    /// `to_toml` failed to serialise the config. Should never happen for
+    /// a `Config` built via the schema's typed constructors — included for
+    /// completeness so consumers can surface a clear error if it does.
+    #[error("config serialise error: {0}")]
+    Serialize(#[from] toml::ser::Error),
 }
 
 /// Result alias for this crate's fallible API.
@@ -402,6 +409,17 @@ impl Config {
         let mut cfg: Self = toml::from_str(s)?;
         cfg.sanitize_in_place();
         Ok(cfg)
+    }
+
+    /// Serialise this config to a pretty-printed TOML string.
+    ///
+    /// Used by the importer to emit the result of `p10k-rs import` — the
+    /// inverse of [`Self::from_toml`] modulo whitespace and key order.
+    /// Sanitisation has already run by the time the config reaches this
+    /// method, so the emitted TOML is safe to round-trip through
+    /// `from_toml` without changing the rendered prompt.
+    pub fn to_toml(&self) -> Result<String> {
+        Ok(toml::to_string_pretty(self)?)
     }
 
     /// Sanitise every prompt-bound string field in place.
