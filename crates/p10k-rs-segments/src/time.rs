@@ -1,0 +1,107 @@
+//! `time` — current wall-clock time in `HH:MM:SS`.
+//!
+//! Always-on segment that renders the current time in white. We prefer the
+//! user's local timezone, but the `time` crate refuses `now_local()` on
+//! multi-threaded processes — `localtime_r` walks process-global tz state
+//! that another thread could mutate mid-read, and the crate won't paper
+//! over that with unsafe FFI. When the local lookup fails we fall back to
+//! UTC so a wedged tz never breaks the prompt.
+//!
+//! Using the `time` crate's `local-offset` feature is the safest
+//! cross-platform option here: it avoids us shelling out, avoids us
+//! reaching for `chrono` (heavier, more transitive deps), and avoids
+//! hand-rolled `unsafe` around `libc::localtime_r`.
+
+use p10k_rs_core::style::{self, Color};
+use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
+use time::macros::format_description;
+use time::OffsetDateTime;
+
+/// Current-time segment.
+#[derive(Debug, Default)]
+pub struct Time;
+
+impl Segment for Time {
+    fn name(&self) -> &'static str {
+        "time"
+    }
+
+    fn enabled(&self, _ctx: &RenderCtx<'_>) -> bool {
+        true
+    }
+
+    fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
+        let dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+        let formatted = format_time(dt);
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
+        let text = format!("{fg}{formatted}{}", style::reset_fg());
+        SegmentOutput {
+            text,
+            plain_len: 8,
+            state: None,
+            icon: None,
+        }
+    }
+}
+
+/// Format an `OffsetDateTime` as `HH:MM:SS`.
+///
+/// Falls back to `"--:--:--"` if the formatter rejects the input — which
+/// in practice it won't for the fixed `[hour]:[minute]:[second]`
+/// description, but libraries don't panic.
+fn format_time(dt: OffsetDateTime) -> String {
+    let fmt = format_description!("[hour]:[minute]:[second]");
+    dt.format(fmt).unwrap_or_else(|_| String::from("--:--:--"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::time::{Duration, SystemTime};
+
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+    use time::OffsetDateTime;
+
+    use super::{format_time, Time};
+
+    fn ctx<'a>(cfg: &'a Config, env: &'a EnvSnapshot) -> RenderCtx<'a> {
+        RenderCtx {
+            config: cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: Path::new("/"),
+            git: None,
+            last_status: 0,
+            last_duration: Duration::from_secs(0),
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env,
+        }
+    }
+
+    #[test]
+    fn name_is_time() {
+        assert_eq!(Time.name(), "time");
+    }
+
+    #[test]
+    fn renders_8_char_plain_length() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let c = ctx(&cfg, &env);
+        let out = Time.render(&c);
+        assert_eq!(out.plain_len, 8);
+    }
+
+    #[test]
+    fn renders_white_color() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let c = ctx(&cfg, &env);
+        let out = Time.render(&c);
+        assert!(out.text.contains("\x1b[38;5;7m"));
+    }
+
+    #[test]
+    fn format_zero_time() {
+        assert_eq!(format_time(OffsetDateTime::UNIX_EPOCH), "00:00:00");
+    }
+}

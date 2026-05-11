@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 anstyle = { workspace = true }
 rustix = { workspace = true }
+time = { workspace = true }
 
 [lints]
 workspace = true

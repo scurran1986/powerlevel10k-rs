@@ -61,7 +61,15 @@ crossterm = "0.28"
 
 # --- I/O / parallelism ---
 rayon = "1.10"
-rustix = { version = "0.38", features = ["fs", "process", "event"] }
+rustix = { version = "0.38", features = ["fs", "process", "event", "system"] }
+
+# --- time formatting (slice 17: `time` segment) ---
+# `local-offset` lets us resolve the user's tz on Linux/macOS; on Linux the
+# crate's localtime_r call is safe in single-threaded processes (which we are
+# per `[profile.release].codegen-units = 1` + no tokio). The crate returns
+# Err(_) if multi-threading is detected at runtime, and our segment falls
+# back to UTC in that case so a wedged tz lookup can't break the prompt.
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 
 # --- dev / test ---
 insta = { version = "1.40", features = ["yaml"] }
