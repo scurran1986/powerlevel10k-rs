@@ -14,11 +14,15 @@
 
 use p10k_rs_core::Segment;
 
+pub mod anaconda;
+pub mod aws;
 pub mod background_jobs;
 pub mod command_execution_time;
 pub mod dir;
+pub mod nodenv;
 pub mod os_icon;
 pub mod prompt_char;
+pub mod pyenv;
 pub mod root_indicator;
 pub mod status;
 pub mod vcs;
@@ -69,11 +73,15 @@ pub fn segment_names() -> &'static [&'static str] {
 ///
 /// | name | type |
 /// |------|------|
+/// | `anaconda` | [`anaconda::Anaconda`] |
+/// | `aws` | [`aws::Aws`] |
 /// | `background_jobs` | [`background_jobs::BackgroundJobs`] |
 /// | `command_execution_time` | [`command_execution_time::CommandExecutionTime`] |
 /// | `dir` | [`dir::Dir`] |
+/// | `nodenv` | [`nodenv::Nodenv`] |
 /// | `os_icon` | [`os_icon::OsIcon`] |
 /// | `prompt_char` | [`prompt_char::PromptChar`] |
+/// | `pyenv` | [`pyenv::Pyenv`] |
 /// | `root_indicator` | [`root_indicator::RootIndicator`] |
 /// | `status` | [`status::Status`] |
 /// | `vcs` | [`vcs::Vcs`] |
@@ -85,11 +93,15 @@ pub fn segment_names() -> &'static [&'static str] {
 #[must_use]
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {
+        "anaconda" => Some(Box::new(anaconda::Anaconda)),
+        "aws" => Some(Box::new(aws::Aws)),
         "background_jobs" => Some(Box::new(background_jobs::BackgroundJobs)),
         "command_execution_time" => Some(Box::new(command_execution_time::CommandExecutionTime)),
         "dir" => Some(Box::new(dir::Dir)),
+        "nodenv" => Some(Box::new(nodenv::Nodenv)),
         "os_icon" => Some(Box::new(os_icon::OsIcon)),
         "prompt_char" => Some(Box::new(prompt_char::PromptChar)),
+        "pyenv" => Some(Box::new(pyenv::Pyenv)),
         "root_indicator" => Some(Box::new(root_indicator::RootIndicator)),
         "status" => Some(Box::new(status::Status)),
         "vcs" => Some(Box::new(vcs::Vcs)),
@@ -106,11 +118,15 @@ mod tests {
     #[test]
     fn build_returns_known_segments() {
         for name in [
+            "anaconda",
+            "aws",
             "background_jobs",
             "command_execution_time",
             "dir",
+            "nodenv",
             "os_icon",
             "prompt_char",
+            "pyenv",
             "root_indicator",
             "status",
             "vcs",
