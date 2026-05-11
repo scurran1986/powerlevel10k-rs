@@ -15,9 +15,9 @@ categories.workspace = true
 
 [dependencies]
 p10k-rs-config = { workspace = true }
-crossterm = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
+# crossterm + tracing dropped: the MVP wizard is a stdin Q&A flow, no raw-mode
+# terminal handling. They'll come back when the 30-screen TUI lands.
 
 [lints]
 workspace = true

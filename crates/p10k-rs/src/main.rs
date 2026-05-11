@@ -115,7 +115,7 @@ fn main() -> Result<()> {
         }
         Command::Configure => {
             tracing::debug!("configure invoked");
-            anyhow::bail!("the configure wizard lands in its own roadmap phase")
+            cmd_configure()
         }
         Command::Import { path } => {
             tracing::debug!(?path, "import invoked");
@@ -351,6 +351,19 @@ fn git_status(path: &std::path::Path) -> Option<p10k_rs_core::GitState> {
         }
     }
     GitShellOut.status(path)
+}
+
+/// Run the interactive configure wizard and write the resulting TOML to stdout.
+///
+/// Prompts and progress messages go to stderr (the wizard writes them
+/// directly) so users can pipe stdout cleanly:
+///
+///   p10k-rs configure > ~/.config/p10k-rs/config.toml
+fn cmd_configure() -> Result<()> {
+    let cfg = p10k_rs_wizard::run().map_err(anyhow::Error::from)?;
+    let toml = cfg.to_toml().context("serialise wizard config")?;
+    print!("{toml}");
+    Ok(())
 }
 
 /// Translate a Powerlevel10k `.p10k.zsh` config to TOML and write it to stdout.
