@@ -298,7 +298,7 @@ fn zsh_dump_line(rendered: &str) -> String {
 /// can call us back even when our install dir isn't on `PATH`.
 fn cmd_init(shell: &str) -> Result<()> {
     let target = ShellInit::from_str(shell).map_err(anyhow::Error::from)?;
-    let template = p10k_rs_shell::init_script(target).map_err(anyhow::Error::from)?;
+    let template = p10k_rs_shell::init_script(target);
     let exe = std::env::current_exe().context("resolve current exe path")?;
     let exe_str = exe.to_str().context(
         "current exe path is not valid UTF-8; the init script can't embed it as a shell literal",
