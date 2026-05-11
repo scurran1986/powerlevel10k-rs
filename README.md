@@ -123,10 +123,26 @@ MSRV: stable - 2 (currently **1.88**). Pinned in `rust-toolchain.toml`.
 
 ## Configuration
 
-The TOML config schema lives in `p10k-rs-config` but isn't wired
-yet — `default_layout()` in `crates/p10k-rs-segments/src/lib.rs`
-is the canonical 5-segment order today. Configurable layout lands
-with the TOML-loader phase.
+Drop a TOML file at `~/.config/p10k-rs/config.toml` (or point
+`$P10K_RS_CONFIG` at one). Discovery order: `$P10K_RS_CONFIG`,
+`$XDG_CONFIG_HOME/p10k-rs/config.toml`, `~/.config/p10k-rs/config.toml`.
+Missing or broken file falls back silently to the factory default
+(byte-identical to no-config behaviour).
+
+Today, only `[layout].left` is wired to anything — it picks which
+segments render and in what order. Per-segment styling fields
+(`[segment.<name>]` with `foreground` / `background` / `icon` /
+`padding` / `states`) parse cleanly but don't yet drive render
+output; the colors are hardcoded in each segment. That changes in
+the next slice.
+
+```toml
+schema_version = 1
+[layout]
+left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+```
+
+Schema lives in `crates/p10k-rs-config/src/lib.rs`.
 
 ## Architecture
 

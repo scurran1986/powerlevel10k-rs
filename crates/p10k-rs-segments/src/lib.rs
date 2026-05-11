@@ -55,33 +55,13 @@ pub fn segment_names() -> &'static [&'static str] {
     ]
 }
 
-/// Build the default layout: dir, vcs, command-execution-time, prompt-char.
-///
-/// Returns segment instances in render order. Each segment's `enabled()` is
-/// the gate (`vcs` hides when not in a repo, `command_execution_time` hides
-/// below the 3-second threshold).
-///
-/// Kept as a backstop while slice 13 wires the config loader in. Slice 13.5
-/// will delete this in favour of the [`build`] registry once the binary
-/// always assembles its layout from a `Config`.
-#[must_use]
-pub fn default_layout() -> Vec<Box<dyn Segment>> {
-    vec![
-        Box::new(dir::Dir),
-        Box::new(vcs::Vcs),
-        Box::new(command_execution_time::CommandExecutionTime),
-        Box::new(status::Status),
-        Box::new(prompt_char::PromptChar),
-    ]
-}
-
 /// Construct a `Segment` instance by its config name.
 ///
 /// Returns `None` for names not in this build's MVP set. Callers are expected
 /// to log and skip — an unknown name in a user config should be a non-fatal
 /// `tracing::warn!`, not an error.
 ///
-/// Mapping today (slice 13):
+/// Current mapping:
 ///
 /// | name | type |
 /// |------|------|
@@ -92,9 +72,8 @@ pub fn default_layout() -> Vec<Box<dyn Segment>> {
 /// | `prompt_char` | [`prompt_char::PromptChar`] |
 ///
 /// Names from [`segment_names`] that don't appear above (e.g. `time`,
-/// `kubecontext`) are accepted by [`segment_names`] as advertisement but
-/// not yet implemented; `build` returns `None` for them and the renderer
-/// drops the slot. They light up segment-by-segment in later slices.
+/// `kubecontext`) are accepted as advertisement but not yet implemented;
+/// `build` returns `None` and the renderer drops the slot.
 #[must_use]
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {

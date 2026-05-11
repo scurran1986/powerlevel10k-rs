@@ -112,9 +112,16 @@ runtime-authoritative version of the segment list.
 
 ## Things that will bite you
 
-- **`default_layout()` is the canonical 5-segment order today**, not the
-  TOML config. Slice 13 wired the loader; full TOML-driven layout is
-  still landing.
+- **`factory_default_config()` in `crates/p10k-rs/src/main.rs` is the
+  fallback** when no TOML config is present or it fails to parse. The
+  hardcoded 5-segment layout (`dir`, `vcs`, `command_execution_time`,
+  `status`, `prompt_char`) is byte-identical to the historical default,
+  so a fresh install with no `~/.config/p10k-rs/config.toml` looks the
+  same as it always has.
+- **Per-segment styling fields parse but don't render.** `[segment.<name>]`
+  with `foreground` / `background` / `icon` / `padding` deserialise into
+  `SegmentConfig`, but the five segments hardcode their SGR escapes and
+  ignore that config. Threading lands next slice.
 - **gitstatusd is GPL-3.0**, bundled as a separate static binary
   (not statically linked into our MIT/Apache-2.0 binary). See
   `THIRD-PARTY-LICENSES.md` and ADR-0001 § Operational. Don't link it in.

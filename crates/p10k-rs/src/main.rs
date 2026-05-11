@@ -195,12 +195,10 @@ fn cmd_prompt(
 
 /// Build the factory-default `Config`.
 ///
-/// The layout is byte-identical to the pre-loader hardcoded list — `[dir,
-/// vcs, command_execution_time, status, prompt_char]` — because slice 13's
-/// no-config-file behaviour must be byte-identical to today's prompt
-/// output. Slice 13.5 deletes `p10k_rs_segments::default_layout()` once
-/// the loader is the only assembly path; until then, both lists must stay
-/// in lock-step.
+/// Used by [`cmd_prompt`] when no user config is present or it fails to
+/// parse. The layout matches the historical hardcoded order — `[dir, vcs,
+/// command_execution_time, status, prompt_char]` — so a fresh install with
+/// no config file renders the same prompt the binary always has.
 fn factory_default_config() -> Config {
     // Build the TOML on-the-fly rather than constructing the schema by
     // hand. `Config` is `#[non_exhaustive]` and uses `#[serde(transparent)]`
