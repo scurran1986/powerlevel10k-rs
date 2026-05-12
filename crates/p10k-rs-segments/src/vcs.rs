@@ -48,33 +48,56 @@ impl Segment for Vcs {
         };
 
         // Build the plain (display-width) version first; then wrap with
-        // ANSI escapes. Format: `branch [+ahead] [-behind] [marker]`.
-        // Marker is `!` if there are unmerged conflicts, else `*` if any
-        // uncommitted change. Clean repos have no marker.
-        let mut plain = String::with_capacity(git.branch.len() + 16);
+        // ANSI escapes. Upstream P10K order:
+        //   `<branch> ⇡<ahead> ⇣<behind> *<dirty> !<conflicts> \
+        //    +<staged> ~<unstaged> ?<untracked>`
+        // The bare `*` dirty marker still renders, but only when no
+        // `+ ~ ?` count indicators are present — those counts are
+        // themselves a dirty signal, so the bare `*` becomes redundant.
+        // The `*` marker stays hardcoded red (load-bearing test pin);
+        // every other indicator inherits the segment's fg/bg band.
+        let any_change_counts = git.staged > 0 || git.unstaged > 0 || git.untracked > 0;
+        let show_dirty_marker = git.dirty && !any_change_counts;
+
+        let mut plain = String::with_capacity(git.branch.len() + 32);
         plain.push_str(git.branch.as_str());
         if git.ahead > 0 {
-            let _ = write!(plain, " +{}", git.ahead);
+            let _ = write!(plain, " \u{21e1}{}", git.ahead);
         }
         if git.behind > 0 {
-            let _ = write!(plain, " -{}", git.behind);
+            let _ = write!(plain, " \u{21e3}{}", git.behind);
         }
-        let marker = if git.has_conflicts {
-            "!"
-        } else if git.dirty {
-            "*"
-        } else {
-            ""
-        };
-        if !marker.is_empty() {
+        // Track byte offset of the red-painted `*` marker so the ANSI
+        // wrapper can split the plain string at that exact point.
+        let dirty_marker_offset = if show_dirty_marker {
             plain.push(' ');
-            plain.push_str(marker);
+            let off = plain.len();
+            plain.push('*');
+            Some(off)
+        } else {
+            None
+        };
+        // Conflicts marker `!` lives in the segment's fg band (no red
+        // override — the `dirty *` is the only hardcoded-red subsegment).
+        if git.has_conflicts {
+            plain.push_str(" !");
+        }
+        if git.staged > 0 {
+            let _ = write!(plain, " +{}", git.staged);
+        }
+        if git.unstaged > 0 {
+            let _ = write!(plain, " ~{}", git.unstaged);
+        }
+        if git.untracked > 0 {
+            let _ = write!(plain, " ?{}", git.untracked);
         }
 
         // Compute state first so we can pass it to the style resolver below.
+        // Index-level changes (`staged/unstaged/untracked`) count as
+        // dirty even if the consumer didn't set the `dirty` bool.
         let state = if git.has_conflicts {
             "conflict"
-        } else if git.dirty {
+        } else if git.dirty || any_change_counts {
             "dirty"
         } else if git.ahead > 0 || git.behind > 0 {
             "diverged"
@@ -108,16 +131,17 @@ impl Segment for Vcs {
         );
         let reset_fg = style::reset_fg();
         let reset_bg = style::reset_bg();
-        // Prepend `icon + space` inside the bg/head_fg colour band.
-        let text = if marker.is_empty() {
-            format!("{bg}{head_fg}{icon} {plain}{reset_fg}{reset_bg}")
+        // Prepend `icon + space` inside the bg/head_fg colour band. When
+        // the dirty `*` is present, split the plain string around its
+        // byte offset so just that one character flips to red, then the
+        // head_fg picks back up for any trailing conflict / count
+        // indicators (still inside the green bg band).
+        let text = if let Some(off) = dirty_marker_offset {
+            let head = &plain[..off];
+            let tail = &plain[off + '*'.len_utf8()..];
+            format!("{bg}{head_fg}{icon} {head}\x1b[31m*{head_fg}{tail}{reset_fg}{reset_bg}")
         } else {
-            // Split the marker off so we can red-paint just it. The marker
-            // stays inside the green bg band; only the fg flips to red.
-            let split = plain.len() - marker.len();
-            let head = &plain[..split];
-            let tail = marker;
-            format!("{bg}{head_fg}{icon} {head}\x1b[31m{tail}{reset_fg}{reset_bg}")
+            format!("{bg}{head_fg}{icon} {plain}{reset_fg}{reset_bg}")
         };
 
         // plain_len accounts for the icon glyph (1 display cell) + 1 space.
@@ -220,7 +244,9 @@ mod tests {
     }
 
     #[test]
-    fn renders_ahead_and_behind() {
+    fn renders_ahead_behind_counts() {
+        // Slice 30: upstream P10K uses ⇡N / ⇣N glyphs (U+21E1 / U+21E3)
+        // rather than the placeholder `+N` / `-N` we shipped earlier.
         let (cfg, env) = (Config::default(), EnvSnapshot::default());
         let g = GitState {
             branch: "main".into(),
@@ -230,24 +256,56 @@ mod tests {
         };
         let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
         let out = Vcs.render(&ctx);
-        assert!(out.text.contains("+3"));
-        assert!(out.text.contains("-1"));
+        assert!(out.text.contains("\u{21e1}3"), "missing ⇡3: {:?}", out.text);
+        assert!(out.text.contains("\u{21e3}1"), "missing ⇣1: {:?}", out.text);
         assert_eq!(out.state, Some("diverged"));
     }
 
     #[test]
-    fn renders_conflict_takes_priority_over_dirty() {
+    fn renders_staged_unstaged_untracked() {
+        // Slice 30: index-level change counts surface as +N ~N ?N
+        // (P10K-canonical). The bare `*` is redundant when any of these
+        // are present, so it must NOT render here.
         let (cfg, env) = (Config::default(), EnvSnapshot::default());
         let g = GitState {
             branch: "main".into(),
             dirty: true,
+            staged: 2,
+            unstaged: 4,
+            untracked: 1,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains("+2"), "missing +2: {:?}", out.text);
+        assert!(out.text.contains("~4"), "missing ~4: {:?}", out.text);
+        assert!(out.text.contains("?1"), "missing ?1: {:?}", out.text);
+        assert!(
+            !out.text.contains('*'),
+            "redundant `*` should be suppressed when counts are present: {:?}",
+            out.text,
+        );
+        assert_eq!(out.state, Some("dirty"));
+    }
+
+    #[test]
+    fn renders_conflicts_indicator() {
+        // Slice 30: unmerged conflicts show as a trailing `!`. The
+        // state still resolves to `conflict` and the dirty `*` is
+        // allowed to coexist (upstream P10K renders both).
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
             has_conflicts: true,
             ..Default::default()
         };
         let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
         let out = Vcs.render(&ctx);
-        assert!(out.text.contains('!'));
-        assert!(!out.text.contains('*'));
+        assert!(
+            out.text.contains('!'),
+            "missing conflicts !: {:?}",
+            out.text
+        );
         assert_eq!(out.state, Some("conflict"));
     }
 
