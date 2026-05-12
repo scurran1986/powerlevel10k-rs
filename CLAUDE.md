@@ -102,6 +102,10 @@ root `Cargo.toml`. Don't `#[allow]` them away — fix the code.
 Project-level planning lives outside the repo at
 `~/.planning/powerlevel10k-rs/` (per user `CLAUDE.md` convention).
 Key docs the maintainer references:
+- **`STATE.md`** — current state of every schema field, recent slice
+  ledger, gotchas, suggested next slices. **Read this first** if
+  you're picking up after a context clear; it pairs with the live
+  `git log`.
 - `MVP-SPEC.md` § 1.2 — segment inventory (canonical list of what's
   shipped vs. stubbed)
 - `ARCHITECTURE.md` § 1 — crate layout rationale
