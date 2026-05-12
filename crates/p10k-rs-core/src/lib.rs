@@ -164,6 +164,36 @@ pub struct Prompt {
 pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
     let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
     let mut left = String::new();
+
+    if let Some(ruler) = ctx.config.layout.ruler.as_ref() {
+        if let Some(glyph) = ruler.glyph.as_deref().filter(|g| !g.is_empty()) {
+            let fg_color = ruler
+                .foreground
+                .clone()
+                .unwrap_or(style::Color::Named("white".into()));
+            let fg = style::sgr_fg(&fg_color, ctx.config.colors);
+            let width = terminal_width();
+            left.push_str(&fg);
+            left.push_str(&glyph.repeat(width));
+            left.push_str(style::reset_fg());
+            left.push('\n');
+        }
+    }
+
+    if let Some(frame) = ctx.config.layout.frame.as_ref() {
+        if let Some(glyph) = frame.glyph.as_deref().filter(|g| !g.is_empty()) {
+            let fg_color = frame
+                .foreground
+                .clone()
+                .unwrap_or(style::Color::Named("white".into()));
+            let fg = style::sgr_fg(&fg_color, ctx.config.colors);
+            left.push_str(&fg);
+            left.push_str(glyph);
+            left.push_str(style::reset_fg());
+            left.push(' ');
+        }
+    }
+
     let mut first = true;
     for seg in segments {
         if !seg.enabled(ctx) {
@@ -193,6 +223,22 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
         right: String::new(),
         transient: None,
     }
+}
+
+/// Best-effort terminal width for the ruler decoration.
+///
+/// Reads `$COLUMNS`; falls back to 80. zsh / bash / fish populate
+/// `$COLUMNS` automatically in interactive shells, but it is not
+/// exported to subprocesses by default — the user's init script should
+/// `export COLUMNS` if they want the ruler to match a resized terminal.
+/// A future slice will replace this with an ioctl(TIOCGWINSZ) lookup
+/// via `rustix`.
+fn terminal_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&w: &usize| w > 0)
+        .unwrap_or(80)
 }
 
 /// Per-shell escape-wrapping for the assembled prompt string.

@@ -356,3 +356,99 @@ fn segment_padding_adds_spaces_around_segment() {
     let _ = std::fs::remove_dir_all(&cwd);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn layout_frame_glyph_prefixes_prompt() {
+    // Slice 25: `[layout.frame].glyph = "▶"` prefixes the prompt with
+    // the glyph + a space, in the configured (or default white) colour.
+    let cwd = scratch_dir("frame-cwd");
+    let home = scratch_dir("frame-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n\
+          [layout.frame]\n\
+          glyph = \"FRAME\"\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    assert!(
+        s.contains("FRAME"),
+        "frame glyph should appear in the prompt: {s:?}"
+    );
+    // The frame glyph wears the default white SGR; check the wrapped
+    // form (zsh-mode `%{…%}` bracketing) appears around it.
+    assert!(
+        s.contains("\x1b[38;5;7m"),
+        "frame must wear the default white SGR: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn layout_ruler_glyph_emits_horizontal_line() {
+    // Slice 25: `[layout.ruler].glyph = "-"` emits a horizontal divider
+    // ABOVE the prompt; the binary fills the line to `$COLUMNS` (or 80
+    // fallback) and appends a newline.
+    let cwd = scratch_dir("ruler-cwd");
+    let home = scratch_dir("ruler-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n\
+          [layout.ruler]\n\
+          glyph = \"-\"\n",
+    )
+    .expect("write fixture");
+
+    // Force COLUMNS to a known width so the test is deterministic.
+    let out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+            ("COLUMNS", "20"),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    let dashes = "-".repeat(20);
+    assert!(
+        s.contains(&dashes),
+        "ruler must emit COLUMNS=20 dashes: {s:?}"
+    );
+    // SGR wraps in zsh-mode are `%{…%}` — the ruler colour is default
+    // white (ANSI256 7), so the wrap should be present.
+    assert!(
+        s.contains("\x1b[38;5;7m"),
+        "ruler must wear the default white SGR: {s:?}"
+    );
+    // The ruler ends with a newline; the prompt's first segment must
+    // appear AFTER that newline.
+    let ruler_newline_idx = s
+        .find('\n')
+        .expect("ruler must terminate with a newline before the prompt");
+    let after_ruler = &s[ruler_newline_idx + 1..];
+    assert!(
+        !after_ruler.is_empty(),
+        "prompt content must follow the ruler line: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
