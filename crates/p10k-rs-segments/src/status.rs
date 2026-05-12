@@ -9,6 +9,11 @@
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (x-mark — reads as "fail" since the segment
+/// only renders on non-zero exit). Override via
+/// `[segment.status].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f00d}";
+
 /// Status (exit-code) segment.
 #[derive(Debug, Default)]
 pub struct Status;
@@ -25,7 +30,10 @@ impl Segment for Status {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let code = ctx.last_status;
         let plain = format!("✘{code}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), Some("error"), DEFAULT_ICON);
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         let bg = style::render_bg(
             ctx.config,
             self.name(),
@@ -38,12 +46,16 @@ impl Segment for Status {
             Some("error"),
             Color::Named("white".into()),
         );
-        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len,
             state: Some("error"),
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("red".into())),
         }
     }
@@ -107,5 +119,18 @@ mod tests {
         let ctx = make_ctx(&cfg, &env, 137);
         let out = Status.render(&ctx);
         assert!(out.text.contains("✘137"));
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = make_ctx(&cfg, &env, 1);
+        let out = Status.render(&ctx);
+        assert!(
+            out.text.contains('\u{f00d}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f00d}"));
     }
 }

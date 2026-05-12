@@ -19,6 +19,10 @@
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (mdi `vim`). Override via
+/// `[segment.vi_mode].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f1058}";
+
 /// Vi keymap indicator segment.
 ///
 /// Reads `$P10K_RS_VI_MODE` and emits a short uppercase label coloured by
@@ -48,7 +52,10 @@ impl Segment for ViMode {
         // command, magenta for visual, cyan for operator) lands in a later
         // slice; the TOML state-keyed overrides remain wired so users can
         // recolour individual states without waiting on us.
-        let plain_len = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), Some(state_tag), DEFAULT_ICON);
+        let plain_len = u16::try_from(label.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         let bg = style::render_bg(
             ctx.config,
             self.name(),
@@ -61,12 +68,16 @@ impl Segment for ViMode {
             Some(state_tag),
             Color::Named("white".into()),
         );
-        let text = format!("{bg}{fg}{label}{}{}", style::reset_fg(), style::reset_bg());
+        let text = format!(
+            "{bg}{fg}{icon} {label}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len,
             state: Some(state_tag),
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("blue".into())),
         }
     }
@@ -152,5 +163,32 @@ mod tests {
             out.text
         );
         assert_eq!(out.background, Some(Color::Named("blue".into())));
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        // Same env caveat as the test above — we don't touch
+        // `$P10K_RS_VI_MODE`; the unset/empty case falls into the INSERT
+        // success path, which is exactly what we want to assert on.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: Path::new("/"),
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = ViMode.render(&ctx);
+        assert!(
+            out.text.contains('\u{f1058}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f1058}"));
     }
 }

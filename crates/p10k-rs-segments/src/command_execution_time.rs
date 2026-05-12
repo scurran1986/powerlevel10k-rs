@@ -13,6 +13,10 @@
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (stopwatch). Override via
+/// `[segment.command_execution_time].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f43a}";
+
 /// Below this many milliseconds the segment hides. Mirrors upstream p10k's
 /// default of 3 seconds.
 const THRESHOLD_MS: u128 = 3000;
@@ -33,11 +37,14 @@ impl Segment for CommandExecutionTime {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let ms = ctx.last_duration.as_millis();
         let formatted = format_duration_ms(ms);
-        let plain_len = u16::try_from(formatted.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
+        let plain_len = u16::try_from(formatted.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("yellow".into()));
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
         let text = format!(
-            "{bg}{fg}{formatted}{}{}",
+            "{bg}{fg}{icon} {formatted}{}{}",
             style::reset_fg(),
             style::reset_bg()
         );
@@ -45,7 +52,7 @@ impl Segment for CommandExecutionTime {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("yellow".into())),
         }
     }
@@ -127,6 +134,19 @@ mod tests {
             out.background,
             Some(p10k_rs_core::style::Color::Named("yellow".into()))
         );
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let c = ctx(&cfg, &env, Duration::from_secs(7));
+        let out = CommandExecutionTime.render(&c);
+        assert!(
+            out.text.contains('\u{f43a}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f43a}"));
     }
 
     #[test]

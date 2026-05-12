@@ -18,6 +18,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (person). Override via
+/// `[segment.context].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f007}";
+
 /// User-and-host context segment.
 ///
 /// Renders `<user>@<host>` in yellow by default, tagged with one of
@@ -56,7 +60,10 @@ impl Segment for Context {
         let state = detect_state(euid, ssh_set);
 
         let plain = format!("{user}@{host}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
 
         // Yellow bg default; root/ssh users can override per state via TOML.
         let bg = style::render_bg(
@@ -71,13 +78,17 @@ impl Segment for Context {
             Some(state),
             Color::Named("black".into()),
         );
-        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
 
         SegmentOutput {
             text,
             plain_len,
             state: Some(state),
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("yellow".into())),
         }
     }
@@ -114,12 +125,17 @@ fn user_or_fallback(user: Option<&str>, logname: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_state, user_or_fallback};
+    use std::path::Path;
+    use std::time::{Duration, SystemTime};
 
-    // Helper tests only. Exercising `render()` end-to-end would mean
-    // mutating process-global env (`std::env::set_var` is `unsafe` since
-    // 1.85) and racing every parallel test in the binary. Same call we
-    // make in `virtualenv.rs`.
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+    use super::{detect_state, user_or_fallback, Context};
+
+    // Helper tests only for the state/user logic. Exercising `render()`
+    // end-to-end is fine — we only *read* env (`$USER`, `$LOGNAME`,
+    // `$SSH_*`), never set it, so we don't trip the `unsafe`
+    // `std::env::set_var` rule from 1.85+ or race parallel test threads.
 
     #[test]
     fn detect_state_root() {
@@ -161,5 +177,29 @@ mod tests {
         // CR injection guard: a username with `\r` would otherwise
         // overwrite the prompt line on render.
         assert_eq!(user_or_fallback(Some("alice\rEVIL"), None), "aliceEVIL");
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: Path::new("/"),
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = Context.render(&ctx);
+        assert!(
+            out.text.contains('\u{f007}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f007}"));
     }
 }

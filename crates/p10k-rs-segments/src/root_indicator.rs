@@ -8,6 +8,10 @@
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (user-secret — reads as "privileged shell").
+/// Override via `[segment.root_indicator].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f2be}";
+
 /// Root-indicator segment — lights up when EUID == 0.
 #[derive(Debug, Default)]
 pub struct RootIndicator;
@@ -26,18 +30,25 @@ impl Segment for RootIndicator {
 
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let plain = "⚡";
-        let plain_len: u16 = 1;
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
+        // Lightning + icon + space; saturating_add to mirror the rest of the
+        // codebase even though overflow is impossible from a literal `1`.
+        let plain_len: u16 = 1u16.saturating_add(2);
         // Hardcoded red bg + white fg default: root is the warning state and
         // the ribbon makes it impossible to miss. TOML can still override
         // via `[segments.root_indicator] fg = "..."` / `bg = "..."`.
         let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("red".into()));
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
-        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("red".into())),
         }
     }
@@ -88,5 +99,20 @@ mod tests {
             out.background,
             Some(p10k_rs_core::style::Color::Named("red".into()))
         );
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        // Same caveat as the test above — we exercise `render` unconditionally
+        // because changing the EUID would be `unsafe` and process-global.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = make_ctx(&cfg, &env);
+        let out = RootIndicator.render(&ctx);
+        assert!(
+            out.text.contains('\u{f2be}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f2be}"));
     }
 }

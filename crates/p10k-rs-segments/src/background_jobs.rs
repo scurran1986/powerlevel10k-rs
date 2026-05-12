@@ -10,6 +10,10 @@
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (cog). Override via
+/// `[segment.background_jobs].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f013}";
+
 /// Background-jobs segment.
 #[derive(Debug, Default)]
 pub struct BackgroundJobs;
@@ -26,15 +30,22 @@ impl Segment for BackgroundJobs {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let count = ctx.jobs;
         let plain = format!("⚙{count}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("cyan".into()));
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
-        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("cyan".into())),
         }
     }
@@ -92,5 +103,18 @@ mod tests {
         let ctx = make_ctx(&cfg, &env, 5);
         let out = BackgroundJobs.render(&ctx);
         assert!(out.text.contains("⚙5"));
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = make_ctx(&cfg, &env, 1);
+        let out = BackgroundJobs.render(&ctx);
+        assert!(
+            out.text.contains('\u{f013}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f013}"));
     }
 }
