@@ -158,16 +158,24 @@ enum RenderSide {
     Left,
     /// Right prompt — `RPROMPT` in zsh.
     Right,
+    /// Transient prompt — the collapsed form swapped in by the zle
+    /// `zle-line-finish` widget right after the user accepts a line.
+    /// Walks no segments other than `prompt_char`; emits one line with
+    /// no frame, ruler, or trailing newline.
+    Transient,
 }
 
-/// Parse the `--render-side` flag. Anything other than `left` or `right`
-/// is a hard error so a typo in the init script surfaces immediately
-/// rather than silently rendering the wrong side.
+/// Parse the `--render-side` flag. Anything other than `left`, `right`,
+/// or `transient` is a hard error so a typo in the init script surfaces
+/// immediately rather than silently rendering the wrong side.
 fn parse_render_side(s: &str) -> Result<RenderSide> {
     match s.to_ascii_lowercase().as_str() {
         "left" => Ok(RenderSide::Left),
         "right" => Ok(RenderSide::Right),
-        other => anyhow::bail!("unknown --render-side '{other}': expected 'left' or 'right'"),
+        "transient" => Ok(RenderSide::Transient),
+        other => anyhow::bail!(
+            "unknown --render-side '{other}': expected 'left', 'right', or 'transient'"
+        ),
     }
 }
 
@@ -220,9 +228,24 @@ fn cmd_prompt(
     // Print the requested side to stdout, plain text, no trailing newline.
     // The init script appends formatting (single space for PROMPT, raw
     // assignment for RPROMPT) at the call site.
+    //
+    // For `--render-side transient`: the rendered string from
+    // `render_prompt` is always present (the core renderer no longer
+    // gates on `transient_prompt` — that's a binary-level policy
+    // decision). When `transient_prompt = off` we suppress the output
+    // here so the zle widget's unconditional PROMPT swap collapses to
+    // a no-op assignment.
+    let transient_fallback = String::new();
     let rendered = match side {
         RenderSide::Left => &prompt.left,
         RenderSide::Right => &prompt.right,
+        RenderSide::Transient => {
+            if cfg.transient_prompt == p10k_rs_config::TransientPromptMode::Off {
+                &transient_fallback
+            } else {
+                prompt.transient.as_ref().unwrap_or(&transient_fallback)
+            }
+        }
     };
     print!("{rendered}");
 

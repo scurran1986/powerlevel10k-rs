@@ -16,8 +16,14 @@
 #    untrusted-input boundary so OSC/CSI/DCS sequences can't ride a branch
 #    name or directory path into the terminal's state machine.
 #
-# Not yet shipped:
-#  - Transient prompt collapse on accept-line.
+# Transient prompt (slice 35):
+#   On `zle-line-finish` (fires after the user accepts a line and
+#   before the command runs) we ask the binary for a collapsed PROMPT
+#   and `zle reset-prompt` so the scrollback shows a clean history of
+#   `❯ command` lines instead of the full multi-line prompt. The
+#   binary returns an empty string when `transient_prompt = off`, so
+#   the swap is a cheap no-op in that case; opting in is purely a TOML
+#   change with no zsh-side toggle.
 #
 # Right-side prompt (`RPROMPT`) is wired below: the precmd hook invokes
 # `p10k-rs prompt --render-side right` and assigns the output to
@@ -168,6 +174,21 @@ _p10k_rs_precmd() {
 add-zsh-hook preexec _p10k_rs_preexec
 add-zsh-hook precmd _p10k_rs_precmd
 add-zsh-hook zshexit _p10k_rs_stop_daemon
+
+# Transient prompt widget. Runs once per accepted line, just before
+# the command is dispatched: we ask the binary for the collapsed
+# PROMPT, assign it, and call `zle reset-prompt` so the user's
+# scrollback gets the minimal form. When `transient_prompt = off`,
+# the binary prints nothing — PROMPT becomes empty, the redraw is a
+# no-op, and the next precmd refills PROMPT with the full ribbon. No
+# `RPROMPT` swap: the right prompt naturally clears on redraw.
+_p10k_rs_zle_line_finish() {
+  local transient
+  transient="$("$_P10K_RS_BIN" prompt --shell zsh --render-side transient 2>/dev/null)"
+  PROMPT="$transient"
+  zle reset-prompt 2>/dev/null
+}
+zle -N zle-line-finish _p10k_rs_zle_line_finish
 
 # Best-effort daemon start. If it fails (binary missing, mkfifo denied,
 # etc.) the prompt silently uses the ShellOut fallback.

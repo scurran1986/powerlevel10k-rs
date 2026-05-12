@@ -718,6 +718,57 @@ fn right_prompt_renders_layout_right() {
 }
 
 #[test]
+fn transient_prompt_renders_prompt_char_only() {
+    // Slice 35: `--render-side transient` returns the collapsed prompt
+    // — just the `prompt_char` segment (the `❯`). It must NOT carry the
+    // dir glyph (U+F07B), the frame corner (`╭─`), or any ruler.
+    let cwd = scratch_dir("transient-cwd");
+    let home = scratch_dir("transient-home");
+
+    // Use a fixture that opts in to transient mode so the binary
+    // emits the chevron instead of suppressing output. The factory
+    // default keeps `transient_prompt = off`, which is correct for
+    // existing users but unhelpful for this assertion.
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          transient_prompt = \"always\"\n\
+          [layout]\n\
+          left = [\"dir\", \"vcs\", \"prompt_char\"]\n\
+          [layout.frame]\n\
+          glyph = \"\xe2\x95\xad\xe2\x94\x80\"\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt_side(
+        &cwd,
+        "transient",
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+
+    assert!(
+        s.contains('\u{276f}'),
+        "transient must carry the prompt_char chevron: {s:?}"
+    );
+    assert!(
+        !s.contains('\u{f07b}'),
+        "transient must NOT carry the dir folder glyph: {s:?}"
+    );
+    assert!(
+        !s.contains("\u{256d}\u{2500}"),
+        "transient must NOT carry the frame top corner '╭─': {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn right_prompt_empty_when_no_layout_right() {
     // Slice 33: when `[layout].right` is absent (or empty), invoking the
     // binary with `--render-side right` must produce no stdout — the zsh
