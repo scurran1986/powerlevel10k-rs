@@ -17,6 +17,8 @@ use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 use time::macros::format_description;
 use time::OffsetDateTime;
 
+const DEFAULT_ICON: &str = "\u{f017}"; // Nerd Font v3: clock
+
 /// Current-time segment.
 #[derive(Debug, Default)]
 pub struct Time;
@@ -33,13 +35,19 @@ impl Segment for Time {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let formatted = format_time(dt);
+        let icon = ctx
+            .config
+            .segments
+            .get(self.name())
+            .and_then(|sc| sc.icon.as_deref())
+            .unwrap_or(DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
-        let text = format!("{fg}{formatted}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {formatted}{}", style::reset_fg());
         SegmentOutput {
             text,
-            plain_len: 8,
+            plain_len: 10, // "X HH:MM:SS" — icon glyph (1) + space (1) + 8 chars
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -85,11 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn renders_8_char_plain_length() {
+    fn renders_10_char_plain_length() {
         let (cfg, env) = (Config::default(), EnvSnapshot::default());
         let c = ctx(&cfg, &env);
         let out = Time.render(&c);
-        assert_eq!(out.plain_len, 8);
+        assert_eq!(out.plain_len, 10);
     }
 
     #[test]
@@ -98,6 +106,15 @@ mod tests {
         let c = ctx(&cfg, &env);
         let out = Time.render(&c);
         assert!(out.text.contains("\x1b[38;5;7m"));
+    }
+
+    #[test]
+    fn renders_with_default_clock_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let c = ctx(&cfg, &env);
+        let out = Time.render(&c);
+        assert!(out.text.contains('\u{f017}'));
+        assert_eq!(out.icon, Some("\u{f017}"));
     }
 
     #[test]

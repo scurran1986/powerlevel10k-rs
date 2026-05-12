@@ -10,6 +10,10 @@ use std::fmt::Write;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default icon glyph for the vcs segment. Nerd Font v3 git glyph.
+/// Overridable via `[segment.vcs].icon = "..."` in the user's TOML config.
+const DEFAULT_ICON: &str = "\u{f1d3}";
+
 /// Version-control segment: shows current branch + dirty marker.
 #[derive(Debug, Default)]
 pub struct Vcs;
@@ -63,8 +67,6 @@ impl Segment for Vcs {
             plain.push_str(marker);
         }
 
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
-
         // Compute state first so we can pass it to the style resolver below.
         let state = if git.has_conflicts {
             "conflict"
@@ -75,6 +77,17 @@ impl Segment for Vcs {
         } else {
             "clean"
         };
+
+        // Resolve the icon glyph: user override via `[segment.vcs].icon`
+        // wins; otherwise fall back to the Nerd Font default. The icon is
+        // painted inside the head_fg colour band so it tracks the branch
+        // colour (and any per-state override).
+        let icon = ctx
+            .config
+            .segments
+            .get(self.name())
+            .and_then(|sc| sc.icon.as_deref())
+            .unwrap_or(DEFAULT_ICON);
 
         // Head colour goes through the config-aware style resolver; default
         // is yellow when no override is configured. Marker stays hardcoded
@@ -88,21 +101,27 @@ impl Segment for Vcs {
             Color::Named("yellow".into()),
         );
         let reset = style::reset_fg();
+        // Prepend `icon + space` inside the head_fg colour band.
         let text = if marker.is_empty() {
-            format!("{head_fg}{plain}{reset}")
+            format!("{head_fg}{icon} {plain}{reset}")
         } else {
             // Split the marker off so we can red-paint just it.
             let split = plain.len() - marker.len();
             let head = &plain[..split];
             let tail = marker;
-            format!("{head_fg}{head}\x1b[31m{tail}{reset}")
+            format!("{head_fg}{icon} {head}\x1b[31m{tail}{reset}")
         };
+
+        // plain_len accounts for the icon glyph (1 display cell) + 1 space.
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2);
 
         SegmentOutput {
             text,
             plain_len,
             state: Some(state),
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -155,6 +174,7 @@ mod tests {
         assert!(out.text.contains("main"));
         assert!(!out.text.contains('*'));
         assert!(out.text.contains("\x1b[38;5;3m"));
+        assert!(out.text.contains('\u{f1d3}'));
         assert_eq!(out.state, Some("clean"));
     }
 
@@ -171,6 +191,7 @@ mod tests {
         assert!(out.text.contains("feat/x"));
         assert!(out.text.contains('*'));
         assert!(out.text.contains("\x1b[31m")); // marker in red
+        assert!(out.text.contains('\u{f1d3}'));
         assert_eq!(out.state, Some("dirty"));
     }
 

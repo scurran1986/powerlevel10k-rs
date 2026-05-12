@@ -9,6 +9,8 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+const DEFAULT_ICON: &str = "\u{f07b}"; // Nerd Font v3: folder (FA-style)
+
 /// Current-directory segment.
 ///
 /// Reads [`RenderCtx::cwd`] and emits its display string with the user's home
@@ -27,14 +29,25 @@ impl Segment for Dir {
         let raw = sanitize_for_terminal(&ctx.cwd.display().to_string());
         let home = std::env::var("HOME").ok();
         let collapsed = home_collapse(&raw, home.as_deref());
-        let plain_len = u16::try_from(collapsed.chars().count()).unwrap_or(u16::MAX);
+        let icon = ctx
+            .config
+            .segments
+            .get(self.name())
+            .and_then(|sc| sc.icon.as_deref())
+            .unwrap_or(DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("blue".into()));
-        let text = format!("{fg}{collapsed}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {collapsed}{}", style::reset_fg());
+        // plain_len: chars-of-collapsed + 1 (icon, single Nerd Font codepoint
+        // renders as 1 visual col) + 1 (space). saturating_add guards the
+        // u16::MAX overflow path.
+        let plain_len = u16::try_from(collapsed.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2);
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -94,6 +107,19 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env,
         }
+    }
+
+    #[test]
+    fn renders_with_default_folder_icon() {
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let path = Path::new("/tmp/example");
+        let out = Dir.render(&ctx(&cfg, &env, path));
+        assert!(
+            out.text.contains('\u{f07b}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f07b}"));
     }
 
     #[test]

@@ -261,6 +261,46 @@ fn custom_layout_separator_reaches_render() {
 }
 
 #[test]
+fn segment_icon_override_replaces_default() {
+    // Slice 23: `[segment.<name>].icon` overrides the segment's default
+    // Nerd Font glyph. End-to-end proof: the override character flows
+    // through Config → sanitize_in_place → segment::render → output.
+    let cwd = scratch_dir("icon-cwd");
+    let home = scratch_dir("icon-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n\
+          [segment.dir]\n\
+          icon = \"DIR>\"\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    assert!(
+        s.contains("DIR>"),
+        "override icon must appear in output: {s:?}"
+    );
+    assert!(
+        !s.contains('\u{f07b}'),
+        "default folder glyph must be replaced: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn segment_padding_adds_spaces_around_segment() {
     // Slice 22: `[segment.<name>].padding.left/right` wraps the segment
     // in the requested number of spaces.

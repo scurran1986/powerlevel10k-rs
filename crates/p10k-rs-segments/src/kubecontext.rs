@@ -30,6 +30,11 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph for the kubecontext segment — the
+/// Kubernetes wheel (`nf-md-kubernetes`). Overridable via
+/// `[segment.kubecontext].icon = "..."` in TOML.
+const DEFAULT_ICON: &str = "\u{f10fe}";
+
 /// Kubernetes current-context segment.
 ///
 /// Reads the active kubeconfig (`$KUBECONFIG` first path, else
@@ -61,14 +66,22 @@ impl Segment for Kubecontext {
         };
 
         let plain = format!("k8s:{context}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = ctx
+            .config
+            .segments
+            .get(self.name())
+            .and_then(|sc| sc.icon.as_deref())
+            .unwrap_or(DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2);
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }

@@ -20,6 +20,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (amazon / aws cloud). Override via
+/// `[segment.aws].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f270}";
+
 /// AWS profile segment.
 ///
 /// Reads the first non-empty value from `$AWS_VAULT`, `$AWS_PROFILE`, then
@@ -51,14 +55,22 @@ impl Segment for Aws {
         };
 
         let plain = format!("aws:{profile}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = ctx
+            .config
+            .segments
+            .get(self.name())
+            .and_then(|sc| sc.icon.as_deref())
+            .unwrap_or(DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("yellow".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
