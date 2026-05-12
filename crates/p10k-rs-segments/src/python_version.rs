@@ -29,6 +29,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (python). Override via
+/// `[segment.python_version].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{e73c}";
+
 /// Filenames that mark a directory as the root (or descendant) of a
 /// Python project. First match wins; order is not significant.
 const MARKERS: &[&str] = &["pyproject.toml", "setup.py", "requirements.txt", "Pipfile"];
@@ -64,14 +68,17 @@ impl Segment for PythonVersion {
         };
 
         let plain = format!("py:{version}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("yellow".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -140,7 +147,11 @@ fn fetch_python_version() -> Option<String> {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
-    use super::{has_python_marker, parse_python_version};
+    use std::time::{Duration, SystemTime};
+
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+    use super::{has_python_marker, parse_python_version, PythonVersion};
 
     /// Build a unique scratch directory under `std::env::temp_dir()` and
     /// return it. Mirrors the pattern in
@@ -216,6 +227,43 @@ mod tests {
     fn walk_missing_returns_false() {
         let dir = scratch_dir("walk-missing");
         assert!(!has_python_marker(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        // Gate: render only produces the icon when `python --version` runs;
+        // no-op on machines without a python interpreter on PATH.
+        if std::process::Command::new("python")
+            .arg("--version")
+            .output()
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+        {
+            return;
+        }
+        let dir = scratch_dir("renders-default-icon");
+        std::fs::write(dir.join("pyproject.toml"), b"[tool.poetry]\n").expect("write marker");
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: &dir,
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = PythonVersion.render(&ctx);
+        assert!(
+            out.text.contains('\u{e73c}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{e73c}"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

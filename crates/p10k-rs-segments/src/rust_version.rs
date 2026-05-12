@@ -26,6 +26,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (dev-rust). Override via
+/// `[segment.rust_version].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{e7a8}";
+
 /// Rust toolchain version segment.
 ///
 /// Enabled when a `Cargo.toml` exists in `cwd` or any ancestor (up to 64
@@ -57,14 +61,17 @@ impl Segment for RustVersion {
         };
 
         let plain = format!("rust:{version}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("red".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -133,7 +140,11 @@ fn fetch_rust_version() -> Option<String> {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
-    use super::{has_cargo_toml, parse_rustc_version};
+    use std::time::{Duration, SystemTime};
+
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+    use super::{has_cargo_toml, parse_rustc_version, RustVersion};
 
     /// Build a unique scratch directory under `std::env::temp_dir()`. Caller
     /// is responsible for cleanup; we deliberately leak on panic so failing
@@ -201,6 +212,43 @@ mod tests {
     fn walk_missing_returns_false() {
         let dir = scratch_dir("missing");
         assert!(!has_cargo_toml(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        // Gate: render only produces the icon when `rustc --version` runs;
+        // no-op on machines without a Rust toolchain on PATH.
+        if std::process::Command::new("rustc")
+            .arg("--version")
+            .output()
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+        {
+            return;
+        }
+        let dir = scratch_dir("renders-default-icon");
+        std::fs::write(dir.join("Cargo.toml"), "").expect("write Cargo.toml");
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: &dir,
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = RustVersion.render(&ctx);
+        assert!(
+            out.text.contains('\u{e7a8}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{e7a8}"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

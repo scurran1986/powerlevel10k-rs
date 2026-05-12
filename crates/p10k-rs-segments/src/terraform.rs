@@ -18,6 +18,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (mdi-terraform). Override via
+/// `[segment.terraform].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{f1771}";
+
 /// Terraform workspace segment.
 ///
 /// Renders `tf:<workspace>` when either `$TF_WORKSPACE` is set or a
@@ -49,19 +53,22 @@ impl Segment for Terraform {
         };
 
         let plain = format!("tf:{workspace}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(
             ctx.config,
             self.name(),
             None,
             Color::Named("magenta".into()),
         );
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -107,7 +114,11 @@ fn find_terraform_workspace(start: &std::path::Path) -> Option<String> {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
-    use super::find_terraform_workspace;
+    use std::time::{Duration, SystemTime};
+
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+    use super::{find_terraform_workspace, Terraform};
 
     /// Build a unique scratch directory under `std::env::temp_dir()` and
     /// return it. Caller is responsible for `remove_dir_all` when done.
@@ -184,6 +195,35 @@ mod tests {
 
         assert_eq!(find_terraform_workspace(&cwd), None);
 
+        std::fs::remove_dir_all(&cwd).expect("cleanup");
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        let cwd = scratch_dir("renders-default-icon");
+        let tf_dir = cwd.join(".terraform");
+        std::fs::create_dir_all(&tf_dir).expect("mkdir .terraform");
+        std::fs::write(tf_dir.join("environment"), "default").expect("write env");
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: &cwd,
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = Terraform.render(&ctx);
+        assert!(
+            out.text.contains('\u{f1771}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{f1771}"));
         std::fs::remove_dir_all(&cwd).expect("cleanup");
     }
 }

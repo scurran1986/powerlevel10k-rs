@@ -16,6 +16,10 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Default Nerd Font v3 glyph (font-awesome python). Override via
+/// `[segment.pyenv].icon = "..."` in the TOML config.
+const DEFAULT_ICON: &str = "\u{e235}";
+
 /// pyenv segment.
 ///
 /// Reads `$PYENV_VERSION` and emits `py:<version>` (e.g. `py:3.12.1`,
@@ -46,14 +50,17 @@ impl Segment for Pyenv {
         };
 
         let plain = format!("py:{version}");
-        let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("yellow".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let plain_len = u16::try_from(plain.chars().count())
+            .unwrap_or(u16::MAX)
+            .saturating_add(2); // icon + space
         SegmentOutput {
             text,
             plain_len,
             state: None,
-            icon: None,
+            icon: Some(DEFAULT_ICON),
         }
     }
 }
@@ -109,5 +116,49 @@ mod tests {
     #[test]
     fn sanitise_version_passes_system_keyword() {
         assert_eq!(sanitise_version("system"), Some("system".to_owned()));
+    }
+
+    #[test]
+    fn renders_with_default_icon() {
+        // Env-var driven: skip when unset so parallel test threads don't race
+        // on `set_var` (unsafe since Rust 1.85). Contributors running
+        // `PYENV_VERSION=3.12 cargo test` still exercise the icon path.
+        use std::path::Path;
+        use std::time::{Duration, SystemTime};
+
+        use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+        use super::Pyenv;
+
+        if std::env::var("PYENV_VERSION")
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+        {
+            // Segment hidden when env var absent — covered by other unit tests.
+            return;
+        }
+
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/example");
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd,
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = Pyenv.render(&ctx);
+        assert!(
+            out.text.contains('\u{e235}'),
+            "default icon missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.icon, Some("\u{e235}"));
     }
 }
