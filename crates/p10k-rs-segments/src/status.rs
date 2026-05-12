@@ -30,20 +30,26 @@ impl Segment for Status {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let code = ctx.last_status;
         let plain = format!("✘{code}");
-        let icon = style::resolve_icon(ctx.config, self.name(), Some("error"), DEFAULT_ICON);
+        // Slice 34: the segment only renders on non-zero exit, so the
+        // state tag is always `"error"` — passing it through here lets
+        // `[segment.status.states.error]` TOML overrides hit. Future "ok"
+        // / "warning" indicators (when the segment learns to render on
+        // success) would pick up their own state strings from this site.
+        let state_tag = "error";
+        let icon = style::resolve_icon(ctx.config, self.name(), Some(state_tag), DEFAULT_ICON);
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2); // icon + space
         let bg = style::render_bg(
             ctx.config,
             self.name(),
-            Some("error"),
+            Some(state_tag),
             Color::Named("red".into()),
         );
         let fg = style::render_fg(
             ctx.config,
             self.name(),
-            Some("error"),
+            Some(state_tag),
             Color::Named("white".into()),
         );
         let text = format!(
@@ -132,5 +138,29 @@ mod tests {
             out.text
         );
         assert_eq!(out.icon, Some("\u{f00d}"));
+    }
+
+    #[test]
+    fn error_state_toml_override_fires() {
+        // Slice 34: confirm `state = Some("error")` is actually plumbed
+        // through the style helpers so per-state TOML overrides target it
+        // cleanly. A user pinning the error background to magenta should
+        // beat the red default.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [segment.status.states.error]\n\
+             background = \"magenta\"\n",
+        )
+        .expect("valid toml");
+        let env = EnvSnapshot::default();
+        let ctx = make_ctx(&cfg, &env, 1);
+        let out = Status.render(&ctx);
+        // magenta bg (`48;5;5`) — TOML override beat the red default.
+        assert!(
+            out.text.contains("\x1b[48;5;5m"),
+            "magenta override missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.state, Some("error"));
     }
 }
