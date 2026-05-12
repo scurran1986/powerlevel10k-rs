@@ -6,12 +6,15 @@
 //! the target shell (e.g. zsh's `%{…%}` bracketing) and uses the declared
 //! `background` colour to paint powerline transition arrows.
 
+use std::path::Path;
+
 use p10k_rs_config::{DirTruncate, DirTruncateStrategy};
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 const DEFAULT_ICON: &str = "\u{f07b}"; // Nerd Font v3: folder (FA-style)
+const NOT_WRITABLE_ICON: &str = "\u{f023}"; // Nerd Font v3: padlock
 
 /// Ellipsis glyph used as the truncation marker.
 ///
@@ -45,9 +48,22 @@ impl Segment for Dir {
             .map(|s| s.truncate.clone())
             .unwrap_or_default();
         let collapsed = truncate_path(&collapsed, &truncate);
-        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
-        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("blue".into()));
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
+        // Probe write permission on the *real* cwd path before we paint.
+        // On any errno (broken cwd, EACCES on the parent, etc.) we treat
+        // the directory as not writable — that's the safer default for a
+        // visual cue (matches P10K's behaviour: when in doubt, show the
+        // padlock). State-keyed TOML overrides flow through the
+        // `style::*` helpers below.
+        let state_tag = writability_state(ctx.cwd);
+        let (default_bg, default_fg) = default_palette_for(state_tag);
+        let default_icon = if state_tag == "not_writable" {
+            NOT_WRITABLE_ICON
+        } else {
+            DEFAULT_ICON
+        };
+        let icon = style::resolve_icon(ctx.config, self.name(), Some(state_tag), default_icon);
+        let bg = style::render_bg(ctx.config, self.name(), Some(state_tag), default_bg.clone());
+        let fg = style::render_fg(ctx.config, self.name(), Some(state_tag), default_fg);
         let text = format!(
             "{bg}{fg}{icon} {collapsed}{}{}",
             style::reset_fg(),
@@ -62,10 +78,50 @@ impl Segment for Dir {
         SegmentOutput {
             text,
             plain_len,
-            state: None,
-            icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("blue".into())),
+            state: Some(state_tag),
+            icon: Some(default_icon),
+            background: Some(default_bg),
         }
+    }
+}
+
+/// Per-state default `(background, foreground)` pair.
+///
+/// - `writable` — blue/black (P10K-classic default, unchanged from slice
+///   28A).
+/// - `not_writable` — yellow/black (P10K's `DIR_NOT_WRITABLE_*` "warning"
+///   hue).
+///
+/// Pulled out as a free function so we can pick the default *before*
+/// calling [`style::render_bg`] / [`style::render_fg`] — those helpers
+/// take a single default and don't know about state defaults. Mirrors
+/// the `vi_mode.rs` slice 34 pattern.
+fn default_palette_for(state: &str) -> (Color, Color) {
+    match state {
+        "not_writable" => (Color::Named("yellow".into()), Color::Named("black".into())),
+        // `writable` and any future variant fall back to the
+        // P10K-classic blue/black.
+        _ => (Color::Named("blue".into()), Color::Named("black".into())),
+    }
+}
+
+/// Probe `cwd` for write permission and return the state tag.
+///
+/// Uses `rustix::fs::access(cwd, Access::WRITE_OK)` — the POSIX `access(2)`
+/// shim — which performs the same real-UID/GID check the kernel would
+/// apply to a subsequent `open(O_WRONLY)`. We don't actually open the
+/// directory; this is a cheap permission probe that doesn't perturb
+/// atime.
+///
+/// Fallback: on *any* errno (broken cwd that no longer exists, EACCES on
+/// a parent, ENOTDIR if the cwd was racily replaced with a file, etc.)
+/// we report `"not_writable"`. That's the safer visual default — a
+/// padlock is a strictly better warning than a silently-green prompt on
+/// a directory that's actually broken.
+fn writability_state(cwd: &Path) -> &'static str {
+    match rustix::fs::access(cwd, rustix::fs::Access::WRITE_OK) {
+        Ok(()) => "writable",
+        Err(_) => "not_writable",
     }
 }
 
@@ -234,11 +290,20 @@ mod tests {
         }
     }
 
+    /// Path the platform guarantees is writable for the running process.
+    /// Used by tests that need a known-writable cwd so the new slice-39
+    /// `not_writable` probe can't trip them. `std::env::temp_dir()`
+    /// returns `$TMPDIR` (Unix) or `%TEMP%` (Windows) and is created with
+    /// the running user as owner — so `access(W_OK)` will succeed.
+    fn writable_scratch() -> std::path::PathBuf {
+        std::env::temp_dir()
+    }
+
     #[test]
     fn renders_with_default_folder_icon() {
         let (cfg, env) = (Config::default(), EnvSnapshot::default());
-        let path = Path::new("/tmp/example");
-        let out = Dir.render(&ctx(&cfg, &env, path));
+        let path = writable_scratch();
+        let out = Dir.render(&ctx(&cfg, &env, &path));
         assert!(
             out.text.contains('\u{f07b}'),
             "default icon missing: {:?}",
@@ -285,5 +350,50 @@ mod tests {
         assert!(!out.text.contains('\x07'), "BEL survived: {:?}", out.text);
         // Visible payload is preserved (no escapes around it now).
         assert!(out.text.contains("/tmp/main]0;TARS-OWNED"));
+    }
+
+    #[test]
+    fn writable_state_keeps_blue() {
+        // The scratch dir is owner-writable; the writability probe must
+        // return `Ok(())` and we should land on the P10K-classic blue
+        // palette plus the writable state tag.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let path = writable_scratch();
+        let out = Dir.render(&ctx(&cfg, &env, &path));
+        assert_eq!(out.state, Some("writable"));
+        assert_eq!(out.icon, Some("\u{f07b}"));
+        assert!(
+            out.text.contains("\x1b[48;5;4m"),
+            "blue bg SGR missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.background, Some(Color::Named("blue".into())));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn not_writable_state_shifts_palette() {
+        // `/proc/1` exists for every Linux process tree and is *never*
+        // writable by an unprivileged user (root-owned, mode 555 on the
+        // pid dir). access(W_OK) returns EACCES → the segment lands on
+        // the not_writable state and the yellow warning palette.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let path = Path::new("/proc/1");
+        let out = Dir.render(&ctx(&cfg, &env, path));
+        assert_eq!(out.state, Some("not_writable"));
+        // Padlock glyph swaps in for the folder default.
+        assert_eq!(out.icon, Some("\u{f023}"));
+        assert!(
+            out.text.contains('\u{f023}'),
+            "padlock icon missing: {:?}",
+            out.text
+        );
+        // Yellow bg (`48;5;3` in Ansi256) — the P10K warning hue.
+        assert!(
+            out.text.contains("\x1b[48;5;3m"),
+            "yellow bg SGR missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.background, Some(Color::Named("yellow".into())));
     }
 }
