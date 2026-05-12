@@ -457,6 +457,138 @@ fn layout_ruler_glyph_emits_horizontal_line() {
 }
 
 #[test]
+fn segment_show_in_dir_includes_only_matching() {
+    // Slice 32: `[segment.<name>].show_in_dir = ["/tmp/**"]` keeps the
+    // segment only when the cwd matches at least one glob. Pick the dir
+    // segment as a proxy — its folder glyph (U+F07B, slice 23 default)
+    // is a clean presence marker.
+    let inside_cwd = scratch_dir("show-in-dir-inside");
+    let home = scratch_dir("show-in-dir-home");
+
+    // The "outside" cwd must NOT match `/tmp/**`. `scratch_dir` builds
+    // under `std::env::temp_dir()` which is typically `/tmp` on Linux,
+    // so we'd need somewhere off that tree. Use `home` (a temp dir
+    // we control) for the "inside" matched case via an explicit
+    // `[segment.dir].show_in_dir = ["<home>/**"]` glob, and use an
+    // arbitrary OS root (`/`) as the "outside" run-from path.
+    let cfg = home.join("config.toml");
+    let allow = format!("{}/**", home.to_string_lossy());
+    std::fs::write(
+        &cfg,
+        format!(
+            "schema_version = 1\n\
+             [layout]\n\
+             left = [\"dir\", \"prompt_char\"]\n\
+             [segment.dir]\n\
+             show_in_dir = [\"{allow}\"]\n",
+        )
+        .as_bytes(),
+    )
+    .expect("write fixture");
+
+    // Cwd matches the glob — dir must render.
+    let _ = inside_cwd; // unused: we run from `home` which the glob matches
+    let inside_out = run_prompt(
+        &home,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let inside_str = String::from_utf8_lossy(&inside_out);
+    assert!(
+        inside_str.contains('\u{f07b}'),
+        "dir must render when cwd matches show_in_dir glob: {inside_str:?}"
+    );
+
+    // Cwd doesn't match the glob — dir must be skipped. Use `/` as a
+    // path that's guaranteed to exist on Linux and is not under `home`.
+    let outside_cwd = std::path::Path::new("/");
+    let outside_out = run_prompt(
+        outside_cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let outside_str = String::from_utf8_lossy(&outside_out);
+    assert!(
+        !outside_str.contains('\u{f07b}'),
+        "dir must NOT render when cwd is outside show_in_dir glob: {outside_str:?}"
+    );
+    // Other segments still survive — the prompt_char `❯` should be there.
+    assert!(
+        outside_str.contains('\u{276f}'),
+        "prompt_char must still render when dir is gated out: {outside_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn segment_disabled_dir_pattern_excludes_matching() {
+    // Slice 32: `[segment.<name>].disabled_dir_pattern = "..."` drops the
+    // segment when the cwd matches the glob. Build a `secret/` and a
+    // `public/` subdir under one scratch root; gate dir off in `secret/`.
+    let root = scratch_dir("disabled-dir-pat-root");
+    let secret = root.join("secret").join("x");
+    let public = root.join("public").join("x");
+    std::fs::create_dir_all(&secret).expect("mkdir secret");
+    std::fs::create_dir_all(&public).expect("mkdir public");
+
+    let home = scratch_dir("disabled-dir-pat-home");
+    let cfg = home.join("config.toml");
+    let block = format!("{}/secret/**", root.to_string_lossy());
+    std::fs::write(
+        &cfg,
+        format!(
+            "schema_version = 1\n\
+             [layout]\n\
+             left = [\"dir\", \"prompt_char\"]\n\
+             [segment.dir]\n\
+             disabled_dir_pattern = \"{block}\"\n",
+        )
+        .as_bytes(),
+    )
+    .expect("write fixture");
+
+    // Secret cwd matches the disable glob — dir must be dropped.
+    let secret_out = run_prompt(
+        &secret,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let secret_str = String::from_utf8_lossy(&secret_out);
+    assert!(
+        !secret_str.contains('\u{f07b}'),
+        "dir must NOT render when cwd matches disabled_dir_pattern: {secret_str:?}"
+    );
+    assert!(
+        secret_str.contains('\u{276f}'),
+        "prompt_char must still render alongside a gated-out dir: {secret_str:?}"
+    );
+
+    // Public cwd doesn't match — dir must render.
+    let public_out = run_prompt(
+        &public,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let public_str = String::from_utf8_lossy(&public_out);
+    assert!(
+        public_str.contains('\u{f07b}'),
+        "dir must render when cwd is outside disabled_dir_pattern: {public_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn segment_disabled_field_skips_segment() {
     // End-to-end proof of slice 27: a `[segment.dir].disabled = true`
     // entry removes the segment from the rendered prompt without

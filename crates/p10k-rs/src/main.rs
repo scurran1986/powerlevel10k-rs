@@ -14,6 +14,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+use p10k_rs_config::Glob;
 use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell as CoreShell};
 use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
@@ -175,7 +176,7 @@ fn cmd_prompt(
         env: &env,
     };
 
-    let segments = assemble_segments(&cfg, &cfg.layout.left);
+    let segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left);
     let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
 
     // Stdout: left side only, plain text, no trailing newline. The init
@@ -234,13 +235,48 @@ foreground = "blue"
 ///
 /// Unknown names produce a `tracing::warn!` and are skipped — a typo'd
 /// segment in a user config is a non-fatal warning, not a crash. Segments
-/// whose `[segment.<name>].disabled = true` block is set are silently
-/// skipped — the user opted in to hiding them, so no warning is
-/// warranted. Returns in render order.
-fn assemble_segments(cfg: &Config, refs: &[p10k_rs_config::SegmentRef]) -> Vec<Box<dyn Segment>> {
+/// whose `[segment.<name>].disabled = true` block is set, or whose
+/// `show_in_dir` / `disabled_dir_pattern` cwd gates exclude the current
+/// directory, are silently skipped — the user opted in to hiding them,
+/// so no warning is warranted. Returns in render order.
+///
+/// Gate evaluation order (per slice 32):
+///
+/// 1. **`disabled_dir_pattern`** — if the glob matches `cwd`, the segment
+///    is dropped. Exclude wins over include.
+/// 2. **`show_in_dir`** — if `Some(globs)`, the segment is kept only when
+///    at least one glob matches `cwd`. `None` means "no constraint".
+/// 3. **`disabled`** — the explicit kill switch.
+///
+/// The dir gates fire *before* `disabled` and before the
+/// `segments::build` lookup so a typo'd glob doesn't fall through to the
+/// "unknown segment" warning path — the user already knows they typed
+/// a glob; surfacing it as an unknown-segment warn would be misleading.
+fn assemble_segments(
+    cfg: &Config,
+    cwd: &std::path::Path,
+    refs: &[p10k_rs_config::SegmentRef],
+) -> Vec<Box<dyn Segment>> {
     let mut out: Vec<Box<dyn Segment>> = Vec::with_capacity(refs.len());
     for r in refs {
-        if cfg.segments.get(&r.0).is_some_and(|s| s.disabled) {
+        let seg_cfg = cfg.segments.get(&r.0);
+
+        // Dir gates first. `disabled_dir_pattern` excludes win over
+        // `show_in_dir` includes: if both fields are set and both match,
+        // the segment is dropped.
+        if seg_cfg
+            .and_then(|sc| sc.disabled_dir_pattern.as_ref())
+            .is_some_and(|pat| glob_matches_cwd(pat, cwd))
+        {
+            continue;
+        }
+        if let Some(allow) = seg_cfg.and_then(|sc| sc.show_in_dir.as_ref()) {
+            if !allow.iter().any(|g| glob_matches_cwd(g, cwd)) {
+                continue;
+            }
+        }
+
+        if seg_cfg.is_some_and(|s| s.disabled) {
             continue;
         }
         if let Some(seg) = p10k_rs_segments::build(&r.0) {
@@ -250,6 +286,30 @@ fn assemble_segments(cfg: &Config, refs: &[p10k_rs_config::SegmentRef]) -> Vec<B
         }
     }
     out
+}
+
+/// Compile `glob` and check whether it matches the cwd as a literal path
+/// string.
+///
+/// Per slice 32's behaviour spec: home-expansion (`~`) is the user's
+/// responsibility — Powerlevel10k doesn't expand tildes in
+/// `POWERLEVEL9K_*_SHOW_ON_DIR_PATTERN` either, and silently expanding
+/// here would surprise users importing a working p10k config.
+///
+/// A glob that fails to compile is treated as "no match" and warned
+/// about — a typo is a non-fatal config error; the segment just doesn't
+/// gate as the user expected. We emit one `tracing::warn!` per call so
+/// the user has a breadcrumb in `RUST_LOG=warn` output without spamming
+/// every prompt with a stack trace.
+fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
+    let compiled = match globset::Glob::new(&glob.0) {
+        Ok(g) => g.compile_matcher(),
+        Err(e) => {
+            tracing::warn!("invalid glob {:?}: {e}; treating as no-match", glob.0);
+            return false;
+        }
+    };
+    compiled.is_match(cwd)
 }
 
 /// Serialise the rendered PROMPT to a sourceable shell snippet at `path`,

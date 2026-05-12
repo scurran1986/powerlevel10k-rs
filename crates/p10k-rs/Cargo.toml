@@ -30,6 +30,15 @@ clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Slice 32: per-segment cwd gating via `show_in_dir` / `disabled_dir_pattern`.
+# `globset` is the standard Rust glob library (used by ripgrep, cargo-edit,
+# watchexec, etc.; ~hundreds of reverse-deps on crates.io) and compiles each
+# pattern to an Aho-Corasick / regex matcher we evaluate against the cwd
+# string. We could hand-roll a `*`/`**`/`?` matcher in ~50 LOC, but the
+# semantics users expect ("does this look like my .gitignore?") match
+# globset exactly. Keeping the dep in the binary crate only — the config
+# crate stays glob-impl-agnostic so a future swap costs one file.
+globset = "0.4"
 
 [lints]
 workspace = true
