@@ -61,7 +61,7 @@ crossterm = "0.28"
 
 # --- I/O / parallelism ---
 rayon = "1.10"
-rustix = { version = "0.38", features = ["fs", "process", "event", "system"] }
+rustix = { version = "0.38", features = ["fs", "process", "event", "system", "termios", "stdio"] }
 
 # --- time formatting (slice 17: `time` segment) ---
 # `local-offset` lets us resolve the user's tz on Linux/macOS; on Linux the

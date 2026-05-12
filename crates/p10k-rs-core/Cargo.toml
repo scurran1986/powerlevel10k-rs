@@ -18,6 +18,7 @@ p10k-rs-config = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 anstyle = { workspace = true }
+rustix = { workspace = true }
 
 [features]
 default = []

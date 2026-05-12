@@ -353,18 +353,51 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
 
 /// Best-effort terminal width for the ruler decoration.
 ///
-/// Reads `$COLUMNS`; falls back to 80. zsh / bash / fish populate
-/// `$COLUMNS` automatically in interactive shells, but it is not
-/// exported to subprocesses by default — the user's init script should
-/// `export COLUMNS` if they want the ruler to match a resized terminal.
-/// A future slice will replace this with an ioctl(TIOCGWINSZ) lookup
-/// via `rustix`.
+/// Probe order:
+/// 1. `ioctl(TIOCGWINSZ)` via `rustix::termios::tcgetwinsize` against
+///    stdout, then stderr, then stdin. Any of the three may be the
+///    controlling TTY when this binary runs as a subprocess of the
+///    shell (stdout is most commonly redirected for command-substitution
+///    callers, so we try it first but fall through to the other two).
+/// 2. `$COLUMNS`. zsh / bash / fish populate this in interactive shells
+///    but do **not** export it to subprocesses, so it is only useful
+///    when the user's init script explicitly `export`s it.
+/// 3. Hard fallback of 80 columns.
+///
+/// Architectural note: `p10k-rs-core` is otherwise I/O-free (see this
+/// crate's `CLAUDE.md`). `terminal_width` is the documented exception —
+/// previously it read `$COLUMNS`, and as of slice 29 it also performs
+/// an `ioctl` syscall. Both are read-only probes of the host the
+/// renderer is producing output for; no other render code reaches out
+/// to the OS.
 fn terminal_width() -> usize {
+    if let Some(w) = tty_winsize_cols() {
+        return w;
+    }
     std::env::var("COLUMNS")
         .ok()
         .and_then(|s| s.parse().ok())
         .filter(|&w: &usize| w > 0)
         .unwrap_or(80)
+}
+
+/// Try `TIOCGWINSZ` against the standard streams in priority order.
+///
+/// Returns `Some(cols)` for the first stream that is a TTY *and* reports
+/// a positive `ws_col`. A pipe or closed fd yields `ENOTTY` from rustix,
+/// which we treat as "not a winsize source, try the next" via `.ok()`.
+fn tty_winsize_cols() -> Option<usize> {
+    use rustix::stdio::{stderr, stdin, stdout};
+    use rustix::termios::tcgetwinsize;
+
+    for fd in [stdout(), stderr(), stdin()] {
+        if let Ok(ws) = tcgetwinsize(fd) {
+            if ws.ws_col > 0 {
+                return Some(usize::from(ws.ws_col));
+            }
+        }
+    }
+    None
 }
 
 /// Per-shell escape-wrapping for the assembled prompt string.
@@ -506,6 +539,16 @@ mod tests {
         let raw = "branch%n";
         assert_eq!(wrap_for_shell(raw, Shell::Bash), raw);
         assert_eq!(wrap_for_shell(raw, Shell::Fish), raw);
+    }
+
+    #[test]
+    fn terminal_width_is_at_least_one_column() {
+        // Sanity check, not a byte assertion — width is environmental.
+        // Under `cargo test` stdio is typically a pipe (so ioctl ENOTTYs
+        // out), `$COLUMNS` is not exported, and we land on the 80-column
+        // fallback. If a developer runs the suite from a real TTY we
+        // get the live width instead. Either path is `>= 1`.
+        assert!(terminal_width() >= 1);
     }
 }
 
