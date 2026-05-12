@@ -358,6 +358,15 @@ pub struct FrameStyle {
     pub glyph: Option<String>,
     /// Frame foreground color.
     pub foreground: Option<Color>,
+    /// Bottom-left frame glyph emitted on the line that carries the
+    /// trailing line-2 segment (typically `prompt_char`). Defaults to
+    /// `╰─` to match the slice-28 hardcoded look; users who want a
+    /// different shape (e.g. `└─`, `└`, or nothing) override here.
+    ///
+    /// Sanitised by [`Config::from_toml`] like the other prompt-bound
+    /// strings on this struct.
+    #[serde(default)]
+    pub bottom_glyph: Option<String>,
 }
 
 /// Ruler decoration above the prompt.
@@ -450,6 +459,7 @@ impl Config {
     /// After successful parse, [`sanitize_for_terminal`] runs over:
     /// - `layout.separators.{left,right,subsegment}`
     /// - `layout.frame.glyph`
+    /// - `layout.frame.bottom_glyph`
     /// - `layout.ruler.glyph`
     /// - every `segment.<name>.icon`
     /// - every `segment.<name>.states.<state>.icon`
@@ -486,6 +496,7 @@ impl Config {
         sanitize_opt(&mut self.layout.separators.subsegment);
         if let Some(frame) = self.layout.frame.as_mut() {
             sanitize_opt(&mut frame.glyph);
+            sanitize_opt(&mut frame.bottom_glyph);
         }
         if let Some(ruler) = self.layout.ruler.as_mut() {
             sanitize_opt(&mut ruler.glyph);

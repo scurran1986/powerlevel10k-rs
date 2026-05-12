@@ -277,16 +277,19 @@ fn factory_default_config() -> Config {
     // newtypes that can't be field-initialised from outside the crate, so
     // round-tripping through `from_toml` is the only ergonomic path. The
     // string is `const` and parses in single-digit microseconds.
-    // Slice 28: factory default ships the classic Powerlevel10k look —
-    // top-left `╭─` corner, line-1 segments joined by powerline arrows,
-    // bottom-left `╰─` corner with the prompt char on line 2. The
-    // multi-line shape is gated on `[layout.frame]` being set, so a
-    // user who explicitly opts out (drops the frame block) keeps the
-    // historical single-line shape.
+    // Slice 38: factory default mirrors upstream Powerlevel10k's "lean"
+    // two-sided layout out of the box. Left ribbon carries identity
+    // (context — hidden on local non-root sessions per slice 37), cwd,
+    // and vcs, with `prompt_char` falling onto line 2 thanks to the
+    // `[layout.frame]` corner. Right ribbon collects the
+    // typically-hidden signals — `status` (error only), `command_execution_time`
+    // (> 3s), `background_jobs` (> 0) — and `time`, which renders
+    // unconditionally so users always have a clock on the right.
     const FACTORY_TOML: &str = r#"
 schema_version = 1
 [layout]
-left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "background_jobs", "time"]
 [layout.frame]
 glyph = "╭─"
 foreground = "blue"

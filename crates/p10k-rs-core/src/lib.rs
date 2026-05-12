@@ -333,13 +333,21 @@ pub fn render_prompt(
         left.push_str(style::reset_fg());
     }
 
-    // Line 2 (prompt_char, today) behind a `╰─` corner.
+    // Line 2 (prompt_char, today) behind a `╰─` corner — or whatever
+    // `[layout.frame].bottom_glyph` overrides it to. Default preserves
+    // the slice-28 hardcoded look byte-for-byte.
     if !line2.is_empty() {
         left.push('\n');
         if frame_active {
+            let bottom_glyph = ctx
+                .config
+                .layout
+                .frame
+                .as_ref()
+                .and_then(|f| f.bottom_glyph.as_deref())
+                .unwrap_or("\u{2570}\u{2500}");
             left.push_str(&frame_fg);
-            left.push('\u{2570}');
-            left.push('\u{2500}');
+            left.push_str(bottom_glyph);
             left.push_str(style::reset_fg());
         }
         for (out, name) in line2 {

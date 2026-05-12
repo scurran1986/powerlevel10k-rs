@@ -99,13 +99,15 @@ fn config_with_default_layout_matches_baseline() {
     );
 
     // Same args, but P10K_RS_CONFIG points at a TOML fixture whose layout
-    // matches the factory default exactly.
+    // matches the factory default exactly (slice 38: classic two-sided
+    // P10K lean layout).
     let fixture = home.join("config.toml");
     std::fs::write(
         &fixture,
         b"schema_version = 1\n\
           [layout]\n\
-          left = [\"dir\", \"vcs\", \"command_execution_time\", \"status\", \"prompt_char\"]\n\
+          left = [\"context\", \"dir\", \"vcs\", \"prompt_char\"]\n\
+          right = [\"status\", \"command_execution_time\", \"background_jobs\", \"time\"]\n\
           [layout.frame]\n\
           glyph = \"\xe2\x95\xad\xe2\x94\x80\"\n\
           foreground = \"blue\"\n",
@@ -762,6 +764,62 @@ fn transient_prompt_renders_prompt_char_only() {
     assert!(
         !s.contains("\u{256d}\u{2500}"),
         "transient must NOT carry the frame top corner '╭─': {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn layout_frame_bottom_glyph_override() {
+    // Slice 40: `[layout.frame].bottom_glyph` replaces the hardcoded
+    // `╰─` corner on the multi-line prompt's line 2. Build a layout
+    // with `prompt_char` trailing + frame active so the multi-line
+    // branch fires, set a distinctive bottom glyph, and assert it
+    // shows up AFTER the line-break that introduces line 2.
+    let cwd = scratch_dir("frame-bottom-glyph-cwd");
+    let home = scratch_dir("frame-bottom-glyph-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [layout.frame]\n\
+          glyph = \"TOP>\"\n\
+          bottom_glyph = \"BTM>\"\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+
+    // The configured bottom glyph must appear in the output.
+    assert!(
+        s.contains("BTM>"),
+        "bottom glyph override must appear in the prompt: {s:?}"
+    );
+    // And it must land AFTER a newline — the multi-line branch fires
+    // only when prompt_char trails, and the corner sits on line 2.
+    let newline_idx = s
+        .find('\n')
+        .expect("multi-line prompt must contain a newline before line 2");
+    let after_newline = &s[newline_idx + 1..];
+    assert!(
+        after_newline.contains("BTM>"),
+        "bottom glyph must appear AFTER the line-2 newline: {s:?}"
+    );
+    // The hardcoded default `╰─` must NOT leak through when overridden.
+    assert!(
+        !s.contains("\u{2570}\u{2500}"),
+        "default ╰─ must be replaced by the override: {s:?}"
     );
 
     let _ = std::fs::remove_dir_all(&cwd);
