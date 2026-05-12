@@ -24,12 +24,21 @@ fn p10k_rs_bin() -> String {
 /// Run `p10k-rs prompt` in `cwd` with the given env overrides. Returns
 /// stdout bytes.
 fn run_prompt(cwd: &Path, extra_env: &[(&str, &str)]) -> Vec<u8> {
+    run_prompt_side(cwd, "left", extra_env)
+}
+
+/// Run `p10k-rs prompt --render-side <side>` in `cwd` with env overrides.
+/// Slice 33 splits PROMPT and RPROMPT across two invocations; tests that
+/// care about the right side go through this helper.
+fn run_prompt_side(cwd: &Path, side: &str, extra_env: &[(&str, &str)]) -> Vec<u8> {
     let mut child = Command::new(p10k_rs_bin());
     child
         .current_dir(cwd)
         .arg("prompt")
         .arg("--shell")
         .arg("zsh")
+        .arg("--render-side")
+        .arg(side)
         .arg("--last-status")
         .arg("0")
         .arg("--last-duration-ms")
@@ -654,6 +663,91 @@ fn segment_disabled_field_skips_segment() {
     assert!(
         disabled_str.contains('\u{276f}'),
         "prompt_char must still render with dir disabled: {disabled_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn right_prompt_renders_layout_right() {
+    // Slice 33: `[layout].right = ["time"]` plus `--render-side right`
+    // produces a styled ribbon on stdout. The time segment paints itself
+    // on a `brightblack` (ANSI256 8) background and emits an SGR for it,
+    // so we assert both that the bg SGR is present (proof the segment
+    // ran) and that the mirrored powerline arrow `\u{e0b2}` appears
+    // (proof the right-side renderer wove its leading transition).
+    let cwd = scratch_dir("right-prompt-cwd");
+    let home = scratch_dir("right-prompt-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n\
+          right = [\"time\"]\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt_side(
+        &cwd,
+        "right",
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+
+    // ANSI256 brightblack = 8. The time segment paints bg=brightblack and
+    // surfaces it via SegmentOutput.background, so the right-side renderer
+    // also emits the matching SGR on its leading arrow (fg=brightblack).
+    assert!(
+        s.contains("\x1b[38;5;8m") || s.contains("\x1b[48;5;8m"),
+        "right prompt should carry the time segment's brightblack styling: {s:?}"
+    );
+    // Mirror of the left arrow — the right-prompt-specific glyph.
+    assert!(
+        s.contains('\u{e0b2}'),
+        "right prompt should carry the left-pointing powerline arrow: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn right_prompt_empty_when_no_layout_right() {
+    // Slice 33: when `[layout].right` is absent (or empty), invoking the
+    // binary with `--render-side right` must produce no stdout — the zsh
+    // init script then assigns `RPROMPT=""` cleanly without any escapes
+    // bleeding in. The factory default ships no `layout.right`, so this
+    // is the path most users will hit.
+    let cwd = scratch_dir("right-empty-cwd");
+    let home = scratch_dir("right-empty-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\"]\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt_side(
+        &cwd,
+        "right",
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    assert!(
+        out.is_empty(),
+        "right prompt with no layout.right must be empty: {:?}",
+        String::from_utf8_lossy(&out),
     );
 
     let _ = std::fs::remove_dir_all(&cwd);

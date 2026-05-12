@@ -165,6 +165,11 @@ pub struct Prompt {
 /// transition reads as a single continuous ribbon.
 const POWERLINE_ARROW: char = '\u{e0b0}';
 
+/// Powerline left-pointing solid arrow (mirror of [`POWERLINE_ARROW`]).
+/// Used by the right-prompt renderer so the ribbon's slant points
+/// "into" the prompt (towards the cursor) rather than away from it.
+const POWERLINE_ARROW_LEFT: char = '\u{e0b2}';
+
 /// Render the configured prompt for the given context.
 ///
 /// Walks `segments` in order, calls `enabled` then `render`, and weaves
@@ -182,12 +187,22 @@ const POWERLINE_ARROW: char = '\u{e0b0}';
 /// - Segments with `background = None` keep the legacy behaviour:
 ///   joined with the configured left separator (`" "` by default).
 ///
+/// The caller is responsible for assembling the segment list for the
+/// side it wants to render (`layout.left` for the left ribbon,
+/// `layout.right` for `Prompt::right`). The renderer is symmetric in
+/// the segments themselves — it's the *arrow* direction and colouring
+/// that differs between sides.
+///
 /// Output is post-processed for the target shell (zsh wants ANSI
 /// escapes wrapped in `%{…%}` so PROMPT-width tracking stays right).
 ///
 /// Pure: given identical `segments` and `ctx`, returns identical output.
 #[must_use]
-pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
+pub fn render_prompt(
+    segments: &[Box<dyn Segment>],
+    right_segments: &[Box<dyn Segment>],
+    ctx: &RenderCtx<'_>,
+) -> Prompt {
     let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
     let mode = ctx.config.colors;
     let mut left = String::new();
@@ -344,11 +359,100 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
     }
 
     let left = wrap_for_shell(&left, ctx.shell);
+    let right = render_right(right_segments, ctx);
+    let right = wrap_for_shell(&right, ctx.shell);
     Prompt {
         left,
-        right: String::new(),
+        right,
         transient: None,
     }
+}
+
+/// Assemble the right-side ribbon.
+///
+/// Mirrors the left-side renderer, with two differences:
+///
+/// 1. The powerline transition glyph is the LEFT-pointing arrow
+///    (`\u{e0b2}`) so the slant tip points "into" the prompt instead
+///    of away from it — matching how Powerlevel10k draws RPROMPT.
+/// 2. Arrow colouring is mirrored. On the left, an arrow between two
+///    bg-bearing segments is `fg=prev_bg, bg=next_bg` because the
+///    slant tip is on the *right* of the cell, blending into the
+///    upcoming segment. On the right, the slant tip is on the *left*
+///    of the cell, so the arrow is `fg=next_bg, bg=prev_bg`: the tip
+///    blends into the segment we're entering, the rest of the cell
+///    blends into the segment we're leaving.
+///
+/// The leading transition (terminal-default → first bg-bearing
+/// segment) is also mirrored: `fg=first_bg, bg=default` paints a
+/// solid left-pointing arrow that fades from terminal background into
+/// the segment's colour.
+///
+/// Segments with `background = None` join with the configured left
+/// separator (the right separator is reserved for subsegment use; we
+/// reuse `layout.separators.left` for inter-segment spacing on both
+/// sides to keep the spec compact).
+///
+/// Returns an empty string when no segments survive `enabled()` — the
+/// binary then assigns `RPROMPT=""` cleanly.
+fn render_right(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
+    let mut out = String::new();
+    let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
+    let mode = ctx.config.colors;
+
+    let enabled: Vec<(SegmentOutput, &str)> = segments
+        .iter()
+        .filter(|s| s.enabled(ctx))
+        .map(|s| (s.render(ctx), s.name()))
+        .collect();
+
+    if enabled.is_empty() {
+        return out;
+    }
+
+    let mut prev_bg: Option<&style::Color> = None;
+    for (i, (seg_out, name)) in enabled.iter().enumerate() {
+        let (pad_left, pad_right) = ctx
+            .config
+            .segments
+            .get(*name)
+            .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+        match (prev_bg, seg_out.background.as_ref()) {
+            (None, Some(next)) => {
+                // Leading transition: fg=next_bg on default bg, then
+                // left-pointing arrow into the segment.
+                out.push_str(&style::sgr_fg(next, mode));
+                out.push_str(style::reset_bg());
+                out.push(POWERLINE_ARROW_LEFT);
+                out.push_str(style::reset_fg());
+            }
+            (Some(prev), Some(next)) => {
+                // Mirrored powerline transition: fg=next_bg (tip of the
+                // left-pointing arrow, blending into the segment we're
+                // entering), bg=prev_bg (rest of the cell, blending
+                // into the segment we're leaving).
+                out.push_str(&style::sgr_fg(next, mode));
+                out.push_str(&style::sgr_bg(prev, mode));
+                out.push(POWERLINE_ARROW_LEFT);
+                out.push_str(style::reset_fg());
+            }
+            (_, None) => {
+                if i != 0 {
+                    out.push_str(separator);
+                }
+            }
+        }
+        for _ in 0..pad_left {
+            out.push(' ');
+        }
+        out.push_str(&seg_out.text);
+        for _ in 0..pad_right {
+            out.push(' ');
+        }
+        prev_bg = seg_out.background.as_ref();
+    }
+
+    out
 }
 
 /// Best-effort terminal width for the ruler decoration.

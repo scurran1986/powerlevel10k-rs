@@ -18,7 +18,13 @@
 #
 # Not yet shipped:
 #  - Transient prompt collapse on accept-line.
-#  - Right-side prompt (`RPROMPT`).
+#
+# Right-side prompt (`RPROMPT`) is wired below: the precmd hook invokes
+# `p10k-rs prompt --render-side right` and assigns the output to
+# `RPROMPT`. Empty output (no `[layout.right]` configured, or every
+# segment hidden) yields `RPROMPT=""`, which zsh treats as no right
+# prompt — i.e. the historical behaviour is preserved when users don't
+# opt in.
 
 if [[ -n "${_P10K_RS_INSTALLED:-}" ]]; then
   return 0
@@ -148,7 +154,14 @@ _p10k_rs_precmd() {
     _p10k_rs_stop_daemon
     _p10k_rs_start_daemon || true
   fi
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --last-status $rs --last-duration-ms $elapsed_ms --dump "$_p10k_rs_dump" 2>/dev/null) "
+  # Two subprocess calls per precmd — one per side. The gitstatusd
+  # daemon does the heavy lifting and its result is cheap to fetch
+  # twice (the second call still goes over the FIFO, but the daemon
+  # caches the per-cwd snapshot in-process). Splitting per-side keeps
+  # the binary's wire format trivial: each invocation prints one
+  # ribbon, no in-band separators to parse.
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --dump "$_p10k_rs_dump" 2>/dev/null) "
+  RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms 2>/dev/null)"
   return $rs
 }
 

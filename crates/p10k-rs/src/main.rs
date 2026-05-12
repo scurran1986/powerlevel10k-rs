@@ -62,6 +62,13 @@ enum Command {
         /// Emit machine-readable JSON instead of styled text.
         #[arg(long)]
         json: bool,
+        /// Which side of the prompt to print: `left` (default, drives
+        /// `PROMPT` in zsh) or `right` (drives `RPROMPT`). The shell
+        /// init script invokes the binary twice per precmd — once per
+        /// side — so each invocation prints exactly one ribbon and the
+        /// shell glues them onto the matching parameter.
+        #[arg(long, default_value = "left")]
+        render_side: String,
     },
     /// Print the per-shell init script. `eval` / `source` from your rc file.
     Init {
@@ -96,6 +103,7 @@ fn main() -> Result<()> {
             last_duration_ms,
             dump,
             json,
+            render_side,
         } => {
             tracing::debug!(
                 shell,
@@ -103,12 +111,14 @@ fn main() -> Result<()> {
                 last_duration_ms,
                 ?dump,
                 json,
+                render_side,
                 "prompt invoked"
             );
             if json {
                 anyhow::bail!("--json output lands with the AI integration phase");
             }
-            cmd_prompt(&shell, last_status, last_duration_ms, dump.as_deref())
+            let side = parse_render_side(&render_side)?;
+            cmd_prompt(&shell, last_status, last_duration_ms, dump.as_deref(), side)
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
@@ -135,6 +145,32 @@ fn main() -> Result<()> {
     }
 }
 
+/// Which side of the prompt `cmd_prompt` should emit to stdout.
+///
+/// The zsh init script calls `p10k-rs prompt --render-side left` for
+/// `PROMPT` and `--render-side right` for `RPROMPT` on every precmd
+/// hook. Splitting per-side keeps the wire protocol trivial: one
+/// invocation, one ribbon, no in-band separators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderSide {
+    /// Left prompt — `PROMPT` in zsh. Default when `--render-side` is
+    /// not supplied (preserves the pre-slice-33 binary contract).
+    Left,
+    /// Right prompt — `RPROMPT` in zsh.
+    Right,
+}
+
+/// Parse the `--render-side` flag. Anything other than `left` or `right`
+/// is a hard error so a typo in the init script surfaces immediately
+/// rather than silently rendering the wrong side.
+fn parse_render_side(s: &str) -> Result<RenderSide> {
+    match s.to_ascii_lowercase().as_str() {
+        "left" => Ok(RenderSide::Left),
+        "right" => Ok(RenderSide::Right),
+        other => anyhow::bail!("unknown --render-side '{other}': expected 'left' or 'right'"),
+    }
+}
+
 /// Render the prompt: discover the user's TOML config, fall back to a
 /// hardcoded factory default if anything goes wrong.
 fn cmd_prompt(
@@ -142,6 +178,7 @@ fn cmd_prompt(
     last_status: i32,
     last_duration_ms: u64,
     dump: Option<&std::path::Path>,
+    side: RenderSide,
 ) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
@@ -176,19 +213,30 @@ fn cmd_prompt(
         env: &env,
     };
 
-    let segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left);
-    let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
+    let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left);
+    let right_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.right);
+    let prompt = p10k_rs_core::render_prompt(&left_segments, &right_segments, &ctx);
 
-    // Stdout: left side only, plain text, no trailing newline. The init
-    // script appends a single space when assigning to PROMPT.
-    print!("{}", prompt.left);
+    // Print the requested side to stdout, plain text, no trailing newline.
+    // The init script appends formatting (single space for PROMPT, raw
+    // assignment for RPROMPT) at the call site.
+    let rendered = match side {
+        RenderSide::Left => &prompt.left,
+        RenderSide::Right => &prompt.right,
+    };
+    print!("{rendered}");
 
-    // Dump the rendered prompt to disk for the instant-prompt path. Failure
-    // is non-fatal — the next invocation will retry, and the user just sees
+    // Dump the rendered prompt to disk for the instant-prompt path. Only
+    // the left side is cached today — the instant-prompt path exists to
+    // mask gitstatusd's first-call cold cost on PROMPT; RPROMPT is empty
+    // by default and the right-side render is independent. Failure is
+    // non-fatal — the next invocation will retry, and the user just sees
     // a slightly slower first prompt next shell.
     if let Some(dump_path) = dump {
-        if let Err(e) = write_instant_dump(dump_path, &prompt.left, core_shell) {
-            tracing::warn!("instant-prompt dump write failed (non-fatal): {e}");
+        if side == RenderSide::Left {
+            if let Err(e) = write_instant_dump(dump_path, &prompt.left, core_shell) {
+                tracing::warn!("instant-prompt dump write failed (non-fatal): {e}");
+            }
         }
     }
     Ok(())
