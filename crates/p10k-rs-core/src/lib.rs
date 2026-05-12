@@ -162,16 +162,30 @@ pub struct Prompt {
 /// Pure: given identical `segments` and `ctx`, returns identical output.
 #[must_use]
 pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
+    let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
     let mut left = String::new();
+    let mut first = true;
     for seg in segments {
         if !seg.enabled(ctx) {
             continue;
         }
         let out = seg.render(ctx);
-        if !left.is_empty() {
+        if !first {
+            left.push_str(separator);
+        }
+        first = false;
+        let (pad_left, pad_right) = ctx
+            .config
+            .segments
+            .get(seg.name())
+            .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+        for _ in 0..pad_left {
             left.push(' ');
         }
         left.push_str(&out.text);
+        for _ in 0..pad_right {
+            left.push(' ');
+        }
     }
     let left = wrap_for_shell(&left, ctx.shell);
     Prompt {

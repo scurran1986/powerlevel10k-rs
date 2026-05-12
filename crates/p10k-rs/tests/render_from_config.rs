@@ -224,3 +224,95 @@ fn unknown_segment_is_skipped_with_warning() {
     let _ = std::fs::remove_dir_all(&cwd);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn custom_layout_separator_reaches_render() {
+    // Slice 22: `[layout.separators].left` replaces the default single
+    // space between segments.
+    let cwd = scratch_dir("sep-cwd");
+    let home = scratch_dir("sep-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [layout.separators]\n\
+          left = \" | \"\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    assert!(
+        s.contains(" | "),
+        "custom separator must appear between segments: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn segment_padding_adds_spaces_around_segment() {
+    // Slice 22: `[segment.<name>].padding.left/right` wraps the segment
+    // in the requested number of spaces.
+    let cwd = scratch_dir("pad-cwd");
+    let home = scratch_dir("pad-home");
+
+    let baseline_cfg = home.join("baseline.toml");
+    std::fs::write(
+        &baseline_cfg,
+        b"schema_version = 1\n[layout]\nleft = [\"dir\", \"prompt_char\"]\n",
+    )
+    .expect("write baseline");
+
+    let padded_cfg = home.join("padded.toml");
+    std::fs::write(
+        &padded_cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [segment.dir]\n\
+          padding = { left = 2, right = 3 }\n",
+    )
+    .expect("write padded");
+
+    let baseline = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", baseline_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let padded = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", padded_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+
+    // Padded output should be exactly 5 bytes longer (2 left + 3 right).
+    // Bytes, not codepoints — padding emits ASCII spaces; the rest of
+    // the prompt is unchanged between the two configs.
+    assert_eq!(
+        padded.len(),
+        baseline.len() + 5,
+        "padded len {} != baseline len {} + 5\n  baseline: {:?}\n  padded:   {:?}",
+        padded.len(),
+        baseline.len(),
+        String::from_utf8_lossy(&baseline),
+        String::from_utf8_lossy(&padded),
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
