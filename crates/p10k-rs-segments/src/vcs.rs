@@ -78,16 +78,11 @@ impl Segment for Vcs {
             "clean"
         };
 
-        // Resolve the icon glyph: user override via `[segment.vcs].icon`
-        // wins; otherwise fall back to the Nerd Font default. The icon is
-        // painted inside the head_fg colour band so it tracks the branch
-        // colour (and any per-state override).
-        let icon = ctx
-            .config
-            .segments
-            .get(self.name())
-            .and_then(|sc| sc.icon.as_deref())
-            .unwrap_or(DEFAULT_ICON);
+        // Resolve the icon glyph through the state-aware precedence chain:
+        // state-keyed override → segment-level override → Nerd Font default.
+        // Painted inside the head_fg colour band so it tracks the branch
+        // colour (and the per-state foreground override).
+        let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
 
         // Head colour goes through the config-aware style resolver; default
         // is yellow when no override is configured. Marker stays hardcoded
@@ -127,6 +122,7 @@ impl Segment for Vcs {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
@@ -225,5 +221,49 @@ mod tests {
         assert!(out.text.contains('!'));
         assert!(!out.text.contains('*'));
         assert_eq!(out.state, Some("conflict"));
+    }
+
+    #[test]
+    fn state_keyed_icon_override_fires_on_dirty() {
+        // Slice 24: per-state icon override. The `dirty` state must
+        // resolve `[segment.vcs.states.dirty].icon` over the
+        // segment-level default.
+        let cfg = p10k_rs_core::Config::from_toml(
+            "schema_version = 1\n\
+             [segment.vcs.states.dirty]\n\
+             icon = \"!!\"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let dirty = GitState {
+            branch: "feat/x".into(),
+            dirty: true,
+            ..Default::default()
+        };
+        let clean = GitState {
+            branch: "main".into(),
+            ..Default::default()
+        };
+
+        let out_dirty = Vcs.render(&ctx_with_git(&cfg, &env, Path::new("/"), Some(&dirty)));
+        assert!(
+            out_dirty.text.contains("!!"),
+            "state-keyed icon override missing: {:?}",
+            out_dirty.text
+        );
+        assert!(
+            !out_dirty.text.contains('\u{f1d3}'),
+            "default vcs icon should be replaced for dirty state: {:?}",
+            out_dirty.text
+        );
+
+        // Clean state still gets the Nerd Font default since no
+        // segment-level fallback was configured.
+        let out_clean = Vcs.render(&ctx_with_git(&cfg, &env, Path::new("/"), Some(&clean)));
+        assert!(
+            out_clean.text.contains('\u{f1d3}'),
+            "clean state must still render the default icon: {:?}",
+            out_clean.text
+        );
     }
 }

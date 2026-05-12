@@ -29,12 +29,7 @@ impl Segment for Dir {
         let raw = sanitize_for_terminal(&ctx.cwd.display().to_string());
         let home = std::env::var("HOME").ok();
         let collapsed = home_collapse(&raw, home.as_deref());
-        let icon = ctx
-            .config
-            .segments
-            .get(self.name())
-            .and_then(|sc| sc.icon.as_deref())
-            .unwrap_or(DEFAULT_ICON);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("blue".into()));
         let text = format!("{fg}{icon} {collapsed}{}", style::reset_fg());
         // plain_len: chars-of-collapsed + 1 (icon, single Nerd Font codepoint

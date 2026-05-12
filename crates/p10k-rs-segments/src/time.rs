@@ -35,12 +35,7 @@ impl Segment for Time {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let formatted = format_time(dt);
-        let icon = ctx
-            .config
-            .segments
-            .get(self.name())
-            .and_then(|sc| sc.icon.as_deref())
-            .unwrap_or(DEFAULT_ICON);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
         let text = format!("{fg}{icon} {formatted}{}", style::reset_fg());
         SegmentOutput {

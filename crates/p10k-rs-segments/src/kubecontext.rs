@@ -66,12 +66,7 @@ impl Segment for Kubecontext {
         };
 
         let plain = format!("k8s:{context}");
-        let icon = ctx
-            .config
-            .segments
-            .get(self.name())
-            .and_then(|sc| sc.icon.as_deref())
-            .unwrap_or(DEFAULT_ICON);
+        let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
         let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
         let plain_len = u16::try_from(plain.chars().count())

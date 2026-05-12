@@ -48,6 +48,39 @@ pub fn render_bg(config: &Config, segment: &str, state: Option<&str>, default: C
     sgr_bg(&color, config.colors)
 }
 
+/// Resolve a segment's icon glyph, honouring per-state and per-segment
+/// overrides.
+///
+/// Precedence (highest first):
+/// 1. `config.segments[segment].states[state].icon` (when `state` is `Some`)
+/// 2. `config.segments[segment].icon`
+/// 3. `default`
+///
+/// Returns a `&str` borrowing from either the config string or the
+/// caller-supplied default — no allocation in the common case. Caller
+/// uses it directly in their `format!` chain.
+#[must_use]
+pub fn resolve_icon<'a>(
+    config: &'a Config,
+    segment: &str,
+    state: Option<&str>,
+    default: &'a str,
+) -> &'a str {
+    if let Some(sc) = config.segments.get(segment) {
+        if let Some(s) = state {
+            if let Some(so) = sc.states.get(s) {
+                if let Some(icon) = so.icon.as_deref() {
+                    return icon;
+                }
+            }
+        }
+        if let Some(icon) = sc.icon.as_deref() {
+            return icon;
+        }
+    }
+    default
+}
+
 #[derive(Clone, Copy)]
 enum Side {
     Fg,
@@ -305,5 +338,46 @@ mod tests {
         let bg = render_bg(&cfg, "dir", None, Color::Named("black".into()));
         assert_eq!(fg, "\x1b[38;5;1m");
         assert_eq!(bg, "\x1b[48;5;4m");
+    }
+
+    #[test]
+    fn resolve_icon_falls_back_to_default() {
+        let cfg = cfg_with("schema_version = 1\n");
+        assert_eq!(resolve_icon(&cfg, "dir", None, "DEFAULT"), "DEFAULT");
+        assert_eq!(
+            resolve_icon(&cfg, "dir", Some("dirty"), "DEFAULT"),
+            "DEFAULT"
+        );
+    }
+
+    #[test]
+    fn resolve_icon_honours_segment_override() {
+        let cfg = cfg_with(
+            "schema_version = 1\n\
+             [segment.dir]\n\
+             icon = \"OVERRIDE\"\n",
+        );
+        assert_eq!(resolve_icon(&cfg, "dir", None, "DEFAULT"), "OVERRIDE");
+        // State given but no state-keyed icon → segment-level wins.
+        assert_eq!(
+            resolve_icon(&cfg, "dir", Some("any"), "DEFAULT"),
+            "OVERRIDE"
+        );
+    }
+
+    #[test]
+    fn resolve_icon_honours_state_override() {
+        let cfg = cfg_with(
+            "schema_version = 1\n\
+             [segment.vcs]\n\
+             icon = \"BASE\"\n\
+             [segment.vcs.states.dirty]\n\
+             icon = \"DIRTY\"\n",
+        );
+        assert_eq!(resolve_icon(&cfg, "vcs", Some("dirty"), "DEFAULT"), "DIRTY");
+        // Unknown state → segment-level fallback.
+        assert_eq!(resolve_icon(&cfg, "vcs", Some("clean"), "DEFAULT"), "BASE");
+        // No state → segment-level.
+        assert_eq!(resolve_icon(&cfg, "vcs", None, "DEFAULT"), "BASE");
     }
 }
