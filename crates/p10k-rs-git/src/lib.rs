@@ -63,8 +63,83 @@ impl Backend for ShellOut {
             return None;
         }
         let stdout = String::from_utf8(out.stdout).ok()?;
-        Some(parse_porcelain_v1(&stdout))
+        let mut state = parse_porcelain_v1(&stdout);
+        // Slice 45: surface in-progress repo actions (merge / rebase / …)
+        // from the filesystem. `git rev-parse --git-dir` resolves through
+        // worktrees and submodules cleanly; an `Option` lookup keeps the
+        // shell-out path silent on failure.
+        if let Some(git_dir) = resolve_git_dir(path) {
+            state.action = detect_action(&git_dir);
+        }
+        Some(state)
     }
+}
+
+/// Resolve the `.git` directory for `path` via `git rev-parse --git-dir`.
+///
+/// Worktrees and submodules don't keep their state under a literal
+/// `<repo>/.git/` directory, so we ask `git` instead of joining paths
+/// blindly. The output is one line: an absolute path. We discard the
+/// trailing newline and trust git's own canonicalisation. Returns
+/// `None` if `git` isn't on `$PATH`, the path isn't inside any repo,
+/// or stdout isn't valid UTF-8.
+fn resolve_git_dir(path: &Path) -> Option<std::path::PathBuf> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--git-dir"])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = std::str::from_utf8(&out.stdout).ok()?.trim_end();
+    if s.is_empty() {
+        return None;
+    }
+    let raw = std::path::PathBuf::from(s);
+    if raw.is_absolute() {
+        Some(raw)
+    } else {
+        Some(path.join(raw))
+    }
+}
+
+/// Inspect `git_dir` for the canonical in-progress action sentinels.
+///
+/// Mirrors libgit2's `git_repository_state` / the upstream P10K
+/// `gitstatusd` action probe. Probe order is deterministic so that two
+/// overlapping markers (e.g. an interrupted rebase that also has a
+/// MERGE_HEAD) resolve to a single, stable label rather than oscillating
+/// between prompts.
+///
+/// The returned [`SafeText`] is sanitised at construction time even
+/// though the values are static ASCII today — the type system makes
+/// the invariant uniform across every prompt input, so a future variant
+/// that bakes in an attacker-controlled tail (e.g. rebase step number
+/// pulled from `.git/rebase-merge/msgnum`) can't bypass it by accident.
+#[must_use]
+pub fn detect_action(git_dir: &Path) -> SafeText {
+    if git_dir.join("MERGE_HEAD").exists() {
+        return SafeText::from_untrusted("merge");
+    }
+    if git_dir.join("rebase-merge").is_dir() || git_dir.join("rebase-apply").is_dir() {
+        return SafeText::from_untrusted("rebase");
+    }
+    if git_dir.join("CHERRY_PICK_HEAD").exists() {
+        return SafeText::from_untrusted("cherry-pick");
+    }
+    if git_dir.join("REVERT_HEAD").exists() {
+        return SafeText::from_untrusted("revert");
+    }
+    if git_dir.join("BISECT_LOG").exists() {
+        return SafeText::from_untrusted("bisect");
+    }
+    SafeText::from_untrusted("")
 }
 
 /// Parse `git status --porcelain=v1 --branch` output into a [`GitState`].
@@ -167,6 +242,91 @@ mod tests {
         let out = "## main\n M lib.rs\n";
         let s = parse_porcelain_v1(out);
         assert!(s.dirty);
+    }
+
+    /// Build a unique scratch `.git`-ish directory under
+    /// `std::env::temp_dir()`. Caller owns cleanup; we deliberately leak
+    /// on panic so a failing test leaves evidence on disk.
+    fn scratch_git_dir(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let p = std::env::temp_dir().join(format!(
+            "p10krs-detect-action-{}-{}-{}",
+            label,
+            std::process::id(),
+            nanos,
+        ));
+        std::fs::create_dir_all(&p).expect("mkdir scratch");
+        p
+    }
+
+    #[test]
+    fn detect_action_empty_when_no_markers() {
+        let dir = scratch_git_dir("empty");
+        assert_eq!(detect_action(&dir).as_str(), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_merge() {
+        let dir = scratch_git_dir("merge");
+        std::fs::write(dir.join("MERGE_HEAD"), b"deadbeef\n").expect("write");
+        assert_eq!(detect_action(&dir).as_str(), "merge");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_rebase_merge() {
+        let dir = scratch_git_dir("rebase-merge");
+        std::fs::create_dir(dir.join("rebase-merge")).expect("mkdir");
+        assert_eq!(detect_action(&dir).as_str(), "rebase");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_rebase_apply() {
+        let dir = scratch_git_dir("rebase-apply");
+        std::fs::create_dir(dir.join("rebase-apply")).expect("mkdir");
+        assert_eq!(detect_action(&dir).as_str(), "rebase");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_cherry_pick() {
+        let dir = scratch_git_dir("cherry");
+        std::fs::write(dir.join("CHERRY_PICK_HEAD"), b"deadbeef\n").expect("write");
+        assert_eq!(detect_action(&dir).as_str(), "cherry-pick");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_revert() {
+        let dir = scratch_git_dir("revert");
+        std::fs::write(dir.join("REVERT_HEAD"), b"deadbeef\n").expect("write");
+        assert_eq!(detect_action(&dir).as_str(), "revert");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_bisect() {
+        let dir = scratch_git_dir("bisect");
+        std::fs::write(dir.join("BISECT_LOG"), b"git bisect start\n").expect("write");
+        assert_eq!(detect_action(&dir).as_str(), "bisect");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_action_merge_wins_over_rebase() {
+        // Deterministic precedence: an interrupted rebase with both
+        // MERGE_HEAD and a rebase-merge dir resolves to `merge`. This
+        // keeps the prompt label stable across consecutive prompts.
+        let dir = scratch_git_dir("merge-precedence");
+        std::fs::write(dir.join("MERGE_HEAD"), b"deadbeef\n").expect("write");
+        std::fs::create_dir(dir.join("rebase-merge")).expect("mkdir");
+        assert_eq!(detect_action(&dir).as_str(), "merge");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

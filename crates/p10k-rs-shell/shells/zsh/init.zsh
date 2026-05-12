@@ -141,8 +141,28 @@ autoload -Uz add-zsh-hook
 # last prompt" — covers the very first prompt and ^C-on-empty-line cases.
 typeset -gi _p10k_rs_cmd_start=0
 
+# Slice 44: feed the `show_on_command` gate.
+#
+# Upstream Powerlevel10k drives `show_on_command` by re-rendering as the
+# user types — a zle widget watches `$BUFFER` keystroke-by-keystroke
+# and updates the prompt so `aws ...` reveals the `aws` segment the
+# instant the verb is typed. That is correct but expensive: one
+# `p10k-rs prompt` subprocess per keystroke.
+#
+# MVP path (this slice): capture the LAST accepted command at preexec
+# and feed it to the NEXT precmd via `--upcoming-command`. The segment
+# then appears next to the prompt right after the user ran a matching
+# command, not before. That's the upstream behaviour for the common
+# case ("I just ran `aws ...`; show me the aws context next to the
+# return-status segment") at a fraction of the cost. The "before"
+# variant lands when a zle-line-pre-redraw widget is added in a follow-up
+# slice.
+typeset -g _P10K_RS_UPCOMING_CMD=""
+
 _p10k_rs_preexec() {
   _p10k_rs_cmd_start=$EPOCHSECONDS
+  # `$1` is the full command line about to run (already history-expanded).
+  _P10K_RS_UPCOMING_CMD="$1"
 }
 
 _p10k_rs_precmd() {
@@ -152,6 +172,8 @@ _p10k_rs_precmd() {
     elapsed_ms=$(( (EPOCHSECONDS - _p10k_rs_cmd_start) * 1000 ))
     _p10k_rs_cmd_start=0
   fi
+  local upcoming="$_P10K_RS_UPCOMING_CMD"
+  _P10K_RS_UPCOMING_CMD=""
   # Detect dead daemon and respawn. `kill -0 $pid` exits 0 if the process
   # exists, non-zero otherwise. ~1ms cost per prompt; a wedged or crashed
   # daemon would otherwise force every prompt onto the slow ShellOut path
@@ -166,8 +188,8 @@ _p10k_rs_precmd() {
   # caches the per-cwd snapshot in-process). Splitting per-side keeps
   # the binary's wire format trivial: each invocation prints one
   # ribbon, no in-band separators to parse.
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --dump "$_p10k_rs_dump" 2>/dev/null) "
-  RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms 2>/dev/null)"
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" --dump "$_p10k_rs_dump" 2>/dev/null) "
+  RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" 2>/dev/null)"
   return $rs
 }
 

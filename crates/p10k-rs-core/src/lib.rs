@@ -115,6 +115,15 @@ pub struct RenderCtx<'a> {
     pub now: SystemTime,
     /// Snapshot of environment variables relevant to segments.
     pub env: &'a EnvSnapshot,
+    /// The command line about to be (or just) run, used by the
+    /// `show_on_command` segment gate.
+    ///
+    /// Empty string means "no command" — segments with a
+    /// `show_on_command` filter set are then hidden. The binary's zsh
+    /// init hooks populate this with the *last* command (a cheap
+    /// approximation of the upstream "upcoming command" notion; see
+    /// the init script comment for the trade-off).
+    pub upcoming_command: &'a str,
 }
 
 /// Result of [`Segment::render`].
@@ -782,6 +791,16 @@ pub struct GitState {
     /// HEAD commit OID as full hex. Empty if unknown / unborn branch.
     /// Same `SafeText` invariant as [`GitState::branch`].
     pub commit: SafeText,
+    /// Number of stashed changes in the current repo. 0 if no stashes or
+    /// unknown.
+    pub stash: u32,
+    /// Repository action currently in progress, if any: one of
+    /// `"merge"`, `"rebase"`, `"cherry-pick"`, `"revert"`, `"bisect"`.
+    /// Empty when the working tree is in a normal state.
+    ///
+    /// Wrapped in [`SafeText`] for the same reason as `branch` — the value
+    /// could ride through from a malicious `.git/MERGE_MSG` etc.
+    pub action: SafeText,
 }
 
 /// Snapshot of environment variables relevant to segments.

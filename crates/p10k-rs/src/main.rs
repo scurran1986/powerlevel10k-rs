@@ -69,6 +69,14 @@ enum Command {
         /// shell glues them onto the matching parameter.
         #[arg(long, default_value = "left")]
         render_side: String,
+        /// The command line the shell is about to (or just did) run.
+        /// Drives the `show_on_command` segment gate. Empty string
+        /// means "no command", which hides every segment that has a
+        /// `show_on_command` filter configured. The zsh init script
+        /// populates this with the last accepted command at precmd
+        /// time (an approximation — see the init script comment).
+        #[arg(long, default_value = "")]
+        upcoming_command: String,
     },
     /// Print the per-shell init script. `eval` / `source` from your rc file.
     Init {
@@ -104,6 +112,7 @@ fn main() -> Result<()> {
             dump,
             json,
             render_side,
+            upcoming_command,
         } => {
             tracing::debug!(
                 shell,
@@ -112,13 +121,21 @@ fn main() -> Result<()> {
                 ?dump,
                 json,
                 render_side,
+                upcoming_command,
                 "prompt invoked"
             );
             if json {
                 anyhow::bail!("--json output lands with the AI integration phase");
             }
             let side = parse_render_side(&render_side)?;
-            cmd_prompt(&shell, last_status, last_duration_ms, dump.as_deref(), side)
+            cmd_prompt(
+                &shell,
+                last_status,
+                last_duration_ms,
+                dump.as_deref(),
+                side,
+                &upcoming_command,
+            )
         }
         Command::Init { shell } => {
             tracing::debug!(shell, "init invoked");
@@ -187,6 +204,7 @@ fn cmd_prompt(
     last_duration_ms: u64,
     dump: Option<&std::path::Path>,
     side: RenderSide,
+    upcoming_command: &str,
 ) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
@@ -219,10 +237,12 @@ fn cmd_prompt(
         jobs: 0,
         now: SystemTime::now(),
         env: &env,
+        upcoming_command,
     };
 
-    let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left);
-    let right_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.right);
+    let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left, upcoming_command);
+    let right_segments =
+        assemble_segments(&cfg, cwd.as_path(), &cfg.layout.right, upcoming_command);
     let prompt = p10k_rs_core::render_prompt(&left_segments, &right_segments, &ctx);
 
     // Print the requested side to stdout, plain text, no trailing newline.
@@ -314,15 +334,20 @@ foreground = "blue"
 /// directory, are silently skipped — the user opted in to hiding them,
 /// so no warning is warranted. Returns in render order.
 ///
-/// Gate evaluation order (per slice 32):
+/// Gate evaluation order (per slice 32, extended by slice 44):
 ///
 /// 1. **`disabled_dir_pattern`** — if the glob matches `cwd`, the segment
 ///    is dropped. Exclude wins over include.
 /// 2. **`show_in_dir`** — if `Some(globs)`, the segment is kept only when
 ///    at least one glob matches `cwd`. `None` means "no constraint".
-/// 3. **`disabled`** — the explicit kill switch.
+/// 3. **`show_on_command`** — if `Some(cmds)`, the segment is kept only
+///    when the first whitespace-delimited word of `upcoming_command` is
+///    in `cmds`. An empty `upcoming_command` hides every segment with a
+///    `show_on_command` filter; that matches the upstream "no command
+///    typed → no command-gated segments" intuition.
+/// 4. **`disabled`** — the explicit kill switch.
 ///
-/// The dir gates fire *before* `disabled` and before the
+/// The dir / command gates fire *before* `disabled` and before the
 /// `segments::build` lookup so a typo'd glob doesn't fall through to the
 /// "unknown segment" warning path — the user already knows they typed
 /// a glob; surfacing it as an unknown-segment warn would be misleading.
@@ -330,8 +355,10 @@ fn assemble_segments(
     cfg: &Config,
     cwd: &std::path::Path,
     refs: &[p10k_rs_config::SegmentRef],
+    upcoming_command: &str,
 ) -> Vec<Box<dyn Segment>> {
     let mut out: Vec<Box<dyn Segment>> = Vec::with_capacity(refs.len());
+    let first_word = command_first_word(upcoming_command);
     for r in refs {
         let seg_cfg = cfg.segments.get(&r.0);
 
@@ -350,6 +377,17 @@ fn assemble_segments(
             }
         }
 
+        // Command gate: filter present → keep only when the upcoming
+        // command's first word matches one of the configured names.
+        // No upcoming command (empty buffer) means every command-gated
+        // segment is hidden.
+        if let Some(cmds) = seg_cfg.and_then(|sc| sc.show_on_command.as_ref()) {
+            match first_word {
+                Some(word) if cmds.iter().any(|c| c == word) => {}
+                _ => continue,
+            }
+        }
+
         if seg_cfg.is_some_and(|s| s.disabled) {
             continue;
         }
@@ -360,6 +398,23 @@ fn assemble_segments(
         }
     }
     out
+}
+
+/// Return the first whitespace-delimited word of `buffer`, or `None` if
+/// the buffer is empty or whitespace-only.
+///
+/// Drives the `show_on_command` gate in [`assemble_segments`]. Matches
+/// the upstream P10K convention: "is the user about to run `aws ...`?"
+/// is answered by inspecting the command verb only, ignoring its
+/// arguments. Quoting and `$VAR` expansion are intentionally out of
+/// scope — getting them right would require a real shell parser, and
+/// upstream doesn't either.
+fn command_first_word(buffer: &str) -> Option<&str> {
+    let trimmed = buffer.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.split_whitespace().next().unwrap_or(trimmed))
 }
 
 /// Compile `glob` and check whether it matches the cwd as a literal path

@@ -223,6 +223,7 @@ mod tests {
             jobs: 0,
             now: SystemTime::UNIX_EPOCH,
             env: &env,
+            upcoming_command: "",
         };
         let out = Terraform.render(&ctx);
         assert!(

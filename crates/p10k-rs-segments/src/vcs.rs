@@ -91,6 +91,30 @@ impl Segment for Vcs {
         if git.untracked > 0 {
             let _ = write!(plain, " ?{}", git.untracked);
         }
+        // Slice 45: in-progress repo action (merge / rebase / cherry-pick /
+        // revert / bisect) surfaces in upper case, painted red so it reads
+        // as an alarm-state indicator over the segment's head_fg band. We
+        // track the byte offset so the ANSI wrapper can splice in a red
+        // SGR exactly around the action label and resume head_fg for any
+        // trailing stash indicator.
+        let action_marker = if !git.action.as_str().is_empty() {
+            plain.push(' ');
+            let start = plain.len();
+            for ch in git.action.as_str().chars() {
+                for upper in ch.to_uppercase() {
+                    plain.push(upper);
+                }
+            }
+            Some((start, plain.len()))
+        } else {
+            None
+        };
+        // Slice 45: stash count. Glyph `≡` (U+2261) avoids colliding with
+        // the dirty `*` and the staged `+`. Painted in the segment's
+        // head_fg band like every other index-level count.
+        if git.stash > 0 {
+            let _ = write!(plain, " \u{2261}{}", git.stash);
+        }
 
         // Compute state first so we can pass it to the style resolver below.
         // Index-level changes (`staged/unstaged/untracked`) count as
@@ -131,18 +155,38 @@ impl Segment for Vcs {
         );
         let reset_fg = style::reset_fg();
         let reset_bg = style::reset_bg();
-        // Prepend `icon + space` inside the bg/head_fg colour band. When
-        // the dirty `*` is present, split the plain string around its
-        // byte offset so just that one character flips to red, then the
-        // head_fg picks back up for any trailing conflict / count
-        // indicators (still inside the green bg band).
-        let text = if let Some(off) = dirty_marker_offset {
-            let head = &plain[..off];
-            let tail = &plain[off + '*'.len_utf8()..];
-            format!("{bg}{head_fg}{icon} {head}\x1b[31m*{head_fg}{tail}{reset_fg}{reset_bg}")
-        } else {
-            format!("{bg}{head_fg}{icon} {plain}{reset_fg}{reset_bg}")
-        };
+        // Prepend `icon + space` inside the bg/head_fg colour band, then
+        // splice red SGRs around the two attacker-style alarm subsegments
+        // we paint over the head_fg band:
+        //   - dirty `*` marker (single char, slice 28)
+        //   - in-progress repo action label (multi-char, slice 45)
+        // Both keep the green bg band; only the fg flips to red for the
+        // marker span, then head_fg picks back up. The "stash count"
+        // surface stays inside head_fg — it's informational, not alarm.
+        let red = "\x1b[31m";
+        let mut text = format!("{bg}{head_fg}{icon} ");
+        // Collect the highlight spans in `plain`-byte order so we can walk
+        // them once. Both spans are non-overlapping and pre-sorted: dirty
+        // `*` lives before staged/unstaged/untracked counts, which live
+        // before the action label.
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(2);
+        if let Some(off) = dirty_marker_offset {
+            spans.push((off, off + '*'.len_utf8()));
+        }
+        if let Some((s, e)) = action_marker {
+            spans.push((s, e));
+        }
+        let mut cursor = 0;
+        for (start, end) in spans {
+            text.push_str(&plain[cursor..start]);
+            text.push_str(red);
+            text.push_str(&plain[start..end]);
+            text.push_str(&head_fg);
+            cursor = end;
+        }
+        text.push_str(&plain[cursor..]);
+        text.push_str(reset_fg);
+        text.push_str(reset_bg);
 
         // plain_len accounts for the icon glyph (1 display cell) + 1 space.
         let plain_len = u16::try_from(plain.chars().count())
@@ -186,6 +230,7 @@ mod tests {
             jobs: 0,
             now: SystemTime::UNIX_EPOCH,
             env,
+            upcoming_command: "",
         }
     }
 
@@ -307,6 +352,71 @@ mod tests {
             out.text
         );
         assert_eq!(out.state, Some("conflict"));
+    }
+
+    #[test]
+    fn renders_stash_count() {
+        // Slice 45: stash surfaces as ` ≡<n>` after the index-level counts.
+        // Painted inside the head_fg band (no red splice) since it's
+        // informational, not an alarm-state indicator.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            stash: 2,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains("\u{2261}2"), "missing ≡2: {:?}", out.text);
+    }
+
+    #[test]
+    fn renders_merge_action() {
+        // Slice 45: in-progress action surfaces upper-cased, painted red
+        // over the head_fg band. State still resolves to whatever the
+        // underlying GitState signals — `action` is orthogonal.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            action: "merge".into(),
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("MERGE"),
+            "missing upper-case MERGE: {:?}",
+            out.text
+        );
+        // Red SGR must precede the action label so it reads as an alarm
+        // over the segment's head_fg band.
+        let merge_idx = out.text.find("MERGE").expect("MERGE present");
+        assert!(
+            out.text[..merge_idx].contains("\x1b[31m"),
+            "missing red SGR before MERGE: {:?}",
+            out.text,
+        );
+    }
+
+    #[test]
+    fn renders_rebase_action_and_stash_together() {
+        // Belt and braces: action + stash co-exist; both surface, the
+        // action label flips red and the stash stays in head_fg.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "feat/x".into(),
+            action: "rebase".into(),
+            stash: 3,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("REBASE"),
+            "missing REBASE: {:?}",
+            out.text
+        );
+        assert!(out.text.contains("\u{2261}3"), "missing ≡3: {:?}", out.text);
     }
 
     #[test]

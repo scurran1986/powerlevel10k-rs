@@ -31,6 +31,20 @@ fn run_prompt(cwd: &Path, extra_env: &[(&str, &str)]) -> Vec<u8> {
 /// Slice 33 splits PROMPT and RPROMPT across two invocations; tests that
 /// care about the right side go through this helper.
 fn run_prompt_side(cwd: &Path, side: &str, extra_env: &[(&str, &str)]) -> Vec<u8> {
+    run_prompt_with_cmd(cwd, side, "", extra_env)
+}
+
+/// Run `p10k-rs prompt` with an explicit `--upcoming-command` value.
+///
+/// Slice 44 added the flag; tests that exercise `show_on_command` go
+/// through this helper. An empty `upcoming` is the same as not passing
+/// the flag at all (the CLI defaults to `""`).
+fn run_prompt_with_cmd(
+    cwd: &Path,
+    side: &str,
+    upcoming: &str,
+    extra_env: &[(&str, &str)],
+) -> Vec<u8> {
     let mut child = Command::new(p10k_rs_bin());
     child
         .current_dir(cwd)
@@ -43,6 +57,8 @@ fn run_prompt_side(cwd: &Path, side: &str, extra_env: &[(&str, &str)]) -> Vec<u8
         .arg("0")
         .arg("--last-duration-ms")
         .arg("0")
+        .arg("--upcoming-command")
+        .arg(upcoming)
         // Make the test deterministic: clear inherited p10k env so the
         // gitstatusd FIFOs from the parent shell don't leak into the
         // sandbox. Set HOME to an empty scratch dir so the loader's
@@ -820,6 +836,88 @@ fn layout_frame_bottom_glyph_override() {
     assert!(
         !s.contains("\u{2570}\u{2500}"),
         "default ╰─ must be replaced by the override: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn show_on_command_hides_when_no_match() {
+    // Slice 44: `[segment.dir].show_on_command = ["foo"]` keeps the dir
+    // segment only when the upcoming command's first word is "foo".
+    // Run with `bar baz` — first word is "bar", which is NOT in the
+    // allow-list, so the dir folder glyph must be absent.
+    let cwd = scratch_dir("show-on-cmd-no-match-cwd");
+    let home = scratch_dir("show-on-cmd-no-match-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [segment.dir]\n\
+          show_on_command = [\"foo\"]\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt_with_cmd(
+        &cwd,
+        "left",
+        "bar baz",
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    assert!(
+        !s.contains('\u{f07b}'),
+        "dir must NOT render when first word doesn't match show_on_command: {s:?}"
+    );
+    // prompt_char still survives — the gate is per-segment.
+    assert!(
+        s.contains('\u{276f}'),
+        "prompt_char must still render alongside a gated-out dir: {s:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn show_on_command_shows_when_match() {
+    // Slice 44: same fixture as above but `--upcoming-command "foo arg"`.
+    // First word is "foo", which matches the allow-list, so the dir
+    // folder glyph MUST appear in the output.
+    let cwd = scratch_dir("show-on-cmd-match-cwd");
+    let home = scratch_dir("show-on-cmd-match-home");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [segment.dir]\n\
+          show_on_command = [\"foo\"]\n",
+    )
+    .expect("write fixture");
+
+    let out = run_prompt_with_cmd(
+        &cwd,
+        "left",
+        "foo arg",
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let s = String::from_utf8_lossy(&out);
+    assert!(
+        s.contains('\u{f07b}'),
+        "dir must render when first word matches show_on_command: {s:?}"
     );
 
     let _ = std::fs::remove_dir_all(&cwd);

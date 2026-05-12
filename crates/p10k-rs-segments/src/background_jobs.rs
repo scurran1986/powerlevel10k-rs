@@ -73,6 +73,7 @@ mod tests {
             jobs,
             now: SystemTime::UNIX_EPOCH,
             env,
+            upcoming_command: "",
         }
     }
 

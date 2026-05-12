@@ -189,20 +189,24 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     // Field offsets per 07-gitstatus.md § 1.3 (0-based here):
     //   3  = HEAD commit oid
     //   4  = local branch
+    //   8  = repo action (merge / rebase-i / cherry-pick / revert / bisect)
     //   10 = num staged
     //   11 = num unstaged
     //   12 = num conflicts
     //   13 = num untracked
     //   14 = ahead
     //   15 = behind
+    //   16 = num stashes
     let commit = untrusted_field(3);
     let branch = untrusted_field(4);
+    let action = normalise_action(s(8));
     let staged = parse_u(10);
     let unstaged = parse_u(11);
     let conflicts = parse_u(12);
     let untracked = parse_u(13);
     let ahead = parse_u(14);
     let behind = parse_u(15);
+    let stash = parse_u(16);
     let has_conflicts = conflicts > 0;
     let dirty = staged > 0 || unstaged > 0 || conflicts > 0 || untracked > 0;
     Some(GitState {
@@ -215,7 +219,32 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
         untracked,
         has_conflicts,
         commit,
+        stash,
+        action,
     })
+}
+
+/// Map gitstatusd's repo-action string onto the canonical labels
+/// [`GitState::action`] documents. The daemon emits `rebase-i` /
+/// `rebase-m` to distinguish interactive from merge rebases; we collapse
+/// both to `"rebase"` because the prompt only cares that a rebase is in
+/// flight, not which flavour. Unknown values pass through as-is so we
+/// keep forward compatibility if upstream adds a new action label.
+///
+/// Empty input maps to an empty [`SafeText`] — the "no in-progress
+/// action" sentinel. `SafeText` strips control bytes either way; this
+/// helper only normalises the action *names*.
+fn normalise_action(raw: &str) -> SafeText {
+    let canonical = match raw {
+        "" => "",
+        "rebase-i" | "rebase-m" | "rebase" => "rebase",
+        "merge" => "merge",
+        "cherry-pick" | "cherry" => "cherry-pick",
+        "revert" => "revert",
+        "bisect" => "bisect",
+        other => other,
+    };
+    SafeText::from_untrusted(canonical)
 }
 
 /// Returns `true` if `p` exists, is a named pipe (FIFO), and is owned by
@@ -402,6 +431,40 @@ mod tests {
         assert_eq!(g.behind, 1);
         assert!(!g.has_conflicts);
         assert!(g.dirty);
+        assert_eq!(g.stash, 0);
+        assert_eq!(g.action, "");
+    }
+
+    #[test]
+    fn parses_stash_count() {
+        let bytes = build_response(&[
+            "id", "1", "/repo", "deadbeef", "main", "", "", "", "", "100", "0", "0", "0", "0", "0",
+            "0", "4", // stash
+        ]);
+        let g = parse_response(&bytes).unwrap();
+        assert_eq!(g.stash, 4);
+    }
+
+    #[test]
+    fn parses_merge_action() {
+        let bytes = build_response(&[
+            "id", "1", "/repo", "abc", "main", "", "", "", "merge", // action
+            "100", "0", "0", "0", "0", "0", "0", "0",
+        ]);
+        let g = parse_response(&bytes).unwrap();
+        assert_eq!(g.action, "merge");
+    }
+
+    #[test]
+    fn rebase_variants_collapse_to_rebase() {
+        for raw in ["rebase-i", "rebase-m", "rebase"] {
+            let bytes = build_response(&[
+                "id", "1", "/repo", "abc", "main", "", "", "", raw, "100", "0", "0", "0", "0", "0",
+                "0", "0",
+            ]);
+            let g = parse_response(&bytes).unwrap();
+            assert_eq!(g.action, "rebase", "raw action: {raw:?}");
+        }
     }
 
     #[test]
