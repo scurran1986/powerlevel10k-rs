@@ -323,8 +323,7 @@ pub struct DirTruncate {
 /// Strategies recognised by [`DirTruncate::strategy`].
 ///
 /// Mirrors a subset of upstream Powerlevel10k's `POWERLEVEL9K_SHORTEN_STRATEGY`
-/// values. Only the two most common shapes ship in MVP; `truncate_to_unique`
-/// and friends are tracked for a later slice.
+/// values.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -342,6 +341,25 @@ pub enum DirTruncateStrategy {
     /// Example: `/a/b/c/d/e` with `length = 2` becomes `/a/…/d/e`. With
     /// `length = 3`: `/a/…/c/d/e`.
     Middle,
+    /// For each non-final component, keep the shortest prefix that
+    /// uniquely identifies it among its siblings in the parent directory;
+    /// the final component is always preserved in full.
+    ///
+    /// Example (given a filesystem where every component's siblings start
+    /// with distinct letters): `/home/me/github/p10k-rs/crates/p10k-rs-segments`
+    /// becomes `/h/m/g/p10k-rs/c/p10k-rs-segments`.
+    ///
+    /// **Performance:** this strategy issues one `read_dir` per non-final
+    /// component, so it is meaningfully more expensive than [`Self::ToLast`]
+    /// / [`Self::Middle`]. On slow filesystems (NFS, FUSE, very large
+    /// directories) the cost is visible in prompt latency. Opt-in only; the
+    /// directory listing is also capped to 200 entries per parent to bound
+    /// pathological cases.
+    ///
+    /// If a parent directory cannot be listed (EACCES, ENOENT, etc.), the
+    /// component falls back to a single-character prefix rather than
+    /// aborting the truncation.
+    ToUnique,
 }
 
 /// Glob string used by `show_in_dir` and friends. Validated lazily.

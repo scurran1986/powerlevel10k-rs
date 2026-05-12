@@ -13,6 +13,13 @@ use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
+/// Cap on entries pulled from `read_dir` when computing the
+/// shortest-unique prefix for a component. A pathological directory with
+/// hundreds of thousands of children would otherwise stall the prompt;
+/// after this many siblings we conservatively treat the component as
+/// non-unique and emit the first character. See [`DirTruncateStrategy::ToUnique`].
+const UNIQUE_PREFIX_READDIR_CAP: usize = 200;
+
 const DEFAULT_ICON: &str = "\u{f07b}"; // Nerd Font v3: folder (FA-style)
 const NOT_WRITABLE_ICON: &str = "\u{f023}"; // Nerd Font v3: padlock
 
@@ -47,7 +54,7 @@ impl Segment for Dir {
             .get(self.name())
             .map(|s| s.truncate.clone())
             .unwrap_or_default();
-        let collapsed = truncate_path(&collapsed, &truncate);
+        let collapsed = truncate_path(&collapsed, &truncate, Some(ctx.cwd));
         // Probe write permission on the *real* cwd path before we paint.
         // On any errno (broken cwd, EACCES on the parent, etc.) we treat
         // the directory as not writable — that's the safer default for a
@@ -131,6 +138,13 @@ fn writability_state(cwd: &Path) -> &'static str {
 /// [`DirTruncate`] config. Operates on the textual form so a leading `~`
 /// counts as the first component (matches upstream P10K behaviour).
 ///
+/// `fs_root` is the **real** filesystem cwd backing `path`. Only the
+/// [`DirTruncateStrategy::ToUnique`] arm consults it (to list sibling
+/// directories for the shortest-unique-prefix algorithm); every other
+/// strategy is a pure string transform and ignores it. Pass `None` when
+/// no filesystem context is available — `ToUnique` will then fall back
+/// to the input unchanged.
+///
 /// Algorithm:
 /// - Splits on `/` and keeps the empty leading element (for absolute paths
 ///   like `/a/b/c` → `["", "a", "b", "c"]`) so the leading slash is preserved
@@ -138,14 +152,15 @@ fn writability_state(cwd: &Path) -> &'static str {
 /// - `length = 0` is normalised to `1` so a misconfiguration can't render an
 ///   empty cwd.
 /// - Paths with fewer non-empty components than `length` are returned
-///   unchanged (no marker needed — nothing was elided).
+///   unchanged (no marker needed — nothing was elided). The `ToUnique`
+///   strategy skips that early-out — even a short path can benefit from
+///   per-component shortening.
 ///
 /// Returns the input unchanged when `strategy == None`.
-fn truncate_path(path: &str, cfg: &DirTruncate) -> String {
+fn truncate_path(path: &str, cfg: &DirTruncate, fs_root: Option<&Path>) -> String {
     if matches!(cfg.strategy, DirTruncateStrategy::None) {
         return path.to_owned();
     }
-    let length = cfg.length.max(1) as usize;
     // Split into the leading-slash marker (if any) plus the components.
     let (leading, body) = if let Some(rest) = path.strip_prefix('/') {
         ("/", rest)
@@ -153,6 +168,14 @@ fn truncate_path(path: &str, cfg: &DirTruncate) -> String {
         ("", path)
     };
     let parts: Vec<&str> = body.split('/').filter(|s| !s.is_empty()).collect();
+
+    // `ToUnique` has no `length` semantics — it shortens every non-final
+    // component independently. Handle it before the length-based early-out.
+    if matches!(cfg.strategy, DirTruncateStrategy::ToUnique) {
+        return truncate_to_unique(leading, &parts, fs_root);
+    }
+
+    let length = cfg.length.max(1) as usize;
     if parts.len() <= length {
         return path.to_owned();
     }
@@ -176,10 +199,117 @@ fn truncate_path(path: &str, cfg: &DirTruncate) -> String {
             }
         }
         // `DirTruncateStrategy` is `#[non_exhaustive]` so future variants
-        // (e.g. `truncate_to_unique`) compile without breaking this match.
-        // Unknown strategy falls back to the safe no-op path.
+        // compile without breaking this match. Unknown strategy falls back
+        // to the safe no-op path.
         _ => path.to_owned(),
     }
+}
+
+/// Shorten each non-final component in `parts` to its shortest unique
+/// prefix among its siblings on disk; preserve the final component
+/// verbatim.
+///
+/// `leading` is `"/"` for absolute paths and `""` otherwise — it is
+/// re-prepended to the joined output.
+///
+/// `fs_root` is the real filesystem path that `parts` describes. It is
+/// used to anchor the per-component `read_dir` walk. When `fs_root` is
+/// `None`, or when no parts need walking (≤1 component), the textual
+/// input is returned unchanged.
+///
+/// The walk descends real filesystem components only — when the leading
+/// component is `~` (home-collapsed) we re-resolve via `$HOME` so the
+/// sibling listing happens against the actual home parent.
+fn truncate_to_unique(leading: &str, parts: &[&str], fs_root: Option<&Path>) -> String {
+    // Nothing to elide for empty/single-component paths.
+    if parts.len() <= 1 {
+        return format!("{leading}{}", parts.join("/"));
+    }
+    let Some(fs_root) = fs_root else {
+        return format!("{leading}{}", parts.join("/"));
+    };
+
+    // Build the real filesystem ancestor chain matching `parts`. The
+    // textual `parts` may start with `~`; expand that to `$HOME` so the
+    // ancestor walk lands on a real directory.
+    //
+    // We walk by stripping `parts.len()` ancestors off `fs_root`. Index 0
+    // = leaf, index parts.len()-1 = root. We need ancestors[i] for the
+    // *parent* of `parts[i]`, so ancestor[parts.len()-i] is the parent
+    // (the path one level above parts[i]).
+    let ancestors: Vec<&Path> = fs_root.ancestors().collect();
+    // ancestors[0] == fs_root (leaf), ancestors[parts.len()] == parent of root component.
+    // If the cwd path has fewer ancestors than textual parts (mismatch
+    // between textual home-collapse and real path depth), fall back to
+    // the simple "first char" rule per component.
+
+    let mut out: Vec<String> = Vec::with_capacity(parts.len());
+    for (i, &part) in parts.iter().enumerate() {
+        // Last component is always preserved in full.
+        if i + 1 == parts.len() {
+            out.push(part.to_owned());
+            continue;
+        }
+        // Parent dir on disk = ancestor at depth `parts.len() - i`.
+        // (For i = 0, parent is parts.len() levels up from the leaf.)
+        let parent_idx = parts.len() - i;
+        let parent: Option<&Path> = ancestors.get(parent_idx).copied();
+        let prefix = match parent {
+            Some(p) => shortest_unique_prefix(p, part).unwrap_or_else(|| first_char(part)),
+            None => first_char(part),
+        };
+        out.push(prefix);
+    }
+    format!("{leading}{}", out.join("/"))
+}
+
+/// Return the shortest prefix of `name` (in chars) that no other entry of
+/// `parent` shares. Returns `None` if `read_dir` fails — caller decides
+/// the fallback. Returns the full `name` if every prefix length collides
+/// with a sibling (e.g. an identical duplicate, which `read_dir` can't
+/// actually return; defensive only).
+///
+/// The directory listing is capped at [`UNIQUE_PREFIX_READDIR_CAP`]
+/// entries; on overflow we conservatively return `None` so the caller
+/// falls back to a single character — better latency than a perfectly
+/// minimal prefix on a directory with 50k siblings.
+fn shortest_unique_prefix(parent: &Path, name: &str) -> Option<String> {
+    let rd = std::fs::read_dir(parent).ok()?;
+    let mut siblings: Vec<String> = Vec::new();
+    let mut count = 0usize;
+    for entry in rd.take(UNIQUE_PREFIX_READDIR_CAP + 1) {
+        count += 1;
+        if count > UNIQUE_PREFIX_READDIR_CAP {
+            return None;
+        }
+        let entry = entry.ok()?;
+        let file_name = entry.file_name();
+        let s = file_name.to_string_lossy().into_owned();
+        if s == name {
+            continue;
+        }
+        siblings.push(s);
+    }
+    let name_chars: Vec<char> = name.chars().collect();
+    if name_chars.is_empty() {
+        return Some(String::new());
+    }
+    for take in 1..=name_chars.len() {
+        let candidate: String = name_chars[..take].iter().collect();
+        // `str::starts_with(&str)` is char-boundary safe, so prefix-by-chars
+        // never mis-cuts a multi-byte codepoint.
+        let collides = siblings.iter().any(|s| s.starts_with(&candidate));
+        if !collides {
+            return Some(candidate);
+        }
+    }
+    Some(name.to_owned())
+}
+
+/// Return the first character of `s` as a `String`, or `s` cloned if it
+/// is empty. Used as the IO-failure fallback in [`truncate_to_unique`].
+fn first_char(s: &str) -> String {
+    s.chars().next().map(|c| c.to_string()).unwrap_or_default()
 }
 
 /// Collapse a leading `home` directory in `path` to `~`. Returns the input
@@ -232,30 +362,30 @@ mod tests {
     #[test]
     fn truncate_to_last_keeps_only_n_components() {
         let cfg = trunc(DirTruncateStrategy::ToLast, 2);
-        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "\u{2026}/d/e");
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg, None), "\u{2026}/d/e");
     }
 
     #[test]
     fn truncate_middle_keeps_first_and_last_n() {
         let cfg = trunc(DirTruncateStrategy::Middle, 2);
-        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "/a/\u{2026}/e");
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg, None), "/a/\u{2026}/e");
         let cfg3 = trunc(DirTruncateStrategy::Middle, 3);
-        assert_eq!(truncate_path("/a/b/c/d/e", &cfg3), "/a/\u{2026}/d/e");
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg3, None), "/a/\u{2026}/d/e");
     }
 
     #[test]
     fn truncate_none_passes_through() {
         let cfg = trunc(DirTruncateStrategy::None, 2);
-        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "/a/b/c/d/e");
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg, None), "/a/b/c/d/e");
     }
 
     #[test]
     fn truncate_short_path_no_op() {
         // Component count (2: "a", "b") <= length (3) — return unchanged.
         let cfg = trunc(DirTruncateStrategy::ToLast, 3);
-        assert_eq!(truncate_path("/a/b", &cfg), "/a/b");
+        assert_eq!(truncate_path("/a/b", &cfg, None), "/a/b");
         let mid = trunc(DirTruncateStrategy::Middle, 3);
-        assert_eq!(truncate_path("/a/b", &mid), "/a/b");
+        assert_eq!(truncate_path("/a/b", &mid, None), "/a/b");
     }
 
     #[test]
@@ -265,14 +395,108 @@ mod tests {
         let collapsed = home_collapse("/home/sean/proj/sub/deep", Some("/home/sean"));
         assert_eq!(collapsed, "~/proj/sub/deep");
         let cfg = trunc(DirTruncateStrategy::ToLast, 2);
-        assert_eq!(truncate_path(&collapsed, &cfg), "\u{2026}/sub/deep");
+        assert_eq!(truncate_path(&collapsed, &cfg, None), "\u{2026}/sub/deep");
     }
 
     #[test]
     fn truncate_length_zero_normalises_to_one() {
         // A misconfigured `length = 0` must not render an empty cwd.
         let cfg = trunc(DirTruncateStrategy::ToLast, 0);
-        assert_eq!(truncate_path("/a/b/c", &cfg), "\u{2026}/c");
+        assert_eq!(truncate_path("/a/b/c", &cfg, None), "\u{2026}/c");
+    }
+
+    /// Unique-suffix helper for scratch dirs — avoids pulling `tempfile`
+    /// in for one test (matches the existing `p10k-rs-config` pattern).
+    fn scratch_suffix() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{}-{}", std::process::id(), nanos)
+    }
+
+    #[test]
+    fn truncate_to_unique_basic() {
+        // Build a scratch tree with known siblings:
+        //   scratch/alpha/<sibs>/...
+        //     where scratch has children {alpha, alphabet}  -> "alpha" needs 5 chars to be unique
+        //                                                     (collides with "alphabet" at prefixes 1..=5)
+        //                                                     wait — at len=5 we have "alpha" vs "alpha"-prefix-of-"alphabet"
+        //                                                     "alphabet".starts_with("alpha") → true, collides
+        //                                                     so unique prefix is the full "alpha" (6 == name length).
+        //                                                     The function returns the full name in that case.
+        //   alpha has children {beta, gamma}                -> "beta" unique at 1 char ("b").
+        //   beta has children {leaf}                        -> last component, preserved.
+        //
+        // We build:
+        //   scratch_root/
+        //     alpha/
+        //       beta/
+        //         leaf/
+        //     alphabet/        (sibling to force prefix-collision at scratch_root level)
+        //
+        // truncate against fs_root = scratch_root/alpha/beta/leaf
+        // textual path = "/<scratch_root>/alpha/beta/leaf" (full absolute form).
+        //
+        // The first three components on the textual path (everything in
+        // scratch_root's ancestry) will be tested for unique prefixes
+        // against their actual parents on disk — but we only assert on
+        // the components we control (alpha, beta), since scratch_root's
+        // ancestors are system dirs whose sibling counts vary.
+
+        let root = std::env::temp_dir().join(format!("p10krs-to-unique-{}", scratch_suffix()));
+        std::fs::create_dir_all(root.join("alpha").join("beta").join("leaf"))
+            .expect("mkdir alpha/beta/leaf");
+        std::fs::create_dir_all(root.join("alphabet")).expect("mkdir alphabet");
+
+        let fs_root = root.join("alpha").join("beta").join("leaf");
+        let textual = fs_root.display().to_string();
+        let cfg = trunc(DirTruncateStrategy::ToUnique, 0);
+        let out = truncate_path(&textual, &cfg, Some(&fs_root));
+
+        // Final component is always preserved in full.
+        assert!(out.ends_with("/leaf"), "leaf must be preserved: {out}");
+        // "alpha" is the parent of "beta"; its siblings under scratch_root
+        // are {"alphabet"}. "alpha" prefix collides with "alphabet" for
+        // every length up to 5; at length 5 it's "alpha" which prefixes
+        // "alphabet" too, so the function returns the full name.
+        // Therefore the path still contains `/alpha/`.
+        assert!(out.contains("/alpha/"), "alpha must survive in: {out}");
+        // "beta" under "alpha" has no siblings; first-char prefix "b"
+        // suffices (1-char unique).
+        assert!(out.contains("/b/leaf"), "beta should shorten to 'b': {out}");
+
+        // Clean up.
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn truncate_to_unique_handles_io_failure() {
+        // Point fs_root at a path whose ancestors don't exist on disk.
+        // `read_dir` on each parent fails → every non-final component
+        // falls back to its first char; the leaf survives. The function
+        // must not panic.
+        let bogus = std::path::PathBuf::from(format!(
+            "/definitely/does/not/exist/{}/{}/leaf",
+            scratch_suffix(),
+            "xyz"
+        ));
+        let textual = bogus.display().to_string();
+        let cfg = trunc(DirTruncateStrategy::ToUnique, 0);
+        let out = truncate_path(&textual, &cfg, Some(&bogus));
+
+        // Final component preserved.
+        assert!(
+            out.ends_with("/leaf"),
+            "leaf must be preserved on IO failure: {out}"
+        );
+        // Output starts with a leading slash (absolute path preserved).
+        assert!(
+            out.starts_with('/'),
+            "leading slash preserved on IO failure: {out}"
+        );
+        // No panic and a reasonable (non-empty) result.
+        assert!(!out.is_empty());
     }
 
     fn ctx<'a>(cfg: &'a Config, env: &'a EnvSnapshot, cwd: &'a Path) -> RenderCtx<'a> {
