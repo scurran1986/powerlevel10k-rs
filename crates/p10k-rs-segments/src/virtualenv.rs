@@ -47,13 +47,19 @@ impl Segment for Virtualenv {
                 plain_len: 0,
                 state: None,
                 icon: None,
+                background: None,
             };
         };
 
         let plain = format!("({basename})");
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("yellow".into()));
-        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("blue".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2); // icon + space
@@ -62,6 +68,7 @@ impl Segment for Virtualenv {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("blue".into())),
         }
     }
 }
@@ -138,6 +145,7 @@ mod tests {
         use std::path::Path;
         use std::time::{Duration, SystemTime};
 
+        use p10k_rs_core::style::Color;
         use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
 
         use super::Virtualenv;
@@ -172,5 +180,11 @@ mod tests {
             out.text
         );
         assert_eq!(out.icon, Some("\u{e235}"));
+        assert_eq!(out.background, Some(Color::Named("blue".into())));
+        assert!(
+            out.text.contains("\x1b[44m") || out.text.contains("48;"),
+            "bg SGR missing: {:?}",
+            out.text
+        );
     }
 }

@@ -27,15 +27,18 @@ impl Segment for RootIndicator {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let plain = "⚡";
         let plain_len: u16 = 1;
-        // Hardcoded red default: root is the warning state. TOML can override
-        // via `[segments.root_indicator] fg = "..."`.
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("red".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        // Hardcoded red bg + white fg default: root is the warning state and
+        // the ribbon makes it impossible to miss. TOML can still override
+        // via `[segments.root_indicator] fg = "..."` / `bg = "..."`.
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("red".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
+        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
         SegmentOutput {
             text,
             plain_len,
             state: None,
             icon: None,
+            background: Some(Color::Named("red".into())),
         }
     }
 }
@@ -76,6 +79,14 @@ mod tests {
         let ctx = make_ctx(&cfg, &env);
         let out = RootIndicator.render(&ctx);
         assert!(out.text.contains("⚡"));
-        assert!(out.text.contains("\x1b[38;5;1m"));
+        // Powerline ribbon: red bg (`48;5;1`) + white fg (`38;5;7`). The bg
+        // declaration must also surface on `SegmentOutput.background` so the
+        // renderer can paint arrows in the matching colour.
+        assert!(out.text.contains("\x1b[48;5;1m"));
+        assert!(out.text.contains("\x1b[38;5;7m"));
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("red".into()))
+        );
     }
 }

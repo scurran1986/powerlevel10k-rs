@@ -27,13 +27,15 @@ impl Segment for BackgroundJobs {
         let count = ctx.jobs;
         let plain = format!("⚙{count}");
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("cyan".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
+        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
         SegmentOutput {
             text,
             plain_len,
             state: None,
             icon: None,
+            background: Some(Color::Named("cyan".into())),
         }
     }
 }
@@ -43,6 +45,7 @@ mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
+    use p10k_rs_core::style::Color;
     use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
 
     use super::BackgroundJobs;
@@ -76,7 +79,11 @@ mod tests {
         assert!(BackgroundJobs.enabled(&ctx));
         let out = BackgroundJobs.render(&ctx);
         assert!(out.text.contains("⚙1"));
-        assert!(out.text.contains("\x1b[38;5;6m"));
+        // Powerline ribbon: cyan bg + black fg, with both resets present.
+        assert!(out.text.contains("\x1b[48;5;6m"));
+        assert!(out.text.contains("\x1b[38;5;0m"));
+        assert!(out.text.contains("\x1b[49m"));
+        assert_eq!(out.background, Some(Color::Named("cyan".into())));
     }
 
     #[test]

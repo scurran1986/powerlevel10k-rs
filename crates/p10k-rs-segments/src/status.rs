@@ -1,10 +1,10 @@
 //! `status` — last command exit code when non-zero.
 //!
 //! Hidden on success (the most common case). On failure shows `✘<code>`
-//! in red. Visible alongside the red `prompt_char` so the user sees both
-//! "the prompt knows it failed" (chevron) and "what code did it exit
-//! with" (this segment) — useful for `137` (OOM-kill), `130` (SIGINT),
-//! arbitrary user codes, etc.
+//! painted white-on-red (P10K-classic palette). Visible alongside the red
+//! `prompt_char` so the user sees both "the prompt knows it failed"
+//! (chevron) and "what code did it exit with" (this segment) — useful for
+//! `137` (OOM-kill), `130` (SIGINT), arbitrary user codes, etc.
 
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
@@ -26,18 +26,25 @@ impl Segment for Status {
         let code = ctx.last_status;
         let plain = format!("✘{code}");
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
-        let fg = style::render_fg(
+        let bg = style::render_bg(
             ctx.config,
             self.name(),
             Some("error"),
             Color::Named("red".into()),
         );
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let fg = style::render_fg(
+            ctx.config,
+            self.name(),
+            Some("error"),
+            Color::Named("white".into()),
+        );
+        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
         SegmentOutput {
             text,
             plain_len,
             state: Some("error"),
             icon: None,
+            background: Some(Color::Named("red".into())),
         }
     }
 }
@@ -80,8 +87,18 @@ mod tests {
         assert!(Status.enabled(&ctx));
         let out = Status.render(&ctx);
         assert!(out.text.contains("✘1"));
-        assert!(out.text.contains("\x1b[38;5;1m"));
+        // Slice 28A: P10K-classic white-on-red.
+        assert!(
+            out.text.contains("\x1b[38;5;7m"),
+            "white fg: {:?}",
+            out.text
+        );
+        assert!(out.text.contains("\x1b[48;5;1m"), "red bg: {:?}", out.text);
         assert_eq!(out.state, Some("error"));
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("red".into()))
+        );
     }
 
     #[test]

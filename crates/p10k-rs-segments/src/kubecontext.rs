@@ -62,13 +62,19 @@ impl Segment for Kubecontext {
                 plain_len: 0,
                 state: None,
                 icon: None,
+                background: None,
             };
         };
 
         let plain = format!("k8s:{context}");
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
-        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("cyan".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2);
@@ -77,6 +83,7 @@ impl Segment for Kubecontext {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("cyan".into())),
         }
     }
 }

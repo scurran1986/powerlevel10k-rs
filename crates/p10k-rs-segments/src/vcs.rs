@@ -1,9 +1,12 @@
 //! `vcs` — version-control segment.
 //!
-//! Yellow branch name, with a trailing `*` when the working tree is dirty.
-//! Disabled (skipped by the renderer) when not in a repo. ADR-0001's daemon
-//! client will replace the producer behind [`RenderCtx::git`] later; this
-//! segment doesn't change when that swap happens.
+//! Branch name painted black-on-green (P10K-classic palette), with a trailing
+//! `*` when the working tree is dirty. The dirty marker stays hardcoded red
+//! per the project's load-bearing test pin — it's a subsegment, not the
+//! segment-level fg. Disabled (skipped by the renderer) when not in a repo.
+//! ADR-0001's daemon client will replace the producer behind
+//! [`RenderCtx::git`] later; this segment doesn't change when that swap
+//! happens.
 
 use std::fmt::Write;
 
@@ -40,6 +43,7 @@ impl Segment for Vcs {
                 plain_len: 0,
                 state: None,
                 icon: None,
+                background: None,
             };
         };
 
@@ -85,26 +89,35 @@ impl Segment for Vcs {
         let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
 
         // Head colour goes through the config-aware style resolver; default
-        // is yellow when no override is configured. Marker stays hardcoded
-        // red — it's a subsegment, not the segment-level fg, and threading
-        // it through config would conflict with the single per-state fg
-        // field. Future slice can add separate marker control.
+        // is black-on-green (P10K-classic palette) when no override is
+        // configured. Marker stays hardcoded red — it's a subsegment, not
+        // the segment-level fg, and threading it through config would
+        // conflict with the single per-state fg field. Future slice can
+        // add separate marker control.
+        let bg = style::render_bg(
+            ctx.config,
+            self.name(),
+            Some(state),
+            Color::Named("green".into()),
+        );
         let head_fg = style::render_fg(
             ctx.config,
             self.name(),
             Some(state),
-            Color::Named("yellow".into()),
+            Color::Named("black".into()),
         );
-        let reset = style::reset_fg();
-        // Prepend `icon + space` inside the head_fg colour band.
+        let reset_fg = style::reset_fg();
+        let reset_bg = style::reset_bg();
+        // Prepend `icon + space` inside the bg/head_fg colour band.
         let text = if marker.is_empty() {
-            format!("{head_fg}{icon} {plain}{reset}")
+            format!("{bg}{head_fg}{icon} {plain}{reset_fg}{reset_bg}")
         } else {
-            // Split the marker off so we can red-paint just it.
+            // Split the marker off so we can red-paint just it. The marker
+            // stays inside the green bg band; only the fg flips to red.
             let split = plain.len() - marker.len();
             let head = &plain[..split];
             let tail = marker;
-            format!("{head_fg}{icon} {head}\x1b[31m{tail}{reset}")
+            format!("{bg}{head_fg}{icon} {head}\x1b[31m{tail}{reset_fg}{reset_bg}")
         };
 
         // plain_len accounts for the icon glyph (1 display cell) + 1 space.
@@ -117,6 +130,7 @@ impl Segment for Vcs {
             plain_len,
             state: Some(state),
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("green".into())),
         }
     }
 }
@@ -169,9 +183,23 @@ mod tests {
         let out = Vcs.render(&ctx);
         assert!(out.text.contains("main"));
         assert!(!out.text.contains('*'));
-        assert!(out.text.contains("\x1b[38;5;3m"));
+        // Slice 28A: P10K-classic palette is black-on-green.
+        assert!(
+            out.text.contains("\x1b[38;5;0m"),
+            "black fg: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("\x1b[48;5;2m"),
+            "green bg: {:?}",
+            out.text
+        );
         assert!(out.text.contains('\u{f1d3}'));
         assert_eq!(out.state, Some("clean"));
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("green".into()))
+        );
     }
 
     #[test]

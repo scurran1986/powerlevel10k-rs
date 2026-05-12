@@ -43,20 +43,31 @@ impl Segment for ViMode {
         let raw = std::env::var("P10K_RS_VI_MODE").unwrap_or_default();
         let (state_tag, label) = mode_label(&raw);
 
-        let default = match state_tag {
-            "command" => Color::Named("yellow".into()),
-            "visual" => Color::Named("magenta".into()),
-            "operator" => Color::Named("cyan".into()),
-            _ => Color::Named("green".into()),
-        };
+        // Powerline ribbon: every keymap gets the classic P10K blue/white
+        // background today. Per-state palette differentiation (yellow for
+        // command, magenta for visual, cyan for operator) lands in a later
+        // slice; the TOML state-keyed overrides remain wired so users can
+        // recolour individual states without waiting on us.
         let plain_len = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
-        let fg = style::render_fg(ctx.config, self.name(), Some(state_tag), default);
-        let text = format!("{fg}{label}{}", style::reset_fg());
+        let bg = style::render_bg(
+            ctx.config,
+            self.name(),
+            Some(state_tag),
+            Color::Named("blue".into()),
+        );
+        let fg = style::render_fg(
+            ctx.config,
+            self.name(),
+            Some(state_tag),
+            Color::Named("white".into()),
+        );
+        let text = format!("{bg}{fg}{label}{}{}", style::reset_fg(), style::reset_bg());
         SegmentOutput {
             text,
             plain_len,
             state: Some(state_tag),
             icon: None,
+            background: Some(Color::Named("blue".into())),
         }
     }
 }
@@ -83,7 +94,13 @@ pub(crate) fn mode_label(raw: &str) -> (&'static str, &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::mode_label;
+    use std::path::Path;
+    use std::time::{Duration, SystemTime};
+
+    use p10k_rs_core::style::Color;
+    use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
+
+    use super::{mode_label, ViMode};
 
     #[test]
     fn mode_label_insert() {
@@ -104,5 +121,36 @@ mod tests {
     #[test]
     fn mode_label_unknown_defaults_to_insert() {
         assert_eq!(mode_label("garbage"), ("insert", "INSERT"));
+    }
+
+    #[test]
+    fn render_emits_blue_powerline_ribbon() {
+        // `render` reads `$P10K_RS_VI_MODE` directly, but we don't touch the
+        // env here — `std::env::set_var` is `unsafe` since 1.85 and would
+        // race across parallel test threads anyway (see the module docs).
+        // With the var unset/empty, `mode_label("")` falls through to the
+        // INSERT arm, which is the success path we want to assert against.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let ctx = RenderCtx {
+            config: &cfg,
+            shell: Shell::Zsh,
+            host: HostKind::None,
+            cwd: Path::new("/"),
+            git: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env: &env,
+        };
+        let out = ViMode.render(&ctx);
+        // Blue bg (`48;5;4`) + white fg (`38;5;7`) — the classic P10K
+        // normal-mode ribbon. Later slices may differentiate per state.
+        assert!(
+            out.text.contains("\x1b[48;5;4m"),
+            "blue bg SGR missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.background, Some(Color::Named("blue".into())));
     }
 }

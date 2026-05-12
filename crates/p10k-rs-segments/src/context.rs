@@ -58,20 +58,27 @@ impl Segment for Context {
         let plain = format!("{user}@{host}");
         let plain_len = u16::try_from(plain.chars().count()).unwrap_or(u16::MAX);
 
-        // Yellow default; root/ssh users can override per state via TOML.
-        let fg = style::render_fg(
+        // Yellow bg default; root/ssh users can override per state via TOML.
+        let bg = style::render_bg(
             ctx.config,
             self.name(),
             Some(state),
             Color::Named("yellow".into()),
         );
-        let text = format!("{fg}{plain}{}", style::reset_fg());
+        let fg = style::render_fg(
+            ctx.config,
+            self.name(),
+            Some(state),
+            Color::Named("black".into()),
+        );
+        let text = format!("{bg}{fg}{plain}{}{}", style::reset_fg(), style::reset_bg());
 
         SegmentOutput {
             text,
             plain_len,
             state: Some(state),
             icon: None,
+            background: Some(Color::Named("yellow".into())),
         }
     }
 }

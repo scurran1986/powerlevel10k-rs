@@ -1,7 +1,8 @@
 //! `os_icon` — host operating system glyph.
 //!
-//! Always-on segment that emits a single styled glyph identifying the OS the
-//! shell is running on. The glyph is picked at compile time from
+//! Always-on segment that emits a single glyph identifying the OS the shell
+//! is running on, painted white-on-grey (P10K-classic palette, `brightblack`
+//! as a neutral leading block). The glyph is picked at compile time from
 //! `cfg!(target_os = ...)` — there is no runtime probe, so this is a constant
 //! per build.
 //!
@@ -30,13 +31,20 @@ impl Segment for OsIcon {
 
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         let glyph = os_glyph();
+        let bg = style::render_bg(
+            ctx.config,
+            self.name(),
+            None,
+            Color::Named("brightblack".into()),
+        );
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
-        let text = format!("{fg}{glyph}{}", style::reset_fg());
+        let text = format!("{bg}{fg}{glyph}{}{}", style::reset_fg(), style::reset_bg());
         SegmentOutput {
             text,
             plain_len: 1,
             state: None,
             icon: None,
+            background: Some(Color::Named("brightblack".into())),
         }
     }
 }
@@ -101,6 +109,17 @@ mod tests {
             out.text.contains("\x1b[38;5;7m"),
             "missing white FG escape: {:?}",
             out.text
+        );
+        // Slice 28A: brightblack (ANSI256 index 8) bg for the P10K-classic
+        // grey leading block.
+        assert!(
+            out.text.contains("\x1b[48;5;8m"),
+            "missing brightblack BG escape: {:?}",
+            out.text
+        );
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("brightblack".into()))
         );
         assert_eq!(out.plain_len, 1);
         assert_eq!(out.state, None);

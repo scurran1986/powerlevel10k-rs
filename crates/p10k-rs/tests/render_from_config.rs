@@ -96,7 +96,10 @@ fn config_with_default_layout_matches_baseline() {
         &fixture,
         b"schema_version = 1\n\
           [layout]\n\
-          left = [\"dir\", \"vcs\", \"command_execution_time\", \"status\", \"prompt_char\"]\n",
+          left = [\"dir\", \"vcs\", \"command_execution_time\", \"status\", \"prompt_char\"]\n\
+          [layout.frame]\n\
+          glyph = \"\xe2\x95\xad\xe2\x94\x80\"\n\
+          foreground = \"blue\"\n",
     )
     .expect("write fixture");
 

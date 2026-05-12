@@ -45,8 +45,7 @@ use safety::SafeText;
 ///         SegmentOutput {
 ///             text: "hello".into(),
 ///             plain_len: 5,
-///             state: None,
-///             icon: None,
+///             ..SegmentOutput::default()
 ///         }
 ///     }
 /// }
@@ -124,7 +123,7 @@ pub struct RenderCtx<'a> {
 /// second pass of styling at the renderer level. `plain_len` is the visual
 /// width in columns, used by the renderer for ruler / frame math; it is the
 /// segment's responsibility to count grapheme clusters correctly.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SegmentOutput {
     /// Rendered text with ANSI styling already applied.
     pub text: String,
@@ -136,6 +135,15 @@ pub struct SegmentOutput {
     /// Current icon, exposed for features like `show_on_command` that need
     /// to round-trip the original glyph.
     pub icon: Option<&'static str>,
+    /// Background colour this segment painted itself on, exposed so the
+    /// renderer can emit powerline transition arrows (`\u{e0b0}`) between
+    /// adjacent bg-bearing segments and a closing arrow into the terminal
+    /// default after the last one. `None` opts the segment out — it
+    /// renders inline with a plain separator and no surrounding arrows.
+    /// Must match whatever bg the segment emitted inside `text`; the
+    /// renderer trusts this field for arrow colouring without re-parsing
+    /// the segment output.
+    pub background: Option<style::Color>,
 }
 
 /// Output of [`render_prompt`].
@@ -152,17 +160,36 @@ pub struct Prompt {
     pub transient: Option<String>,
 }
 
+/// Powerline right-pointing solid arrow (Nerd Font / Powerline glyph).
+/// Drawn between segments with differing background colours so the
+/// transition reads as a single continuous ribbon.
+const POWERLINE_ARROW: char = '\u{e0b0}';
+
 /// Render the configured prompt for the given context.
 ///
-/// Walks `segments` in order, calls `enabled` then `render`, joins outputs
-/// with a single space, and post-processes the assembled string for the
-/// target shell (zsh wants ANSI escapes wrapped in `%{…%}` so it can track
-/// prompt width correctly).
+/// Walks `segments` in order, calls `enabled` then `render`, and weaves
+/// the outputs into a Powerlevel10k-style ribbon:
+///
+/// - Adjacent segments with backgrounds get a powerline arrow
+///   (`\u{e0b0}`) between them, coloured fg=prev_bg, bg=next_bg, so the
+///   handoff reads as a single ribbon.
+/// - A closing arrow into terminal default follows the last
+///   bg-bearing segment on line 1.
+/// - When the layout has a `frame.glyph` configured AND `prompt_char`
+///   is the trailing segment, `prompt_char` jumps to a second line
+///   prefixed by a `╰─` corner (matching the top-left `╭─` the user
+///   set as `frame.glyph`). Otherwise everything stays on one line.
+/// - Segments with `background = None` keep the legacy behaviour:
+///   joined with the configured left separator (`" "` by default).
+///
+/// Output is post-processed for the target shell (zsh wants ANSI
+/// escapes wrapped in `%{…%}` so PROMPT-width tracking stays right).
 ///
 /// Pure: given identical `segments` and `ctx`, returns identical output.
 #[must_use]
 pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prompt {
     let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
+    let mode = ctx.config.colors;
     let mut left = String::new();
 
     if let Some(ruler) = ctx.config.layout.ruler.as_ref() {
@@ -171,7 +198,7 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
                 .foreground
                 .clone()
                 .unwrap_or(style::Color::Named("white".into()));
-            let fg = style::sgr_fg(&fg_color, ctx.config.colors);
+            let fg = style::sgr_fg(&fg_color, mode);
             let width = terminal_width();
             left.push_str(&fg);
             left.push_str(&glyph.repeat(width));
@@ -180,35 +207,98 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
         }
     }
 
-    if let Some(frame) = ctx.config.layout.frame.as_ref() {
-        if let Some(glyph) = frame.glyph.as_deref().filter(|g| !g.is_empty()) {
-            let fg_color = frame
-                .foreground
-                .clone()
-                .unwrap_or(style::Color::Named("white".into()));
-            let fg = style::sgr_fg(&fg_color, ctx.config.colors);
-            left.push_str(&fg);
-            left.push_str(glyph);
-            left.push_str(style::reset_fg());
-            left.push(' ');
-        }
+    // Frame top-corner ("╭─" by convention) when configured.
+    let frame_fg_color = ctx
+        .config
+        .layout
+        .frame
+        .as_ref()
+        .and_then(|f| f.foreground.clone())
+        .unwrap_or(style::Color::Named("white".into()));
+    let frame_fg = style::sgr_fg(&frame_fg_color, mode);
+    let frame_active = ctx
+        .config
+        .layout
+        .frame
+        .as_ref()
+        .and_then(|f| f.glyph.as_deref())
+        .is_some_and(|g| !g.is_empty());
+    if frame_active {
+        let glyph = ctx
+            .config
+            .layout
+            .frame
+            .as_ref()
+            .and_then(|f| f.glyph.as_deref())
+            .unwrap_or("");
+        left.push_str(&frame_fg);
+        left.push_str(glyph);
+        left.push_str(style::reset_fg());
     }
 
-    let mut first = true;
-    for seg in segments {
-        if !seg.enabled(ctx) {
-            continue;
-        }
-        let out = seg.render(ctx);
-        if !first {
-            left.push_str(separator);
-        }
-        first = false;
+    // Resolve enabled segments up front so we can split off the
+    // line-2 trailing segment without iterating twice.
+    let enabled: Vec<(SegmentOutput, &str)> = segments
+        .iter()
+        .filter(|s| s.enabled(ctx))
+        .map(|s| (s.render(ctx), s.name()))
+        .collect();
+
+    // Multi-line: when the frame is active AND the trailing segment is
+    // `prompt_char`, send prompt_char to line 2 behind a `╰─` corner.
+    // Conservative trigger: only on `prompt_char` so existing layouts
+    // without a frame keep the historical single-line shape.
+    let split_at = if frame_active
+        && enabled
+            .last()
+            .is_some_and(|(_, name)| *name == "prompt_char")
+    {
+        enabled.len() - 1
+    } else {
+        enabled.len()
+    };
+    let (line1, line2) = enabled.split_at(split_at);
+
+    let mut prev_bg: Option<&style::Color> = None;
+    for (i, (out, name)) in line1.iter().enumerate() {
         let (pad_left, pad_right) = ctx
             .config
             .segments
-            .get(seg.name())
+            .get(*name)
             .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+        match (prev_bg, out.background.as_ref()) {
+            (Some(prev), Some(next)) => {
+                // Powerline transition: fg=prev_bg, bg=next_bg, arrow.
+                // The arrow's "fill" (left of its slant) inherits fg=prev_bg
+                // so it blends with the segment we're leaving; the cell's
+                // bg=next_bg blends with the segment we're entering.
+                left.push_str(&style::sgr_fg(prev, mode));
+                left.push_str(&style::sgr_bg(next, mode));
+                left.push(POWERLINE_ARROW);
+                left.push_str(style::reset_fg());
+            }
+            (Some(prev), None) => {
+                // Closing into a no-bg segment: arrow into default bg,
+                // then a single space before the inline segment lands.
+                left.push_str(&style::sgr_fg(prev, mode));
+                left.push_str(style::reset_bg());
+                left.push(POWERLINE_ARROW);
+                left.push_str(style::reset_fg());
+                left.push(' ');
+            }
+            (None, Some(_)) => {
+                if i != 0 {
+                    // No previous bg but not the first segment: emit
+                    // separator then let the segment paint its own bg.
+                    left.push_str(separator);
+                }
+            }
+            (None, None) => {
+                if i != 0 {
+                    left.push_str(separator);
+                }
+            }
+        }
         for _ in 0..pad_left {
             left.push(' ');
         }
@@ -216,7 +306,43 @@ pub fn render_prompt(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Prom
         for _ in 0..pad_right {
             left.push(' ');
         }
+        prev_bg = out.background.as_ref();
     }
+
+    // Final powerline arrow into terminal-default bg after the last
+    // bg-bearing segment on line 1.
+    if let Some(prev) = prev_bg {
+        left.push_str(&style::sgr_fg(prev, mode));
+        left.push_str(style::reset_bg());
+        left.push(POWERLINE_ARROW);
+        left.push_str(style::reset_fg());
+    }
+
+    // Line 2 (prompt_char, today) behind a `╰─` corner.
+    if !line2.is_empty() {
+        left.push('\n');
+        if frame_active {
+            left.push_str(&frame_fg);
+            left.push('\u{2570}');
+            left.push('\u{2500}');
+            left.push_str(style::reset_fg());
+        }
+        for (out, name) in line2 {
+            let (pad_left, pad_right) = ctx
+                .config
+                .segments
+                .get(*name)
+                .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+            for _ in 0..pad_left {
+                left.push(' ');
+            }
+            left.push_str(&out.text);
+            for _ in 0..pad_right {
+                left.push(' ');
+            }
+        }
+    }
+
     let left = wrap_for_shell(&left, ctx.shell);
     Prompt {
         left,

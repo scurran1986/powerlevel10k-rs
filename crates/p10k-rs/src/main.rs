@@ -205,10 +205,19 @@ fn factory_default_config() -> Config {
     // newtypes that can't be field-initialised from outside the crate, so
     // round-tripping through `from_toml` is the only ergonomic path. The
     // string is `const` and parses in single-digit microseconds.
+    // Slice 28: factory default ships the classic Powerlevel10k look —
+    // top-left `╭─` corner, line-1 segments joined by powerline arrows,
+    // bottom-left `╰─` corner with the prompt char on line 2. The
+    // multi-line shape is gated on `[layout.frame]` being set, so a
+    // user who explicitly opts out (drops the frame block) keeps the
+    // historical single-line shape.
     const FACTORY_TOML: &str = r#"
 schema_version = 1
 [layout]
 left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+[layout.frame]
+glyph = "╭─"
+foreground = "blue"
 "#;
     // `from_toml` is fallible only on parse error — the literal above is a
     // compile-time constant, so failing here is a programmer bug. The

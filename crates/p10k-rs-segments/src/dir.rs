@@ -1,9 +1,10 @@
 //! `dir` — current working directory segment.
 //!
-//! Cwd in blue, with `$HOME` collapsed to `~`. Truncation policies and the
-//! writable / read-only state will land later. ANSI escapes are emitted raw;
-//! the renderer post-processes them for the target shell (e.g. zsh's
-//! `%{…%}` bracketing).
+//! Cwd painted black-on-blue (P10K-classic palette), with `$HOME` collapsed
+//! to `~`. Truncation policies and the writable / read-only state will land
+//! later. ANSI escapes are emitted raw; the renderer post-processes them for
+//! the target shell (e.g. zsh's `%{…%}` bracketing) and uses the declared
+//! `background` colour to paint powerline transition arrows.
 
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
@@ -30,8 +31,13 @@ impl Segment for Dir {
         let home = std::env::var("HOME").ok();
         let collapsed = home_collapse(&raw, home.as_deref());
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("blue".into()));
-        let text = format!("{fg}{icon} {collapsed}{}", style::reset_fg());
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("blue".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
+        let text = format!(
+            "{bg}{fg}{icon} {collapsed}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         // plain_len: chars-of-collapsed + 1 (icon, single Nerd Font codepoint
         // renders as 1 visual col) + 1 (space). saturating_add guards the
         // u16::MAX overflow path.
@@ -43,6 +49,7 @@ impl Segment for Dir {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("blue".into())),
         }
     }
 }
@@ -115,6 +122,14 @@ mod tests {
             out.text
         );
         assert_eq!(out.icon, Some("\u{f07b}"));
+        // Slice 28A: blue background SGR present and declared on the output
+        // so the renderer can paint matching powerline arrows.
+        assert!(
+            out.text.contains("\x1b[48;5;4m"),
+            "blue bg SGR missing: {:?}",
+            out.text
+        );
+        assert_eq!(out.background, Some(Color::Named("blue".into())));
     }
 
     #[test]

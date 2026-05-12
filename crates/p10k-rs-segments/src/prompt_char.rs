@@ -33,6 +33,9 @@ impl Segment for PromptChar {
             plain_len: 1,
             state: Some(state),
             icon: None,
+            // No background — `prompt_char` lives on line 2 and renders
+            // inline without a powerline ribbon block.
+            background: None,
         }
     }
 }

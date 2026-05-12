@@ -1,9 +1,10 @@
 //! `command_execution_time` — duration of the last foreground command.
 //!
-//! Cyan duration string when the last command took ≥ 3 seconds. Below the
-//! threshold the segment is `enabled() == false` and the renderer skips it.
-//! The threshold is hardcoded for now; TOML config will expose it later
-//! (matches upstream p10k's `POWERLEVEL9K_COMMAND_EXECUTION_TIME_THRESHOLD`).
+//! Duration painted black-on-yellow (P10K-classic palette) when the last
+//! command took ≥ 3 seconds. Below the threshold the segment is
+//! `enabled() == false` and the renderer skips it. The threshold is
+//! hardcoded for now; TOML config will expose it later (matches upstream
+//! p10k's `POWERLEVEL9K_COMMAND_EXECUTION_TIME_THRESHOLD`).
 //!
 //! Duration arrives via [`RenderCtx::last_duration`], which the binary fills
 //! from the `--last-duration` CLI arg, which the zsh init script computes
@@ -33,13 +34,19 @@ impl Segment for CommandExecutionTime {
         let ms = ctx.last_duration.as_millis();
         let formatted = format_duration_ms(ms);
         let plain_len = u16::try_from(formatted.chars().count()).unwrap_or(u16::MAX);
-        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("cyan".into()));
-        let text = format!("{fg}{formatted}{}", style::reset_fg());
+        let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("yellow".into()));
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
+        let text = format!(
+            "{bg}{fg}{formatted}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len,
             state: None,
             icon: None,
+            background: Some(Color::Named("yellow".into())),
         }
     }
 }
@@ -105,7 +112,21 @@ mod tests {
         let c = ctx(&cfg, &env, Duration::from_secs(7));
         let out = CommandExecutionTime.render(&c);
         assert!(out.text.contains("7s"));
-        assert!(out.text.contains("\x1b[38;5;6m"));
+        // Slice 28A: P10K-classic black-on-yellow.
+        assert!(
+            out.text.contains("\x1b[38;5;0m"),
+            "black fg: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("\x1b[48;5;3m"),
+            "yellow bg: {:?}",
+            out.text
+        );
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("yellow".into()))
+        );
     }
 
     #[test]

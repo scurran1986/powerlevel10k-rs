@@ -49,18 +49,24 @@ impl Segment for Terraform {
                 plain_len: 0,
                 state: None,
                 icon: None,
+                background: None,
             };
         };
 
         let plain = format!("tf:{workspace}");
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
-        let fg = style::render_fg(
+        let bg = style::render_bg(
             ctx.config,
             self.name(),
             None,
             Color::Named("magenta".into()),
         );
-        let text = format!("{fg}{icon} {plain}{}", style::reset_fg());
+        let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
+        let text = format!(
+            "{bg}{fg}{icon} {plain}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2); // icon + space
@@ -69,6 +75,7 @@ impl Segment for Terraform {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("magenta".into())),
         }
     }
 }
@@ -224,6 +231,18 @@ mod tests {
             out.text
         );
         assert_eq!(out.icon, Some("\u{f1771}"));
+        // Powerline ribbon: magenta bg SGR (`48;5;5`) must appear in the
+        // styled text and the matching declaration must surface on
+        // `background` so adjacent segments can chain arrows correctly.
+        assert!(
+            out.text.contains("\x1b[48;5;5m"),
+            "magenta bg SGR missing: {:?}",
+            out.text
+        );
+        assert_eq!(
+            out.background,
+            Some(p10k_rs_core::style::Color::Named("magenta".into()))
+        );
         std::fs::remove_dir_all(&cwd).expect("cleanup");
     }
 }

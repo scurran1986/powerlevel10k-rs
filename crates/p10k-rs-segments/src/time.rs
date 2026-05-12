@@ -36,13 +36,24 @@ impl Segment for Time {
         let dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let formatted = format_time(dt);
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
+        let bg = style::render_bg(
+            ctx.config,
+            self.name(),
+            None,
+            Color::Named("brightblack".into()),
+        );
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("white".into()));
-        let text = format!("{fg}{icon} {formatted}{}", style::reset_fg());
+        let text = format!(
+            "{bg}{fg}{icon} {formatted}{}{}",
+            style::reset_fg(),
+            style::reset_bg()
+        );
         SegmentOutput {
             text,
             plain_len: 10, // "X HH:MM:SS" — icon glyph (1) + space (1) + 8 chars
             state: None,
             icon: Some(DEFAULT_ICON),
+            background: Some(Color::Named("brightblack".into())),
         }
     }
 }
@@ -62,6 +73,7 @@ mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
+    use p10k_rs_core::style::Color;
     use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
     use time::OffsetDateTime;
 
@@ -110,6 +122,19 @@ mod tests {
         let out = Time.render(&c);
         assert!(out.text.contains('\u{f017}'));
         assert_eq!(out.icon, Some("\u{f017}"));
+    }
+
+    #[test]
+    fn renders_brightblack_background() {
+        // Powerline ribbon: time segment must emit a brightblack bg SGR and
+        // surface that colour via `SegmentOutput.background` so the renderer
+        // can paint the transition arrow in the matching foreground.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let c = ctx(&cfg, &env);
+        let out = Time.render(&c);
+        assert!(out.text.contains("\x1b[48;5;8m"));
+        assert!(out.text.contains("\x1b[49m"));
+        assert_eq!(out.background, Some(Color::Named("brightblack".into())));
     }
 
     #[test]
