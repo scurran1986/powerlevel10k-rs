@@ -6,11 +6,19 @@
 //! the target shell (e.g. zsh's `%{…%}` bracketing) and uses the declared
 //! `background` colour to paint powerline transition arrows.
 
+use p10k_rs_config::{DirTruncate, DirTruncateStrategy};
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
 const DEFAULT_ICON: &str = "\u{f07b}"; // Nerd Font v3: folder (FA-style)
+
+/// Ellipsis glyph used as the truncation marker.
+///
+/// `U+2026` (HORIZONTAL ELLIPSIS) — a single visual column under
+/// East-Asian-wide-aware terminals; passes [`sanitize_for_terminal`]
+/// (not a control codepoint).
+const ELLIPSIS: &str = "\u{2026}";
 
 /// Current-directory segment.
 ///
@@ -30,6 +38,13 @@ impl Segment for Dir {
         let raw = sanitize_for_terminal(&ctx.cwd.display().to_string());
         let home = std::env::var("HOME").ok();
         let collapsed = home_collapse(&raw, home.as_deref());
+        let truncate = ctx
+            .config
+            .segments
+            .get(self.name())
+            .map(|s| s.truncate.clone())
+            .unwrap_or_default();
+        let collapsed = truncate_path(&collapsed, &truncate);
         let icon = style::resolve_icon(ctx.config, self.name(), None, DEFAULT_ICON);
         let bg = style::render_bg(ctx.config, self.name(), None, Color::Named("blue".into()));
         let fg = style::render_fg(ctx.config, self.name(), None, Color::Named("black".into()));
@@ -51,6 +66,63 @@ impl Segment for Dir {
             icon: Some(DEFAULT_ICON),
             background: Some(Color::Named("blue".into())),
         }
+    }
+}
+
+/// Apply the configured truncation strategy to a (home-collapsed) path string.
+///
+/// Pure function over the already-sanitised `path` and the parsed
+/// [`DirTruncate`] config. Operates on the textual form so a leading `~`
+/// counts as the first component (matches upstream P10K behaviour).
+///
+/// Algorithm:
+/// - Splits on `/` and keeps the empty leading element (for absolute paths
+///   like `/a/b/c` → `["", "a", "b", "c"]`) so the leading slash is preserved
+///   by re-joining.
+/// - `length = 0` is normalised to `1` so a misconfiguration can't render an
+///   empty cwd.
+/// - Paths with fewer non-empty components than `length` are returned
+///   unchanged (no marker needed — nothing was elided).
+///
+/// Returns the input unchanged when `strategy == None`.
+fn truncate_path(path: &str, cfg: &DirTruncate) -> String {
+    if matches!(cfg.strategy, DirTruncateStrategy::None) {
+        return path.to_owned();
+    }
+    let length = cfg.length.max(1) as usize;
+    // Split into the leading-slash marker (if any) plus the components.
+    let (leading, body) = if let Some(rest) = path.strip_prefix('/') {
+        ("/", rest)
+    } else {
+        ("", path)
+    };
+    let parts: Vec<&str> = body.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() <= length {
+        return path.to_owned();
+    }
+    match cfg.strategy {
+        DirTruncateStrategy::None => path.to_owned(),
+        DirTruncateStrategy::ToLast => {
+            // …/<last `length` components>. The marker stands in for both
+            // the elided components and any leading slash.
+            let tail = &parts[parts.len() - length..];
+            format!("{ELLIPSIS}/{}", tail.join("/"))
+        }
+        DirTruncateStrategy::Middle => {
+            // <first>/…/<last `length - 1` components>. When `length == 1`
+            // there's no tail; degenerates to `<first>/…`.
+            let first = parts[0];
+            if length == 1 {
+                format!("{leading}{first}/{ELLIPSIS}")
+            } else {
+                let tail = &parts[parts.len() - (length - 1)..];
+                format!("{leading}{first}/{ELLIPSIS}/{}", tail.join("/"))
+            }
+        }
+        // `DirTruncateStrategy` is `#[non_exhaustive]` so future variants
+        // (e.g. `truncate_to_unique`) compile without breaking this match.
+        // Unknown strategy falls back to the safe no-op path.
+        _ => path.to_owned(),
     }
 }
 
@@ -94,6 +166,57 @@ mod tests {
         );
         assert_eq!(home_collapse("/etc/passwd", home), "/etc/passwd");
         assert_eq!(home_collapse("/etc/passwd", None), "/etc/passwd");
+    }
+
+    /// Construct a [`DirTruncate`] config with the given strategy / length.
+    fn trunc(strategy: DirTruncateStrategy, length: u8) -> DirTruncate {
+        DirTruncate { strategy, length }
+    }
+
+    #[test]
+    fn truncate_to_last_keeps_only_n_components() {
+        let cfg = trunc(DirTruncateStrategy::ToLast, 2);
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "\u{2026}/d/e");
+    }
+
+    #[test]
+    fn truncate_middle_keeps_first_and_last_n() {
+        let cfg = trunc(DirTruncateStrategy::Middle, 2);
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "/a/\u{2026}/e");
+        let cfg3 = trunc(DirTruncateStrategy::Middle, 3);
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg3), "/a/\u{2026}/d/e");
+    }
+
+    #[test]
+    fn truncate_none_passes_through() {
+        let cfg = trunc(DirTruncateStrategy::None, 2);
+        assert_eq!(truncate_path("/a/b/c/d/e", &cfg), "/a/b/c/d/e");
+    }
+
+    #[test]
+    fn truncate_short_path_no_op() {
+        // Component count (2: "a", "b") <= length (3) — return unchanged.
+        let cfg = trunc(DirTruncateStrategy::ToLast, 3);
+        assert_eq!(truncate_path("/a/b", &cfg), "/a/b");
+        let mid = trunc(DirTruncateStrategy::Middle, 3);
+        assert_eq!(truncate_path("/a/b", &mid), "/a/b");
+    }
+
+    #[test]
+    fn truncate_with_home_collapse() {
+        // The truncator runs after `home_collapse`, so `~` is the first
+        // component. With ToLast/length=2 only the last two survive.
+        let collapsed = home_collapse("/home/sean/proj/sub/deep", Some("/home/sean"));
+        assert_eq!(collapsed, "~/proj/sub/deep");
+        let cfg = trunc(DirTruncateStrategy::ToLast, 2);
+        assert_eq!(truncate_path(&collapsed, &cfg), "\u{2026}/sub/deep");
+    }
+
+    #[test]
+    fn truncate_length_zero_normalises_to_one() {
+        // A misconfigured `length = 0` must not render an empty cwd.
+        let cfg = trunc(DirTruncateStrategy::ToLast, 0);
+        assert_eq!(truncate_path("/a/b/c", &cfg), "\u{2026}/c");
     }
 
     fn ctx<'a>(cfg: &'a Config, env: &'a EnvSnapshot, cwd: &'a Path) -> RenderCtx<'a> {

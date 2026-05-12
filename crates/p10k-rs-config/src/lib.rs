@@ -239,6 +239,12 @@ pub struct SegmentConfig {
     pub icon: Option<String>,
     /// Padding on either side of the segment.
     pub padding: Padding,
+    /// Truncation policy applied to the rendered cwd.
+    ///
+    /// Only consulted by the `dir` segment — other segments accept the field
+    /// (the schema is shared across every segment) but ignore it. Off by
+    /// default; see [`DirTruncate`] for the strategies.
+    pub truncate: DirTruncate,
     /// Render only when one of these commands is on the upcoming buffer.
     pub show_on_command: Option<Vec<String>>,
     /// Render only when the cwd matches one of these globs.
@@ -290,6 +296,52 @@ pub struct Padding {
     pub left: u8,
     /// Whitespace cells to the right.
     pub right: u8,
+}
+
+/// Cwd truncation policy for the `dir` segment.
+///
+/// Lives on every [`SegmentConfig`] for schema uniformity (matching the
+/// pattern set by [`SegmentConfig::foreground`] / [`SegmentConfig::padding`]),
+/// but only the `dir` segment reads it. Other segments silently ignore the
+/// field.
+///
+/// See [`DirTruncateStrategy`] for the supported strategies. Default is
+/// [`DirTruncateStrategy::None`] — full path, current behaviour.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DirTruncate {
+    /// Strategy: `"none"`, `"to_last"`, or `"middle"`.
+    pub strategy: DirTruncateStrategy,
+    /// How many trailing components to keep (default `3`).
+    ///
+    /// A value of `0` is treated as `1` at render time to keep the cwd from
+    /// disappearing entirely.
+    pub length: u8,
+}
+
+/// Strategies recognised by [`DirTruncate::strategy`].
+///
+/// Mirrors a subset of upstream Powerlevel10k's `POWERLEVEL9K_SHORTEN_STRATEGY`
+/// values. Only the two most common shapes ship in MVP; `truncate_to_unique`
+/// and friends are tracked for a later slice.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DirTruncateStrategy {
+    /// No truncation. Render the full (home-collapsed) path.
+    #[default]
+    None,
+    /// Keep only the trailing `length` components, prepend `…`.
+    ///
+    /// Example: `/a/b/c/d/e` with `length = 2` becomes `…/d/e`.
+    ToLast,
+    /// Keep the first component and the trailing `length - 1` components,
+    /// replacing the middle with `…`.
+    ///
+    /// Example: `/a/b/c/d/e` with `length = 2` becomes `/a/…/d/e`. With
+    /// `length = 3`: `/a/…/c/d/e`.
+    Middle,
 }
 
 /// Glob string used by `show_in_dir` and friends. Validated lazily.
