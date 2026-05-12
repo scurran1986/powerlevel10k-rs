@@ -175,7 +175,7 @@ fn cmd_prompt(
         env: &env,
     };
 
-    let segments = assemble_segments(&cfg.layout.left);
+    let segments = assemble_segments(&cfg, &cfg.layout.left);
     let prompt = p10k_rs_core::render_prompt(&segments, &ctx);
 
     // Stdout: left side only, plain text, no trailing newline. The init
@@ -224,11 +224,16 @@ left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
 /// Walk a layout segment list and instantiate each known segment.
 ///
 /// Unknown names produce a `tracing::warn!` and are skipped — a typo'd
-/// segment in a user config is a non-fatal warning, not a crash. Returns
-/// in render order.
-fn assemble_segments(refs: &[p10k_rs_config::SegmentRef]) -> Vec<Box<dyn Segment>> {
+/// segment in a user config is a non-fatal warning, not a crash. Segments
+/// whose `[segment.<name>].disabled = true` block is set are silently
+/// skipped — the user opted in to hiding them, so no warning is
+/// warranted. Returns in render order.
+fn assemble_segments(cfg: &Config, refs: &[p10k_rs_config::SegmentRef]) -> Vec<Box<dyn Segment>> {
     let mut out: Vec<Box<dyn Segment>> = Vec::with_capacity(refs.len());
     for r in refs {
+        if cfg.segments.get(&r.0).is_some_and(|s| s.disabled) {
+            continue;
+        }
         if let Some(seg) = p10k_rs_segments::build(&r.0) {
             out.push(seg);
         } else {

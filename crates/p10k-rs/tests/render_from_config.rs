@@ -452,3 +452,75 @@ fn layout_ruler_glyph_emits_horizontal_line() {
     let _ = std::fs::remove_dir_all(&cwd);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn segment_disabled_field_skips_segment() {
+    // End-to-end proof of slice 27: a `[segment.dir].disabled = true`
+    // entry removes the segment from the rendered prompt without
+    // perturbing the rest of the layout. Distinct from the
+    // unknown-segment path — `disabled` is a deliberate opt-in by the
+    // user, so it skips silently (no warning) and the layout slot
+    // simply collapses.
+    let cwd = scratch_dir("disabled-cwd");
+    let home = scratch_dir("disabled-home");
+
+    let enabled_cfg = home.join("enabled.toml");
+    std::fs::write(
+        &enabled_cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n",
+    )
+    .expect("write enabled");
+
+    let disabled_cfg = home.join("disabled.toml");
+    std::fs::write(
+        &disabled_cfg,
+        b"schema_version = 1\n\
+          [layout]\n\
+          left = [\"dir\", \"prompt_char\"]\n\
+          [segment.dir]\n\
+          disabled = true\n",
+    )
+    .expect("write disabled");
+
+    let enabled_out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", enabled_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let disabled_out = run_prompt(
+        &cwd,
+        &[
+            ("P10K_RS_CONFIG", disabled_cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+
+    let enabled_str = String::from_utf8_lossy(&enabled_out);
+    let disabled_str = String::from_utf8_lossy(&disabled_out);
+
+    // Folder glyph (U+F07B, slice 23 default for `dir`) must be present
+    // when enabled and absent when disabled — that's the proof the gate
+    // fired.
+    assert!(
+        enabled_str.contains('\u{f07b}'),
+        "enabled prompt should carry the dir folder glyph: {enabled_str:?}"
+    );
+    assert!(
+        !disabled_str.contains('\u{f07b}'),
+        "disabled dir must not render the folder glyph: {disabled_str:?}"
+    );
+
+    // The prompt_char segment (slice 1's `❯`) is still in layout.left
+    // and must survive — the gate must skip the named segment only.
+    assert!(
+        disabled_str.contains('\u{276f}'),
+        "prompt_char must still render with dir disabled: {disabled_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&home);
+}
