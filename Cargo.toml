@@ -106,6 +106,10 @@ must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 multiple_crate_versions = "allow" # transitive duplicates we don't control
+# `bg`/`fg`, `default_bg`/`default_fg` are the domain-natural pair for every
+# prompt segment; the lint flags them as too similar but renaming hurts
+# readability more than it helps.
+similar_names = "allow"
 # Hard denials — these are bugs, not style.
 unwrap_used = "warn"
 expect_used = "warn"

@@ -68,6 +68,7 @@ impl Segment for Status {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};

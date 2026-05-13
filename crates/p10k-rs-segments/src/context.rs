@@ -94,10 +94,10 @@ impl Segment for Context {
         // win because the default just shifts before the `style::*` call.
         let (default_bg, default_fg) = default_palette_for(state);
 
-        let bg = style::render_bg(ctx.config, self.name(), Some(state), default_bg.clone());
-        let fg = style::render_fg(ctx.config, self.name(), Some(state), default_fg);
+        let bg_sgr = style::render_bg(ctx.config, self.name(), Some(state), default_bg.clone());
+        let fg_sgr = style::render_fg(ctx.config, self.name(), Some(state), default_fg);
         let text = format!(
-            "{bg}{fg}{icon} {plain}{}{}",
+            "{bg_sgr}{fg_sgr}{icon} {plain}{}{}",
             style::reset_fg(),
             style::reset_bg()
         );
@@ -159,10 +159,7 @@ fn should_show(user: &str, state: &str, default_user: Option<&str>) -> bool {
     if state != "local" {
         return true;
     }
-    match default_user {
-        Some(du) if !du.is_empty() && du == user => false,
-        _ => true,
-    }
+    !matches!(default_user, Some(du) if !du.is_empty() && du == user)
 }
 
 /// Choose between `$USER` and `$LOGNAME`, sanitise, and fall back to `"?"`.

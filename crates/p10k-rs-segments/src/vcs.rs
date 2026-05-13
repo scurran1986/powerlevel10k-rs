@@ -141,44 +141,7 @@ impl Segment for Vcs {
         } else {
             None
         };
-        // Conflicts marker `!` lives in the segment's fg band (no red
-        // override — the `dirty *` is the only hardcoded-red subsegment).
-        if git.has_conflicts {
-            let _ = write!(plain, "{sub_sep}!");
-        }
-        if git.staged > 0 {
-            let _ = write!(plain, "{sub_sep}+{}", git.staged);
-        }
-        if git.unstaged > 0 {
-            let _ = write!(plain, "{sub_sep}~{}", git.unstaged);
-        }
-        if git.untracked > 0 {
-            let _ = write!(plain, "{sub_sep}?{}", git.untracked);
-        }
-        // Slice 45: in-progress repo action (merge / rebase / cherry-pick /
-        // revert / bisect) surfaces in upper case, painted red so it reads
-        // as an alarm-state indicator over the segment's head_fg band. We
-        // track the byte offset so the ANSI wrapper can splice in a red
-        // SGR exactly around the action label and resume head_fg for any
-        // trailing stash indicator.
-        let action_marker = if !git.action.as_str().is_empty() {
-            plain.push_str(sub_sep);
-            let start = plain.len();
-            for ch in git.action.as_str().chars() {
-                for upper in ch.to_uppercase() {
-                    plain.push(upper);
-                }
-            }
-            Some((start, plain.len()))
-        } else {
-            None
-        };
-        // Slice 45: stash count. Glyph `≡` (U+2261) avoids colliding with
-        // the dirty `*` and the staged `+`. Painted in the segment's
-        // head_fg band like every other index-level count.
-        if git.stash > 0 {
-            let _ = write!(plain, "{sub_sep}\u{2261}{}", git.stash);
-        }
+        let action_marker = append_index_indicators(&mut plain, sub_sep, git);
 
         // Compute state first so we can pass it to the style resolver below.
         // Index-level changes (`staged/unstaged/untracked`) count as
@@ -205,7 +168,7 @@ impl Segment for Vcs {
         // the segment-level fg, and threading it through config would
         // conflict with the single per-state fg field. Future slice can
         // add separate marker control.
-        let bg = style::render_bg(
+        let bg_sgr = style::render_bg(
             ctx.config,
             self.name(),
             Some(state),
@@ -217,40 +180,14 @@ impl Segment for Vcs {
             Some(state),
             Color::Named("black".into()),
         );
-        let reset_fg = style::reset_fg();
-        let reset_bg = style::reset_bg();
-        // Prepend `icon + space` inside the bg/head_fg colour band, then
-        // splice red SGRs around the two attacker-style alarm subsegments
-        // we paint over the head_fg band:
-        //   - dirty `*` marker (single char, slice 28)
-        //   - in-progress repo action label (multi-char, slice 45)
-        // Both keep the green bg band; only the fg flips to red for the
-        // marker span, then head_fg picks back up. The "stash count"
-        // surface stays inside head_fg — it's informational, not alarm.
-        let red = "\x1b[31m";
-        let mut text = format!("{bg}{head_fg}{icon} ");
-        // Collect the highlight spans in `plain`-byte order so we can walk
-        // them once. Both spans are non-overlapping and pre-sorted: dirty
-        // `*` lives before staged/unstaged/untracked counts, which live
-        // before the action label.
-        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(2);
-        if let Some(off) = dirty_marker_offset {
-            spans.push((off, off + '*'.len_utf8()));
-        }
-        if let Some((s, e)) = action_marker {
-            spans.push((s, e));
-        }
-        let mut cursor = 0;
-        for (start, end) in spans {
-            text.push_str(&plain[cursor..start]);
-            text.push_str(red);
-            text.push_str(&plain[start..end]);
-            text.push_str(&head_fg);
-            cursor = end;
-        }
-        text.push_str(&plain[cursor..]);
-        text.push_str(reset_fg);
-        text.push_str(reset_bg);
+        let text = paint_alarm_spans(
+            &bg_sgr,
+            &head_fg,
+            icon,
+            &plain,
+            dirty_marker_offset,
+            action_marker,
+        );
 
         // plain_len accounts for the icon glyph (1 display cell) + 1 space.
         let plain_len = u16::try_from(plain.chars().count())
@@ -265,6 +202,90 @@ impl Segment for Vcs {
             background: Some(Color::Named("green".into())),
         }
     }
+}
+
+/// Append index-level indicators to `plain`: conflicts `!`, staged `+N`,
+/// unstaged `~N`, untracked `?N`, in-progress action label (upper-cased),
+/// and stash `≡N`. Returns the byte-offset span of the action label
+/// inside `plain` so the caller's red-SGR splice can target it.
+///
+/// Extracted from `Vcs::render` to keep that function under clippy's
+/// `too_many_lines` threshold. Order matches upstream P10K's visual
+/// convention; see slice 30 + slice 45 commit messages.
+fn append_index_indicators(
+    plain: &mut String,
+    sub_sep: &str,
+    git: &p10k_rs_core::GitState,
+) -> Option<(usize, usize)> {
+    use std::fmt::Write as _;
+    if git.has_conflicts {
+        let _ = write!(plain, "{sub_sep}!");
+    }
+    if git.staged > 0 {
+        let _ = write!(plain, "{sub_sep}+{}", git.staged);
+    }
+    if git.unstaged > 0 {
+        let _ = write!(plain, "{sub_sep}~{}", git.unstaged);
+    }
+    if git.untracked > 0 {
+        let _ = write!(plain, "{sub_sep}?{}", git.untracked);
+    }
+    let action_marker = if git.action.as_str().is_empty() {
+        None
+    } else {
+        plain.push_str(sub_sep);
+        let start = plain.len();
+        for ch in git.action.as_str().chars() {
+            for upper in ch.to_uppercase() {
+                plain.push(upper);
+            }
+        }
+        Some((start, plain.len()))
+    };
+    if git.stash > 0 {
+        let _ = write!(plain, "{sub_sep}\u{2261}{}", git.stash);
+    }
+    action_marker
+}
+
+/// Splice red SGRs around the dirty `*` and in-progress action label spans
+/// inside `plain`, leaving the rest of the `head_fg` colour band intact.
+///
+/// Extracted from `Vcs::render` to keep that function under clippy's
+/// `too_many_lines` threshold. Both spans are non-overlapping and
+/// pre-sorted in `plain`-byte order by the caller; this function walks
+/// them once with a single cursor.
+fn paint_alarm_spans(
+    bg_sgr: &str,
+    head_fg: &str,
+    icon: &str,
+    plain: &str,
+    dirty_marker_offset: Option<usize>,
+    action_marker: Option<(usize, usize)>,
+) -> String {
+    let red = "\x1b[31m";
+    let reset_fg = style::reset_fg();
+    let reset_bg = style::reset_bg();
+    let mut text = format!("{bg_sgr}{head_fg}{icon} ");
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(2);
+    if let Some(off) = dirty_marker_offset {
+        spans.push((off, off + '*'.len_utf8()));
+    }
+    if let Some((s, e)) = action_marker {
+        spans.push((s, e));
+    }
+    let mut cursor = 0;
+    for (start, end) in spans {
+        text.push_str(&plain[cursor..start]);
+        text.push_str(red);
+        text.push_str(&plain[start..end]);
+        text.push_str(head_fg);
+        cursor = end;
+    }
+    text.push_str(&plain[cursor..]);
+    text.push_str(reset_fg);
+    text.push_str(reset_bg);
+    text
 }
 
 #[cfg(test)]

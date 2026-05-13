@@ -40,9 +40,9 @@ use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 const LINUX_GENERIC: &str = "\u{f17c}";
 /// Windows glyph, used when we detect we're running under WSL.
 const WSL_WINDOWS: &str = "\u{f17a}";
-/// Apple glyph for macOS.
+/// Apple glyph for `macOS`.
 const MACOS_APPLE: &str = "\u{f179}";
-/// FreeBSD daemon — close-enough fallback for the BSDs and other Unixes.
+/// `FreeBSD` daemon — close-enough fallback for the BSDs and other Unixes.
 const BSD_DAEMON: &str = "\u{f30e}";
 /// Last-resort unknown glyph (question-mark in a circle).
 const UNKNOWN: &str = "\u{f128}";
@@ -93,12 +93,12 @@ impl Segment for OsIcon {
 /// 1. WSL (Linux + `/proc/version` mentioning `microsoft`/`WSL`) → Windows.
 /// 2. Linux `/etc/os-release` `ID=` lookup against the known-distro map.
 /// 3. macOS → Apple.
-/// 4. Other Unix (BSDs) → FreeBSD daemon.
+/// 4. Other Unix (BSDs) → `FreeBSD` daemon.
 /// 5. Otherwise → generic unknown.
 ///
 /// The result is a `&'static str` for cheap caching.
 fn detect_os_icon() -> &'static str {
-    *DETECTED_ICON.get_or_init(probe_os_icon)
+    DETECTED_ICON.get_or_init(probe_os_icon)
 }
 
 /// One-shot probe that walks the precedence chain. Factored out so

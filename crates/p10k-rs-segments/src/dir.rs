@@ -69,10 +69,10 @@ impl Segment for Dir {
             DEFAULT_ICON
         };
         let icon = style::resolve_icon(ctx.config, self.name(), Some(state_tag), default_icon);
-        let bg = style::render_bg(ctx.config, self.name(), Some(state_tag), default_bg.clone());
-        let fg = style::render_fg(ctx.config, self.name(), Some(state_tag), default_fg);
+        let bg_sgr = style::render_bg(ctx.config, self.name(), Some(state_tag), default_bg.clone());
+        let fg_sgr = style::render_fg(ctx.config, self.name(), Some(state_tag), default_fg);
         let text = format!(
-            "{bg}{fg}{icon} {collapsed}{}{}",
+            "{bg_sgr}{fg_sgr}{icon} {collapsed}{}{}",
             style::reset_fg(),
             style::reset_bg()
         );
@@ -179,8 +179,9 @@ fn truncate_path(path: &str, cfg: &DirTruncate, fs_root: Option<&Path>) -> Strin
     if parts.len() <= length {
         return path.to_owned();
     }
+    // `None` is short-circuited above; the catch-all below covers it plus
+    // any future `#[non_exhaustive]` variant.
     match cfg.strategy {
-        DirTruncateStrategy::None => path.to_owned(),
         DirTruncateStrategy::ToLast => {
             // …/<last `length` components>. The marker stands in for both
             // the elided components and any leading slash.
@@ -333,6 +334,7 @@ fn home_collapse(path: &str, home: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};

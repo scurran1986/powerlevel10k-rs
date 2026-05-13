@@ -95,7 +95,7 @@ impl Segment for Jj {
         };
 
         let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
-        let bg = style::render_bg(
+        let bg_sgr = style::render_bg(
             ctx.config,
             self.name(),
             Some(state),
@@ -111,7 +111,7 @@ impl Segment for Jj {
         let reset_bg = style::reset_bg();
         let red = "\x1b[31m";
 
-        let mut text = format!("{bg}{head_fg}{icon} ");
+        let mut text = format!("{bg_sgr}{head_fg}{icon} ");
         if let Some(off) = dirty_marker_offset {
             text.push_str(&plain[..off]);
             text.push_str(red);

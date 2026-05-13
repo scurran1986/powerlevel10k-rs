@@ -60,10 +60,10 @@ impl Segment for ViMode {
         let plain_len = u16::try_from(label.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2); // icon + space
-        let bg = style::render_bg(ctx.config, self.name(), Some(state_tag), default_bg.clone());
-        let fg = style::render_fg(ctx.config, self.name(), Some(state_tag), default_fg);
+        let bg_sgr = style::render_bg(ctx.config, self.name(), Some(state_tag), default_bg.clone());
+        let fg_sgr = style::render_fg(ctx.config, self.name(), Some(state_tag), default_fg);
         let text = format!(
-            "{bg}{fg}{icon} {label}{}{}",
+            "{bg_sgr}{fg_sgr}{icon} {label}{}{}",
             style::reset_fg(),
             style::reset_bg()
         );
@@ -122,6 +122,7 @@ pub(crate) fn mode_label(raw: &str) -> (&'static str, &'static str) {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
