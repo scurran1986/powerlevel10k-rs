@@ -704,10 +704,15 @@ fn wrap_for_shell(s: &str, shell: Shell) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            // CSI / SGR: scan to terminating byte ('m' for the only
-            // escapes we emit). Wrapped so zsh's width tracker skips it.
+            // CSI: scan to the ECMA-48 final byte (0x40..=0x7E). SGR
+            // ('m') is the only sequence shipped today; accepting any
+            // CSI final byte is defence-in-depth so a future segment
+            // that emits, e.g., cursor positioning (`H`) or device-
+            // status (`n`) still gets bracketed in `%{…%}` instead of
+            // leaking unbracketed bytes that zsh's width tracker would
+            // miscount.
             let mut j = i + 2;
-            while j < bytes.len() && bytes[j] != b'm' {
+            while j < bytes.len() && !(0x40..=0x7e).contains(&bytes[j]) {
                 j += 1;
             }
             if j < bytes.len() {
@@ -799,12 +804,15 @@ mod tests {
 
     #[test]
     fn wrap_for_zsh_handles_unterminated_escape_gracefully() {
-        // A stray ESC[ with no terminator: copy bytes through, don't loop.
-        let raw = "\x1b[34mok\x1b[broken";
+        // A stray ESC[ with parameter bytes but no ECMA-48 final byte
+        // (0x40..=0x7E): copy bytes through, don't infinite-loop. Digits
+        // are parameter bytes per ECMA-48 so `\x1b[12345` has no final
+        // byte and is genuinely unterminated.
+        let raw = "\x1b[34mok\x1b[12345";
         let out = wrap_for_shell(raw, Shell::Zsh);
         // The well-formed escape gets wrapped; the broken tail is preserved.
         assert!(out.starts_with("%{\x1b[34m%}ok"));
-        assert!(out.ends_with("\x1b[broken"));
+        assert!(out.ends_with("\x1b[12345"));
     }
 
     #[test]
@@ -845,6 +853,34 @@ mod tests {
         let raw = "branch%n";
         assert_eq!(wrap_for_shell(raw, Shell::Bash), raw);
         assert_eq!(wrap_for_shell(raw, Shell::Fish), raw);
+    }
+
+    #[test]
+    fn wrap_for_zsh_brackets_csi_with_non_m_final_byte() {
+        // CSI sequences end on any ECMA-48 final byte (0x40..=0x7E), not
+        // just `m`. SGR is the only one shipped today, but the bracketing
+        // pass must not leak unbracketed bytes if a future segment emits
+        // cursor positioning (`H`), device status (`n`), erase-in-line
+        // (`K`), or similar — otherwise zsh's width tracker undercounts
+        // the prompt by the CSI body's byte length.
+        let raw = "\x1b[2Khello\x1b[5;10H";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b[2K%}hello%{\x1b[5;10H%}");
+    }
+
+    #[test]
+    fn wrap_for_zsh_does_not_double_percent_inside_osc_brackets() {
+        // OSC content is already wrapped in `%{…%}` because zsh treats
+        // those bytes as zero-width. A `%` inside the OSC body (e.g. a
+        // percent-encoded space in an OSC 7 URI: `file:///tmp/foo%20bar`)
+        // must NOT be doubled by the `%`-expansion pass — that would
+        // corrupt the URI seen by host terminals parsing OSC 7.
+        let raw = "\x1b]7;file:///tmp/foo%20bar\x1b\\";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b]7;file:///tmp/foo%20bar\x1b\\%}");
+        // The literal `%` should appear exactly once (the `%20`), with
+        // the only extra `%{`/`%}` coming from the OSC wrapper itself.
+        assert_eq!(wrapped.matches('%').count(), 3);
     }
 
     #[test]
