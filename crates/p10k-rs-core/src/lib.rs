@@ -287,81 +287,48 @@ pub fn render_prompt(
         .map(|s| (s.render(ctx), s.name()))
         .collect();
 
-    // Multi-line: when the frame is active AND the trailing segment is
-    // `prompt_char`, send prompt_char to line 2 behind a `╰─` corner.
-    // Conservative trigger: only on `prompt_char` so existing layouts
-    // without a frame keep the historical single-line shape.
-    let split_at = if frame_active
-        && enabled
-            .last()
-            .is_some_and(|(_, name)| *name == "prompt_char")
-    {
-        enabled.len() - 1
+    // Partition into line 1 and line 2. Two triggers, in order:
+    //   1. `layout.left_top_only` (slice 57) — explicit user list of
+    //      segments that must stay on line 1. Honoured only when the
+    //      frame is active (line 2 needs the bottom corner to anchor it).
+    //   2. Otherwise fall back to slice 28: when the frame is active AND
+    //      the trailing segment is `prompt_char`, send only prompt_char
+    //      to line 2 behind a `╰─` corner.
+    // Conservative: layouts without a frame keep the historical
+    // single-line shape regardless of either configuration.
+    let top_only = &ctx.config.layout.left_top_only;
+    let (line1_owned, line2_owned): (Vec<_>, Vec<_>) = if frame_active && !top_only.is_empty() {
+        let top_names: std::collections::HashSet<&str> =
+            top_only.iter().map(|r| r.0.as_str()).collect();
+        enabled
+            .iter()
+            .cloned()
+            .partition(|(_, name)| top_names.contains(*name))
     } else {
-        enabled.len()
+        let split_at = if frame_active
+            && enabled
+                .last()
+                .is_some_and(|(_, name)| *name == "prompt_char")
+        {
+            enabled.len() - 1
+        } else {
+            enabled.len()
+        };
+        let (a, b) = enabled.split_at(split_at);
+        (a.to_vec(), b.to_vec())
     };
-    let (line1, line2) = enabled.split_at(split_at);
 
-    let mut prev_bg: Option<&style::Color> = None;
-    for (i, (out, name)) in line1.iter().enumerate() {
-        let (pad_left, pad_right) = ctx
-            .config
-            .segments
-            .get(*name)
-            .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
-        match (prev_bg, out.background.as_ref()) {
-            (Some(prev), Some(next)) => {
-                // Powerline transition: fg=prev_bg, bg=next_bg, arrow.
-                // The arrow's "fill" (left of its slant) inherits fg=prev_bg
-                // so it blends with the segment we're leaving; the cell's
-                // bg=next_bg blends with the segment we're entering.
-                left.push_str(&style::sgr_fg(prev, mode));
-                left.push_str(&style::sgr_bg(next, mode));
-                left.push(POWERLINE_ARROW);
-                left.push_str(style::reset_fg());
-            }
-            (Some(prev), None) => {
-                // Closing into a no-bg segment: arrow into default bg,
-                // then a single space before the inline segment lands.
-                left.push_str(&style::sgr_fg(prev, mode));
-                left.push_str(style::reset_bg());
-                left.push(POWERLINE_ARROW);
-                left.push_str(style::reset_fg());
-                left.push(' ');
-            }
-            (None, Some(_)) => {
-                if i != 0 {
-                    // No previous bg but not the first segment: emit
-                    // separator then let the segment paint its own bg.
-                    left.push_str(separator);
-                }
-            }
-            (None, None) => {
-                if i != 0 {
-                    left.push_str(separator);
-                }
-            }
-        }
-        for _ in 0..pad_left {
-            left.push(' ');
-        }
-        left.push_str(&out.text);
-        for _ in 0..pad_right {
-            left.push(' ');
-        }
-        prev_bg = out.background.as_ref();
-    }
+    append_ribbon(&mut left, &line1_owned, ctx, mode, separator);
 
-    // Final powerline arrow into terminal-default bg after the last
-    // bg-bearing segment on line 1.
-    if let Some(prev) = prev_bg {
-        left.push_str(&style::sgr_fg(prev, mode));
-        left.push_str(style::reset_bg());
-        left.push(POWERLINE_ARROW);
-        left.push_str(style::reset_fg());
-    }
-
-    append_line2(&mut left, line2, ctx, frame_active, &frame_fg);
+    append_line2(
+        &mut left,
+        &line2_owned,
+        ctx,
+        mode,
+        separator,
+        frame_active,
+        &frame_fg,
+    );
 
     // Closing OSC 133 `B`: end of PS1, start of the editable command
     // line. Paired with the `A` emitted at the top of `left` above.
@@ -455,13 +422,19 @@ fn append_ruler_and_frame_top(
     (frame_fg, frame_active)
 }
 
-/// Emit the multi-line trailing segment(s) — typically `prompt_char` —
-/// behind the bottom-corner frame glyph. Extracted from `render_prompt`
-/// to keep that function under clippy's `too_many_lines` threshold.
+/// Emit the multi-line trailing segment(s) behind the bottom-corner
+/// frame glyph, using the same powerline arrow state machine as line 1
+/// so richer line-2 layouts (slice 57: `layout.left_top_only`) render
+/// transitions correctly when their segments carry backgrounds.
+///
+/// Extracted from `render_prompt` to keep that function under clippy's
+/// `too_many_lines` threshold.
 fn append_line2(
     left: &mut String,
     line2: &[(SegmentOutput, &str)],
     ctx: &RenderCtx<'_>,
+    mode: style::ColorMode,
+    separator: &str,
     frame_active: bool,
     frame_fg: &str,
 ) {
@@ -481,12 +454,52 @@ fn append_line2(
         left.push_str(bottom_glyph);
         left.push_str(style::reset_fg());
     }
-    for (out, name) in line2 {
+    append_ribbon(left, line2, ctx, mode, separator);
+}
+
+/// Weave a slice of rendered segments into the left-side powerline
+/// ribbon. The state machine is identical to the body of `render_prompt`
+/// pre-slice-57 — extracted so line 1 and line 2 share one
+/// implementation now that line 2 can carry bg-bearing segments.
+fn append_ribbon(
+    left: &mut String,
+    items: &[(SegmentOutput, &str)],
+    ctx: &RenderCtx<'_>,
+    mode: style::ColorMode,
+    separator: &str,
+) {
+    let mut prev_bg: Option<&style::Color> = None;
+    for (i, (out, name)) in items.iter().enumerate() {
         let (pad_left, pad_right) = ctx
             .config
             .segments
             .get(*name)
             .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+        match (prev_bg, out.background.as_ref()) {
+            (Some(prev), Some(next)) => {
+                left.push_str(&style::sgr_fg(prev, mode));
+                left.push_str(&style::sgr_bg(next, mode));
+                left.push(POWERLINE_ARROW);
+                left.push_str(style::reset_fg());
+            }
+            (Some(prev), None) => {
+                left.push_str(&style::sgr_fg(prev, mode));
+                left.push_str(style::reset_bg());
+                left.push(POWERLINE_ARROW);
+                left.push_str(style::reset_fg());
+                left.push(' ');
+            }
+            (None, Some(_)) => {
+                if i != 0 {
+                    left.push_str(separator);
+                }
+            }
+            (None, None) => {
+                if i != 0 {
+                    left.push_str(separator);
+                }
+            }
+        }
         for _ in 0..pad_left {
             left.push(' ');
         }
@@ -494,6 +507,16 @@ fn append_line2(
         for _ in 0..pad_right {
             left.push(' ');
         }
+        prev_bg = out.background.as_ref();
+    }
+
+    // Final powerline arrow into terminal-default bg after the last
+    // bg-bearing segment, matching slice 28's closing behaviour.
+    if let Some(prev) = prev_bg {
+        left.push_str(&style::sgr_fg(prev, mode));
+        left.push_str(style::reset_bg());
+        left.push(POWERLINE_ARROW);
+        left.push_str(style::reset_fg());
     }
 }
 

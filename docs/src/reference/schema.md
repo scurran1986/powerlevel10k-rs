@@ -34,8 +34,8 @@ silently doing nothing.
 |---|---|---|
 | `left` | `Vec<SegmentRef>` | Ordered list of segments on the left. |
 | `right` | `Vec<SegmentRef>` | Ordered list of segments on the right. |
-| `left_top_only` | `bool` | Render the left side only on the top line. |
-| `right_top_only` | `bool` | Render the right side only on the top line. |
+| `left_top_only` | `Vec<SegmentRef>` | Subset of `left` pinned to line 1 of a multi-line prompt; the rest fall to line 2. Honoured only when the frame is active. |
+| `right_top_only` | `Vec<SegmentRef>` | Symmetric reservation for the right prompt; currently inert (RPROMPT is single-line). |
 | `frame` | `Option<FrameStyle>` | Decorative frame around the prompt. |
 | `ruler` | `Option<RulerStyle>` | Horizontal divider above the prompt. |
 | `separators` | `Separators` | Glyphs that join segments and subsegments. |

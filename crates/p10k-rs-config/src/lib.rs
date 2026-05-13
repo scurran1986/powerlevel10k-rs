@@ -199,12 +199,25 @@ pub struct Layout {
     /// Ordered list of segments rendered on the right side.
     #[serde(default)]
     pub right: Vec<SegmentRef>,
-    /// When `true`, only the top line shows the left side.
+    /// Segments from [`Self::left`] that render ONLY on the top line of
+    /// a multi-line prompt. Segments listed here stay on line 1; segments
+    /// in `left` but NOT here drop to line 2 (alongside the trailing
+    /// `prompt_char` when the frame is active).
+    ///
+    /// Empty (the default) keeps the slice 28 behaviour: only the
+    /// trailing `prompt_char` is sent to line 2 when a frame is active.
+    /// Honoured only when the layout's frame is active — a single-line
+    /// prompt has no line 2 to split into.
     #[serde(default)]
-    pub left_top_only: bool,
-    /// When `true`, only the top line shows the right side.
+    pub left_top_only: Vec<SegmentRef>,
+    /// Analogue of [`Self::left_top_only`] for the right prompt.
+    ///
+    /// Ignored when [`Self::right`] would render on a single line. The
+    /// right prompt has no native multi-line frame today, so this field
+    /// is reserved for symmetry with the left side; future slices may
+    /// drive RPROMPT splitting from it.
     #[serde(default)]
-    pub right_top_only: bool,
+    pub right_top_only: Vec<SegmentRef>,
     /// Optional decorative frame style.
     ///
     /// `frame.glyph`, when present, is sanitised by [`Config::from_toml`].
