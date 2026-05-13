@@ -93,6 +93,22 @@ impl Segment for Vcs {
             String::new()
         };
 
+        // Slice 56: the join between vcs subsegments (branch + ahead /
+        // behind / staged / unstaged / untracked / conflicts / action /
+        // stash) is the first real consumer of
+        // `layout.separators.subsegment`. We default to a single space
+        // so the look is unchanged for users who don't set the field.
+        // `plain_len` below counts grapheme clusters via `chars().count()`,
+        // which works for ASCII separators like " · " or " | "; an
+        // upstream slice can swap in `unicode-width` if anyone configures
+        // a wide-glyph separator.
+        let sub_sep = ctx
+            .config
+            .layout
+            .separators
+            .subsegment
+            .as_deref()
+            .unwrap_or(" ");
         let mut plain = String::with_capacity(git.branch.len() + git.tag.len() + 32);
         if detached {
             plain.push_str(DETACHED_HEAD_GLYPH);
@@ -107,18 +123,18 @@ impl Segment for Vcs {
         // skips this entirely so the look is unchanged for the common
         // case.
         if !git.tag.as_str().is_empty() {
-            let _ = write!(plain, " @ {}", git.tag.as_str());
+            let _ = write!(plain, "{sub_sep}@ {}", git.tag.as_str());
         }
         if git.ahead > 0 {
-            let _ = write!(plain, " \u{21e1}{}", git.ahead);
+            let _ = write!(plain, "{sub_sep}\u{21e1}{}", git.ahead);
         }
         if git.behind > 0 {
-            let _ = write!(plain, " \u{21e3}{}", git.behind);
+            let _ = write!(plain, "{sub_sep}\u{21e3}{}", git.behind);
         }
         // Track byte offset of the red-painted `*` marker so the ANSI
         // wrapper can split the plain string at that exact point.
         let dirty_marker_offset = if show_dirty_marker {
-            plain.push(' ');
+            plain.push_str(sub_sep);
             let off = plain.len();
             plain.push('*');
             Some(off)
@@ -128,16 +144,16 @@ impl Segment for Vcs {
         // Conflicts marker `!` lives in the segment's fg band (no red
         // override — the `dirty *` is the only hardcoded-red subsegment).
         if git.has_conflicts {
-            plain.push_str(" !");
+            let _ = write!(plain, "{sub_sep}!");
         }
         if git.staged > 0 {
-            let _ = write!(plain, " +{}", git.staged);
+            let _ = write!(plain, "{sub_sep}+{}", git.staged);
         }
         if git.unstaged > 0 {
-            let _ = write!(plain, " ~{}", git.unstaged);
+            let _ = write!(plain, "{sub_sep}~{}", git.unstaged);
         }
         if git.untracked > 0 {
-            let _ = write!(plain, " ?{}", git.untracked);
+            let _ = write!(plain, "{sub_sep}?{}", git.untracked);
         }
         // Slice 45: in-progress repo action (merge / rebase / cherry-pick /
         // revert / bisect) surfaces in upper case, painted red so it reads
@@ -146,7 +162,7 @@ impl Segment for Vcs {
         // SGR exactly around the action label and resume head_fg for any
         // trailing stash indicator.
         let action_marker = if !git.action.as_str().is_empty() {
-            plain.push(' ');
+            plain.push_str(sub_sep);
             let start = plain.len();
             for ch in git.action.as_str().chars() {
                 for upper in ch.to_uppercase() {
@@ -161,7 +177,7 @@ impl Segment for Vcs {
         // the dirty `*` and the staged `+`. Painted in the segment's
         // head_fg band like every other index-level count.
         if git.stash > 0 {
-            let _ = write!(plain, " \u{2261}{}", git.stash);
+            let _ = write!(plain, "{sub_sep}\u{2261}{}", git.stash);
         }
 
         // Compute state first so we can pass it to the style resolver below.
@@ -588,6 +604,72 @@ mod tests {
         assert!(
             out.text.contains("main @ v1.2.3"),
             "missing tag-after-branch render: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn subsegment_separator_replaces_default_space() {
+        // Slice 56: `[layout.separators].subsegment` joins the in-segment
+        // pieces (branch + ahead/behind + index counts + stash + action)
+        // in place of the historical single space. Default is still " ",
+        // so unset users see byte-identical output; here we set it to
+        // " · " and assert it surrounds every joined piece.
+        let cfg = p10k_rs_core::Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             subsegment = \" \u{b7} \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let g = GitState {
+            branch: "main".into(),
+            ahead: 2,
+            behind: 1,
+            staged: 3,
+            stash: 1,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("main \u{b7} \u{21e1}2"),
+            "subsegment separator missing between branch and ahead: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("\u{21e1}2 \u{b7} \u{21e3}1"),
+            "subsegment separator missing between ahead and behind: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("\u{21e3}1 \u{b7} +3"),
+            "subsegment separator missing before staged count: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("+3 \u{b7} \u{2261}1"),
+            "subsegment separator missing before stash count: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn subsegment_separator_defaults_to_space() {
+        // Belt-and-braces: with no `[layout.separators]` configured, the
+        // join falls back to a single space — byte-identical to the
+        // pre-slice-56 hardcoded behaviour.
+        let (cfg, env) = (p10k_rs_core::Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            ahead: 1,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("main \u{21e1}1"),
+            "default single-space join broke: {:?}",
             out.text
         );
     }

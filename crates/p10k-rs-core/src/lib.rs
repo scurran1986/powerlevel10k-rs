@@ -525,16 +525,24 @@ fn render_transient(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Strin
 /// solid left-pointing arrow that fades from terminal background into
 /// the segment's colour.
 ///
-/// Segments with `background = None` join with the configured left
-/// separator (the right separator is reserved for subsegment use; we
-/// reuse `layout.separators.left` for inter-segment spacing on both
-/// sides to keep the spec compact).
+/// Segments with `background = None` join with the configured right
+/// separator (`layout.separators.right`); if that field is unset we
+/// fall back to `layout.separators.left` for backward compatibility
+/// with users who only ever set the left separator, then to a single
+/// space as the floor.
 ///
 /// Returns an empty string when no segments survive `enabled()` — the
 /// binary then assigns `RPROMPT=""` cleanly.
 fn render_right(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
     let mut out = String::new();
-    let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
+    let separator = ctx
+        .config
+        .layout
+        .separators
+        .right
+        .as_deref()
+        .or(ctx.config.layout.separators.left.as_deref())
+        .unwrap_or(" ");
     let mode = ctx.config.colors;
 
     let enabled: Vec<(SegmentOutput, &str)> = segments
@@ -896,6 +904,96 @@ mod tests {
             prompt.left.contains("\x1b]133;B\x07"),
             "expected OSC 133 B in left: {:?}",
             prompt.left
+        );
+    }
+
+    /// Minimal no-background `Segment` fixture so we can drive
+    /// `render_right` directly. Real segments either own a background
+    /// (powerline-arrow path) or are the singular `prompt_char`
+    /// (one-of-a-kind, can't be listed twice in a TOML layout); a
+    /// fixture is the only way to exercise the no-bg → no-bg join the
+    /// right-separator path covers.
+    #[derive(Debug)]
+    struct NoBgText(&'static str);
+    impl Segment for NoBgText {
+        fn name(&self) -> &'static str {
+            "test_no_bg"
+        }
+        fn render(&self, _ctx: &RenderCtx<'_>) -> SegmentOutput {
+            SegmentOutput {
+                text: self.0.to_string(),
+                plain_len: u16::try_from(self.0.chars().count()).unwrap_or(u16::MAX),
+                state: None,
+                icon: None,
+                background: None,
+            }
+        }
+    }
+
+    #[test]
+    fn render_right_uses_right_separator_between_no_bg_segments() {
+        // Slice 56: `[layout.separators].right` takes precedence over
+        // `.left` on the right side, joining adjacent no-bg segments.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             right = \" >> \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::None);
+        let segs: Vec<Box<dyn Segment>> = vec![Box::new(NoBgText("A")), Box::new(NoBgText("B"))];
+        let out = render_right(&segs, &ctx);
+        assert!(
+            out.contains("A >> B"),
+            "right separator must join adjacent no-bg segments: {out:?}",
+        );
+    }
+
+    #[test]
+    fn render_right_falls_back_to_left_separator_when_right_unset() {
+        // Backward-compat: users who only set `separators.left` keep
+        // their old right-side spacing for free.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             left = \" | \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::None);
+        let segs: Vec<Box<dyn Segment>> = vec![Box::new(NoBgText("A")), Box::new(NoBgText("B"))];
+        let out = render_right(&segs, &ctx);
+        assert!(
+            out.contains("A | B"),
+            "left-separator fallback must apply when right is None: {out:?}",
+        );
+    }
+
+    #[test]
+    fn render_right_right_separator_wins_over_left() {
+        // When both are set, `.right` takes precedence on the right side.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             left = \" | \"\n\
+             right = \" >> \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::None);
+        let segs: Vec<Box<dyn Segment>> = vec![Box::new(NoBgText("A")), Box::new(NoBgText("B"))];
+        let out = render_right(&segs, &ctx);
+        assert!(
+            out.contains("A >> B"),
+            "right separator must override left when both set: {out:?}",
+        );
+        assert!(
+            !out.contains(" | "),
+            "left separator must not leak into right-side render: {out:?}",
         );
     }
 
