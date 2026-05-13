@@ -25,9 +25,17 @@
 //! the spawn entirely when the cwd isn't a Python project, which is the
 //! common case.
 
+use std::time::Duration;
+
+use p10k_rs_core::output_with_deadline;
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
+
+/// Wall-clock budget for `python --version`. Same 500 ms ceiling as
+/// `node_version` / `rust_version` — see `node_version::VERSION_DEADLINE`
+/// for the full rationale. Slice 51.
+const VERSION_DEADLINE: Duration = Duration::from_millis(500);
 
 /// Default Nerd Font v3 glyph (python). Override via
 /// `[segment.python_version].icon = "..."` in the TOML config.
@@ -133,14 +141,12 @@ fn parse_python_version(raw: &str) -> Option<String> {
 /// stderr while Python 3 writes to stdout. Whichever stream is non-empty
 /// wins; `LC_ALL=C` is set so we don't get a localised version string.
 fn fetch_python_version() -> Option<String> {
-    let out = std::process::Command::new("python")
-        .arg("--version")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .ok()?;
+    // Slice 51: a hung `python` (frozen venv, broken pyenv shim, NFS
+    // stall) used to lock the prompt. `output_with_deadline` bounds the
+    // wall clock at 500 ms; on timeout the segment renders nothing.
+    let mut cmd = std::process::Command::new("python");
+    cmd.arg("--version").env("LC_ALL", "C");
+    let out = output_with_deadline(&mut cmd, VERSION_DEADLINE).ok()?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     let combined = if stdout.trim().is_empty() {

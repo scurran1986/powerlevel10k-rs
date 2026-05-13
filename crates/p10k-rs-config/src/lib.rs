@@ -164,6 +164,7 @@ pub enum Mode {
 /// Color emission mode.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ColorMode {
     /// 8-color ANSI.
     Ansi8,
@@ -172,6 +173,19 @@ pub enum ColorMode {
     Ansi256,
     /// 24-bit truecolor.
     TrueColor,
+    /// Probe the terminal's 16-color palette via OSC 4 (`\x1b]4;<i>;?\x1b\\`)
+    /// and emit truecolor SGRs against the queried RGB values for the 16
+    /// standard named colours.
+    ///
+    /// Best-effort: many terminals (including most muxers, tmux without
+    /// passthrough, some embedded shells) do not respond to OSC 4 queries.
+    /// The probe runs once per process with an 800 ms wall-clock budget;
+    /// if it fails or returns nothing the renderer transparently falls
+    /// back to [`ColorMode::Ansi256`] so the prompt still paints.
+    ///
+    /// Serde tag: `"follow_terminal"`.
+    #[serde(rename = "follow_terminal")]
+    FollowTerminal,
 }
 
 /// Layout for left and right prompts plus frame / ruler decoration.
@@ -672,6 +686,25 @@ left = ["dir"]
         assert_eq!(dir.icon.as_deref(), Some("]0;EVIL"));
         let err_state = dir.states.get("error").expect("error state");
         assert_eq!(err_state.icon.as_deref(), Some("!EVIL"));
+    }
+
+    #[test]
+    fn from_toml_accepts_follow_terminal_color_mode() {
+        // Slice 53: `colors = "follow_terminal"` opts into the OSC 4
+        // palette probe at render time. The schema must accept the
+        // string tag and the value must round-trip through `to_toml`
+        // unchanged so editors saving the file don't subtly rewrite it.
+        let src = "schema_version = 1\ncolors = \"follow_terminal\"\n";
+        let cfg = Config::from_toml(src).expect("parse follow_terminal");
+        assert_eq!(cfg.colors, ColorMode::FollowTerminal);
+
+        let serialised = cfg.to_toml().expect("serialise follow_terminal");
+        assert!(
+            serialised.contains("colors = \"follow_terminal\""),
+            "expected follow_terminal in roundtrip, got: {serialised}"
+        );
+        let reparsed = Config::from_toml(&serialised).expect("reparse");
+        assert_eq!(reparsed.colors, ColorMode::FollowTerminal);
     }
 
     #[test]

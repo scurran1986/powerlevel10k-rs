@@ -24,9 +24,19 @@
 //! payloads. Output flows through `sanitize_for_terminal` before it lands
 //! in the rendered segment.
 
+use std::time::Duration;
+
+use p10k_rs_core::output_with_deadline;
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
+
+/// Wall-clock budget for `node --version`. A healthy install runs in
+/// 50–150 ms warm; 500 ms gives roughly 3× headroom while staying short
+/// enough that a wedged binary (NordVPN-freeze pattern, hung NFS,
+/// corrupted toolchain) doesn't keep the prompt hostage for more than
+/// half a second. Slice 51.
+const VERSION_DEADLINE: Duration = Duration::from_millis(500);
 
 /// Default Nerd Font v3 glyph (mdi-nodejs). Override via
 /// `[segment.node_version].icon = "..."` in the TOML config.
@@ -108,14 +118,13 @@ fn has_package_json(start: &std::path::Path) -> bool {
 /// `LC_ALL=C` is set so a hostile locale can't reshape the output. Stderr
 /// is discarded — we don't surface tool errors in the prompt.
 fn fetch_node_version() -> Option<String> {
-    let out = std::process::Command::new("node")
-        .arg("--version")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
+    // Slice 51: route through `output_with_deadline` so a wedged `node`
+    // (e.g. behind a hung filesystem or a VPN reconnect) can't lock the
+    // prompt. On timeout we get `ErrorKind::TimedOut`; the `.ok()?` below
+    // collapses that to `None`, which renders as a hidden segment.
+    let mut cmd = std::process::Command::new("node");
+    cmd.arg("--version").env("LC_ALL", "C");
+    let out = output_with_deadline(&mut cmd, VERSION_DEADLINE).ok()?;
     if !out.status.success() {
         return None;
     }

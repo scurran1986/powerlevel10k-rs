@@ -145,13 +145,23 @@ enum Palette {
 }
 
 fn resolve_to_palette(color: &Color, mode: ColorMode) -> Palette {
+    // `FollowTerminal` only meaningfully changes the lookup for *named*
+    // colours that hit one of the 16 standard palette slots — that's
+    // what OSC 4 actually answers about. Indexed (8..=255) and arbitrary
+    // `Rgb` literals can't benefit from the queried palette, so they
+    // degrade to the `Ansi256` policy.
     match (color, mode) {
         (Color::Named(name), m) => named_to_palette(name, m),
         (Color::Indexed(n), ColorMode::Ansi8) => Palette::Ansi8(n & 0x07),
         (Color::Indexed(n), _) => Palette::Ansi256(*n),
         (Color::Rgb([r, g, b]), ColorMode::TrueColor) => Palette::Rgb(*r, *g, *b),
-        (Color::Rgb([r, g, b]), ColorMode::Ansi256) => Palette::Ansi256(rgb_to_256(*r, *g, *b)),
         (Color::Rgb([r, g, b]), ColorMode::Ansi8) => Palette::Ansi8(rgb_to_8(*r, *g, *b)),
+        (Color::Rgb([r, g, b]), ColorMode::Ansi256 | ColorMode::FollowTerminal) => {
+            Palette::Ansi256(rgb_to_256(*r, *g, *b))
+        }
+        // `ColorMode` is `#[non_exhaustive]`; future variants degrade to
+        // Ansi256 as the safe default.
+        (Color::Rgb([r, g, b]), _) => Palette::Ansi256(rgb_to_256(*r, *g, *b)),
     }
 }
 
@@ -183,7 +193,40 @@ fn named_to_palette(name: &str, mode: ColorMode) -> Palette {
         (Some((c8, _, _)), ColorMode::Ansi8) => Palette::Ansi8(c8),
         (Some((_, c256, _)), ColorMode::Ansi256) => Palette::Ansi256(c256),
         (Some((_, _, [r, g, b])), ColorMode::TrueColor) => Palette::Rgb(r, g, b),
+        // FollowTerminal: if the OSC 4 probe answered, swap in the
+        // terminal's actual RGB for this palette slot; otherwise fall
+        // back to the 256-colour index so something still paints. The
+        // spec-default `[r, g, b]` triple is intentionally unused here —
+        // we'd rather surface the terminal's idea of "red" than our
+        // hardcoded `[170, 0, 0]` when the probe failed.
+        (Some((_, c256, _)), ColorMode::FollowTerminal) => match terminal_palette_lookup(c256) {
+            Some([r, g, b]) => Palette::Rgb(r, g, b),
+            None => Palette::Ansi256(c256),
+        },
+        // `ColorMode` is `#[non_exhaustive]`; any future variant degrades
+        // to Ansi256 with the named-colour's canonical 256 index.
+        (Some((_, c256, _)), _) => Palette::Ansi256(c256),
         (None, _) => Palette::Ansi8(9),
+    }
+}
+
+/// Look up `index` in the OSC 4 cached palette, returning `None` when
+/// either the probe hasn't run, ran and failed, or `index` is outside
+/// the 16-slot range we query.
+///
+/// Thin shim over [`crate::term_query::palette`] so the style helpers
+/// don't import the module directly in every callsite — and so a future
+/// slice that wants to disable the cache for tests has one place to
+/// stub.
+fn terminal_palette_lookup(index: u8) -> Option<[u8; 3]> {
+    let palette = crate::term_query::palette()?;
+    let slot = palette.get(usize::from(index))?;
+    match slot {
+        Color::Rgb([r, g, b]) => Some([*r, *g, *b]),
+        // The cache is constructed exclusively from `Color::Rgb`. Any
+        // other variant means somebody mutated `PALETTE_CACHE`
+        // through unsafe means; play it safe and bail.
+        _ => None,
     }
 }
 
@@ -247,6 +290,37 @@ mod tests {
         assert_eq!(sgr_fg(&mid_red, ColorMode::Ansi256), "\x1b[38;5;124m");
         // r=200 >= 128 → bit 0; g=0, b=0 → 1 → red.
         assert_eq!(sgr_fg(&mid_red, ColorMode::Ansi8), "\x1b[31m");
+    }
+
+    #[test]
+    fn follow_terminal_falls_back_to_ansi256_without_probe() {
+        // Slice 53: under `cargo test` `/dev/tty` is normally a pipe (or
+        // missing entirely in CI sandboxes), so the OSC 4 probe returns
+        // `None` and the cache stores that miss. The renderer must then
+        // emit the same byte sequence as plain `Ansi256` rather than
+        // panicking or emitting an empty escape.
+        let out = sgr_fg(&Color::Named("red".into()), ColorMode::FollowTerminal);
+        // Either the probe succeeded (truecolor SGR — possible on a
+        // dev's interactive `cargo test`) or it failed and we landed on
+        // the Ansi256 fallback. Both are acceptable; the contract is
+        // "something legible paints".
+        let truecolor_ok = out.starts_with("\x1b[38;2;");
+        let ansi256_ok = out == "\x1b[38;5;1m";
+        assert!(
+            truecolor_ok || ansi256_ok,
+            "expected truecolor or Ansi256 red, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn follow_terminal_rgb_literal_degrades_to_ansi256() {
+        // Arbitrary `[r,g,b]` literals can't be looked up in the queried
+        // 16-slot palette — they aren't named colours. `FollowTerminal`
+        // must degrade to `Ansi256`'s 6×6×6 cube for them, not panic or
+        // emit raw truecolor (the latter would violate the user's
+        // explicit "follow my terminal" intent on a non-truecolor host).
+        let out = sgr_fg(&Color::Rgb([200, 0, 0]), ColorMode::FollowTerminal);
+        assert_eq!(out, "\x1b[38;5;124m");
     }
 
     #[test]

@@ -22,9 +22,17 @@
 //! payloads. Output flows through `sanitize_for_terminal` before it lands
 //! in the rendered segment.
 
+use std::time::Duration;
+
+use p10k_rs_core::output_with_deadline;
 use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
+
+/// Wall-clock budget for `rustc --version`. Same 500 ms ceiling as the
+/// other version segments — see `node_version::VERSION_DEADLINE`.
+/// Slice 51.
+const VERSION_DEADLINE: Duration = Duration::from_millis(500);
 
 /// Default Nerd Font v3 glyph (dev-rust). Override via
 /// `[segment.rust_version].icon = "..."` in the TOML config.
@@ -129,14 +137,12 @@ fn parse_rustc_version(raw: &str) -> Option<String> {
 /// `LC_ALL=C` is set so a hostile locale can't reshape the output. Stderr
 /// is discarded — we don't surface tool errors in the prompt.
 fn fetch_rust_version() -> Option<String> {
-    let out = std::process::Command::new("rustc")
-        .arg("--version")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
+    // Slice 51: bounded subprocess. A wedged `rustc` (broken rustup
+    // shim, hung toolchain download) would otherwise freeze the prompt;
+    // `output_with_deadline` caps the wait at 500 ms.
+    let mut cmd = std::process::Command::new("rustc");
+    cmd.arg("--version").env("LC_ALL", "C");
+    let out = output_with_deadline(&mut cmd, VERSION_DEADLINE).ok()?;
     if !out.status.success() {
         return None;
     }

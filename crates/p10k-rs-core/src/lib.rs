@@ -21,8 +21,12 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+pub mod proc;
 pub mod safety;
 pub mod style;
+pub mod term_query;
+
+pub use proc::output_with_deadline;
 
 use safety::SafeText;
 
