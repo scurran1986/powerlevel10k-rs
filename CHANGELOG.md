@@ -6,6 +6,195 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
+## [0.1.1] - 2026-05-12
+
+Powerline ribbon + multi-line frame + 31 segments + dual-sided layout.
+The prompt now visibly matches upstream Powerlevel10k out of the box.
+See `.github/release-notes/v0.1.1.md` for the user-facing write-up.
+
+### Slices 22–25 (carried from prev. changelog)
+- `e136d9f` slice 22: per-segment `padding` + `separators.left`.
+- `93fc850` slice 23: default Nerd Font icons (5 segments) + `icon`
+  override.
+- `e249584` slice 24: per-state `icon` override + `style::resolve_icon`.
+- `6c4086e` slice 25: `[layout.frame]` + `[layout.ruler]`.
+
+### Slice 26 (1c1bffc inclusive) — 8 more default icons
+- `python_version`, `node_version`, `rust_version`, `terraform`,
+  `pyenv`, `nodenv`, `anaconda`, `virtualenv`. Slice 31 closed the
+  remaining 6, completing the 21-segment icon sweep.
+
+### Slice 27 (5157245) — `[segment.<name>].disabled` gate
+- Silent skip inside `assemble_segments` (no warning — the user
+  opted in). `assemble_segments` signature gained `&Config`.
+
+### Slice 28 (1c1bffc) — powerline ribbon + multi-line frame
+- **The big visual slice.** `SegmentOutput` gained
+  `background: Option<style::Color>` and `#[derive(Default)]`.
+- `render_prompt` emits powerline `\u{e0b0}` arrows between adjacent
+  bg-bearing segments and a closing arrow into terminal default.
+  Multi-line `prompt_char` on line 2 behind a `╰─` corner when
+  `frame.glyph` is set.
+- Per-segment palette across 21 segments via four parallel agents.
+
+### Slice 29 (65df220) — `ioctl(TIOCGWINSZ)` for terminal width
+- Replaces `$COLUMNS` env-var probe. Probe order: stdout → stderr →
+  stdin → `$COLUMNS` → 80. `rustix::termios::tcgetwinsize`, no raw
+  ioctl. Second I/O exception in `p10k-rs-core` (first was env read).
+
+### Slice 30 (8b4878f) — vcs richer markers
+- Surfaces ahead/behind/staged/unstaged/untracked/conflicts indicators:
+  `<branch> ⇡<N> ⇣<N> *<dirty> !<conflicts> +<staged> ~<unstaged>
+  ?<untracked>`. Bare `*` suppressed when any count is present.
+
+### Slice 31 (840ea8a) — last 6 default icons
+- `command_execution_time`, `status`, `vi_mode`, `background_jobs`,
+  `root_indicator`, `context`. Icon coverage hits 21/21.
+
+### Slice 32 (a8a2570) — `show_in_dir` + `disabled_dir_pattern`
+- Cwd-driven gates inside `assemble_segments`. `globset` 0.4 added
+  (binary crate only). `Glob` type stays a transparent newtype.
+
+### Slice 33 (707f552) — `layout.right` / RPROMPT
+- `render_prompt` signature gained both left and right segment lists;
+  new `render_right` helper emits left-pointing `\u{e0b2}` arrows
+  with mirrored fg/bg colouring.
+- Binary's `--render-side <left|right>` flag (slice 35 added `transient`).
+- zsh init invokes the binary twice per prompt — once for `PROMPT`,
+  once for `RPROMPT`.
+
+### Slice 34 (7ed03c8) — status + vi_mode state-aware
+- `status` sets `state: Some("error")` so per-state TOML overrides
+  fire.
+- `vi_mode` palette by current mode: `command` blue/white, `insert`
+  green/black, `visual` yellow/black, `replace` red/white.
+
+### Slice 35 (68ef454) — transient_prompt
+- zsh `zle-line-finish` widget swaps PROMPT for a lone `❯` after
+  every accepted command. `--render-side transient` value added.
+  `Off` mode suppresses to empty.
+
+### Slice 36 (dc6ad36) — dir truncation `to_last` + `middle`
+- New `SegmentConfig.truncate: DirTruncate` field with strategy +
+  length. `DirTruncate` and `DirTruncateStrategy` are
+  `#[non_exhaustive]`.
+
+### Slice 37 (bb657ae) — `context` user@host
+- Renders `<user>@<host>` with upstream visibility rules: hidden
+  when `$P10K_RS_DEFAULT_USER == username` AND local; always shown
+  for root or remote. States: `root` red/white, `remote` yellow/black,
+  `local` yellow/black.
+
+### Slices 38 + 40 (093e76b) — factory default + `frame.bottom_glyph`
+- `factory_default_config()` ships the P10K-classic two-sided layout.
+- `FrameStyle` gained `bottom_glyph: Option<String>` (default `╰─`).
+  Sanitised by `Config::sanitize_in_place`.
+
+### Slice 39 (1e1034d) — dir `not_writable` state
+- Probes `rustix::fs::access(cwd, Access::WRITE_OK)`. Any errno
+  collapses to `not_writable`. State drives bg=yellow / fg=black
+  with the `\u{f023}` padlock icon.
+
+### Slice 41 (7e0aa2b) — bash init script
+- Promoted from stub to PROMPT_COMMAND-based PS1 build. Bash 3.x–5.x
+  compatible. Documented gaps: RPROMPT, command_execution_time,
+  gitstatusd, transient, instant-prompt.
+
+### Slice 42 (1332168) — `os_icon` distro detection
+- WSL (via `/proc/version`) → Linux `/etc/os-release` ID lookup →
+  macOS Apple → *BSDs daemon → generic. Cached in `OnceLock`.
+
+### Slice 43 (e132e1a) — dir `truncate_to_unique`
+- Filesystem-aware sibling-prefix shortening via `std::fs::read_dir`,
+  capped at 200 entries per parent. IO failure falls back to
+  first-char. Opt-in (cost vs `to_last` / `middle`).
+
+### Slices 44 + 45 (9edfc5b) — `show_on_command` + vcs stash + action
+- `RenderCtx.upcoming_command: &'a str`. Binary takes
+  `--upcoming-command <STRING>`. zsh init captures `$1` in preexec
+  and passes the LAST command — documented honest-gap vs upstream's
+  "upcoming" semantic.
+- vcs `GitState` gained `stash: u32` + `action: SafeText`. Daemon
+  parser reads wire fields 16 (stash) and 8 (action). `p10k-rs-git`
+  gained `detect_action(git_dir)` for the shellout backend.
+- vcs render: appends `<ACTION>` (red, uppercase) and `≡<stash>`
+  after the slice 30 indicators.
+
+### Slices 46 + 47 + HEAD unbreak (4089a01) — `ai_host` + vcs detached
+- `HostKind` expanded to `{ None, ClaudeCode, Aider, Cursor }`,
+  moved from `p10k-rs-ai` to `p10k-rs-core` so `RenderCtx` can
+  carry it without a cycle.
+- `p10k-rs-ai::detect_host_kind()` reads `$CLAUDECODE`, `$AIDER_*`,
+  `$CURSOR_*`.
+- New `ai_host` segment renders the host label
+  (`claude-code`/`aider`/`cursor`) in white-on-magenta.
+- vcs detached-HEAD: emit short-SHA when `branch == "HEAD"` or
+  empty. Tag display: ` @ <tag>` when non-empty.
+- HEAD unbreak: dropped a `#[non_exhaustive]` struct-expression in
+  the slice 43 test helper; `render_prompt` extracted helpers;
+  `render_transient` return type cleaned.
+
+### Slices 48–50 (355e6fe) — `mise`/`rtx`, `fnm`, `pixi`, `docker_context`
+- Four new segments closing upstream `#2212`, `#713`, `#2798`, `#1485`.
+- `mise` gated on `$MISE_DATA_DIR`; `rtx` accepted as alias.
+- `fnm` reads `$FNM_NODE_VERSION`.
+- `pixi` reads `$PIXI_PROJECT_NAME`.
+- `docker_context` precedence: `$DOCKER_CONTEXT` → `$DOCKER_HOST` →
+  `~/.docker/config.json`. Hides on `default`.
+
+### Slices 52 + 55 (20854bf) — `jj` VCS + OSC 7 / OSC 133 emission
+- **New sibling crate `p10k-rs-jj`.** `detect_jj(cwd)` walks up to
+  64 levels for `.jj/`, shells out to `jj log -T '<pipe-template>'`
+  + `jj status`. All bytes via `SafeText::from_untrusted`.
+- New `JjState` in `p10k-rs-core`; `RenderCtx` gains
+  `jj: Option<&'a JjState>`.
+- New `jj` segment renders bookmark (or 8-char change_id) on
+  green/black; dirty `*` painted red.
+- OSC 7 (cwd reporting) + OSC 133 A/B/C/D (shell-integration
+  command boundaries) emit when `HostKind != None`. `wrap_for_shell`
+  extended to bracket OSC sequences in zsh mode.
+
+### Slice 54 (4433eff) — mdBook docs + GH Pages workflow
+- `docs/book.toml` + 11-chapter `SUMMARY.md`.
+- `.github/workflows/docs.yml` builds + publishes via
+  `actions/deploy-pages@v4`. One manual step: enable Pages
+  "GitHub Actions" source.
+
+### Slice 56 (ef84470) — `layout.separators.right` + `.subsegment`
+- `render_right` now reads `separators.right` (falling back to
+  `.left` then `" "`).
+- `vcs` is the first real `separators.subsegment` consumer.
+
+### Slices 51 + 53 (23754af) — subprocess timeout + OSC 4 follow-terminal
+- New `p10k-rs-core::proc::output_with_deadline` (500 ms budget for
+  version segments — addresses upstream `#2860` freeze class).
+- New `ColorMode::FollowTerminal` + `p10k-rs-core::term_query` —
+  OSC 4 probe with `OnceLock` cache + 800 ms total budget.
+
+### Slice 57 (90dcc01) — `layout.left_top_only` / `right_top_only`
+- Promoted from `bool` placeholder to `Vec<SegmentRef>`. Segments
+  listed render on line 1; the rest fall to line 2 behind the
+  bottom-corner frame. `right_top_only` reserved (RPROMPT is
+  single-line today).
+- `render_prompt` partitions `enabled` segments into (line1, line2)
+  via a new `append_ribbon` helper.
+
+### fix (6cdc0dc) — vcs tag field off-by-one
+- Slice 47's daemon parser read tag at 0-indexed slot 18; per
+  `07-gitstatus.md` § 1.3 it's wire field 18 ONE-INDEXED → slot 17.
+  Bogus `@ 0` was rendering because we were reading
+  `num_unstaged_deleted` and labelling it "tag".
+
+### chore (40abc0e) — clippy cleanup
+- Workspace `[lints.clippy]` excludes `similar_names` — `bg`/`fg`
+  is the natural pair across every prompt segment.
+- `vcs::render` dropped from 135 to under 100 lines via
+  `paint_alarm_spans` + `append_index_indicators` helper extractions.
+- Test modules across 7 segment files gained the conventional
+  `#[allow(clippy::expect_used, unwrap_used, panic)]` scope.
+- `context.rs` collapsed a `match` to `matches!`; `dir.rs::
+  truncate_path` dropped a redundant explicit `None` arm.
+
 ## [0.1.0] - 2026-05-11
 
 First tagged release. Feature-complete for the MVP segment surface and
