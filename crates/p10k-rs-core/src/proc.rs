@@ -107,19 +107,15 @@ pub fn output_with_deadline(cmd: &mut Command, deadline: Duration) -> io::Result
     let mut child = cmd.spawn()?;
     let started = Instant::now();
     loop {
-        match child.try_wait()? {
-            Some(_status) => {
-                // Child exited on its own — `wait_with_output` reads the
-                // captured pipes and returns the full `Output`.
-                return child.wait_with_output();
-            }
-            None => {
-                if started.elapsed() >= deadline {
-                    return kill_and_timeout(child);
-                }
-                sleep(POLL_INTERVAL);
-            }
+        if child.try_wait()?.is_some() {
+            // Child exited on its own — `wait_with_output` reads the
+            // captured pipes and returns the full `Output`.
+            return child.wait_with_output();
         }
+        if started.elapsed() >= deadline {
+            return kill_and_timeout(child);
+        }
+        sleep(POLL_INTERVAL);
     }
 }
 

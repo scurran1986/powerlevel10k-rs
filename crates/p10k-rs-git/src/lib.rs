@@ -114,7 +114,7 @@ fn resolve_git_dir(path: &Path) -> Option<std::path::PathBuf> {
 /// Mirrors libgit2's `git_repository_state` / the upstream P10K
 /// `gitstatusd` action probe. Probe order is deterministic so that two
 /// overlapping markers (e.g. an interrupted rebase that also has a
-/// MERGE_HEAD) resolve to a single, stable label rather than oscillating
+/// `MERGE_HEAD`) resolve to a single, stable label rather than oscillating
 /// between prompts.
 ///
 /// The returned [`SafeText`] is sanitised at construction time even

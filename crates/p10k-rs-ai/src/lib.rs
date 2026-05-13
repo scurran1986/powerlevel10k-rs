@@ -104,7 +104,7 @@ pub fn render_statusline(_host: HostKind, _json_in: &[u8]) -> String {
 /// Emit an OSC 7 sequence reporting `cwd` to the host terminal.
 ///
 /// Format: `\x1b]7;file://<host>/<percent-encoded-path>\x1b\\`. The
-/// hostname is left empty (`file:///path`) — Claude Code, VSCode, and
+/// hostname is left empty (`file:///path`) — Claude Code, `VSCode`, and
 /// Cursor parse the path regardless of the host field, and probing for
 /// a hostname would push us off the I/O-free render path.
 ///
@@ -142,7 +142,7 @@ pub fn osc7_emit(cwd: &Path) -> String {
 /// OSC 133 prompt-start marker (`A` — semantic prompt boundary).
 ///
 /// Building block for [`osc133_command_start`]. Hosts that parse only
-/// the `A` marker (some older VSCode shell-integration probes) can use
+/// the `A` marker (some older `VSCode` shell-integration probes) can use
 /// this directly.
 #[must_use]
 pub fn osc133_prompt_start() -> &'static str {

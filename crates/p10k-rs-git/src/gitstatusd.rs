@@ -197,10 +197,12 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     //   14 = ahead
     //   15 = behind
     //   16 = num stashes
-    //   18 = tag (greatest lexicographic tag pointing at HEAD) — optional;
-    //        only present on daemons emitting the full 27-payload wire
-    //        format. Older / minimal responders cap at 17 fields, so we
-    //        gate the read on length instead of bumping the minimum.
+    //   17 = tag (greatest lexicographic tag pointing at HEAD) — optional;
+    //        per 07-gitstatus.md § 1.3 the tag is wire-field 18 (1-indexed)
+    //        which is our 0-indexed slot 17. Older / minimal responders
+    //        cap at 17 (1-indexed) fields = length 17 (0-indexed), so we
+    //        gate the read on length > 17 to mean "at least one more
+    //        field beyond stash is present".
     let commit = untrusted_field(3);
     let branch = untrusted_field(4);
     let action = normalise_action(s(8));
@@ -211,8 +213,8 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     let ahead = parse_u(14);
     let behind = parse_u(15);
     let stash = parse_u(16);
-    let tag = if fields.len() > 18 {
-        untrusted_field(18)
+    let tag = if fields.len() > 17 {
+        untrusted_field(17)
     } else {
         SafeText::default()
     };
@@ -457,30 +459,31 @@ mod tests {
 
     #[test]
     fn parses_tag_when_present() {
-        // Slice 47: wire-format field 18 carries `VCS_STATUS_TAG`, the
-        // greatest lexicographic tag pointing at HEAD. Older daemons cap
-        // at 17 fields, so the parser reads field 18 only when present.
-        // Pad the response out to 19 fields here to exercise the read.
+        // Wire-format field 18 (1-indexed, per 07-gitstatus.md § 1.3) is
+        // `VCS_STATUS_TAG` — the greatest lexicographic tag pointing at
+        // HEAD. In 0-indexed terms that's slot 17. Pad the response out
+        // to 18 fields here to exercise the read; older daemons that
+        // emit only 17 (1-indexed) fields still parse with an empty tag
+        // (see the next test).
         let bytes = build_response(&[
-            "id",
-            "1",
-            "/repo",
-            "abc",
-            "main",
-            "",
-            "",
-            "",
-            "",
-            "100",
-            "0",
-            "0",
-            "0",
-            "0",
-            "0",
-            "0",
-            "0",
-            "<unused-17>",
-            "v1.2.3",
+            "id",     // 0  → wire 1   request id
+            "1",      // 1  → wire 2   is_repo
+            "/repo",  // 2  → wire 3   workdir
+            "abc",    // 3  → wire 4   commit
+            "main",   // 4  → wire 5   branch
+            "",       // 5  → wire 6
+            "",       // 6  → wire 7
+            "",       // 7  → wire 8
+            "",       // 8  → wire 9   action
+            "100",    // 9  → wire 10  index size
+            "0",      // 10 → wire 11  staged
+            "0",      // 11 → wire 12  unstaged
+            "0",      // 12 → wire 13  conflicted
+            "0",      // 13 → wire 14  untracked
+            "0",      // 14 → wire 15  ahead
+            "0",      // 15 → wire 16  behind
+            "0",      // 16 → wire 17  stashes
+            "v1.2.3", // 17 → wire 18  TAG
         ]);
         let g = parse_response(&bytes).unwrap();
         assert_eq!(g.tag, "v1.2.3");

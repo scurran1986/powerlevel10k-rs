@@ -191,7 +191,6 @@ fn named_to_palette(name: &str, mode: ColorMode) -> Palette {
     };
     match (entry, mode) {
         (Some((c8, _, _)), ColorMode::Ansi8) => Palette::Ansi8(c8),
-        (Some((_, c256, _)), ColorMode::Ansi256) => Palette::Ansi256(c256),
         (Some((_, _, [r, g, b])), ColorMode::TrueColor) => Palette::Rgb(r, g, b),
         // FollowTerminal: if the OSC 4 probe answered, swap in the
         // terminal's actual RGB for this palette slot; otherwise fall

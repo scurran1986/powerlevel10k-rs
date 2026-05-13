@@ -9,7 +9,7 @@
 //! Compile-time `cfg!(target_os = ...)` only narrows us down to the family.
 //! On Linux we additionally probe `/etc/os-release` for the `ID=` field to
 //! pick a distro-specific Nerd Font glyph (Ubuntu, Debian, Arch, Fedora,
-//! NixOS, Alpine, Gentoo, Manjaro, openSUSE), and `/proc/version` to detect
+//! `NixOS`, Alpine, Gentoo, Manjaro, openSUSE), and `/proc/version` to detect
 //! WSL. The probe runs once per process and is cached in a `OnceLock`, so
 //! repeated prompts in the same process pay one syscall pair total.
 //!

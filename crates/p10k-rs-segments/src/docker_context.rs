@@ -33,7 +33,7 @@ use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 use serde::Deserialize;
 
-/// Default Nerd Font v3 glyph for the docker_context segment — the
+/// Default Nerd Font v3 glyph for the `docker_context` segment — the
 /// Docker whale (`nf-md-docker`). Overridable via
 /// `[segment.docker_context].icon = "..."` in TOML.
 const DEFAULT_ICON: &str = "\u{f308}";

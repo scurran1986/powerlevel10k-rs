@@ -188,7 +188,7 @@ pub struct Prompt {
 /// Encoding: RFC-3986-style percent-encoder over the path's lossy UTF-8
 /// representation. The unreserved set (`A-Z a-z 0-9 - _ . ~`) and `/`
 /// pass through; every other byte becomes `%XX`. Empty hostname
-/// (`file:///path`) — Claude Code, VSCode, and Cursor accept that
+/// (`file:///path`) — Claude Code, `VSCode`, and `Cursor` accept that
 /// form, and probing a hostname would push us off the I/O-free render
 /// path.
 fn osc7_for_cwd(cwd: &Path) -> String {
@@ -489,12 +489,11 @@ fn append_ribbon(
                 left.push_str(style::reset_fg());
                 left.push(' ');
             }
-            (None, Some(_)) => {
-                if i != 0 {
-                    left.push_str(separator);
-                }
-            }
-            (None, None) => {
+            (None, _) => {
+                // No previous bg: emit the configured separator between
+                // segments (whether the next segment has a bg or not —
+                // the bg-bearing segment will paint over the separator's
+                // bg on the next cell).
                 if i != 0 {
                     left.push_str(separator);
                 }
@@ -767,6 +766,7 @@ fn next_char_boundary(s: &str, i: usize) -> usize {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 
