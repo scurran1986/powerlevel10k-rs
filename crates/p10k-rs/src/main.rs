@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use p10k_rs_config::Glob;
-use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell as CoreShell};
+use p10k_rs_core::{Config, EnvSnapshot, RenderCtx, Segment, Shell as CoreShell};
 use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
@@ -226,10 +226,15 @@ fn cmd_prompt(
         }
     };
     let env = EnvSnapshot::default();
+    // Probe the environment once per prompt for AI-host fingerprints
+    // (`$CLAUDECODE`, `$AIDER_*`, `$CURSOR_*`). The result rides in
+    // `RenderCtx.host` so segments like `ai_host` can react. Detection
+    // is a handful of env-var lookups — negligible against gitstatusd.
+    let host = p10k_rs_ai::detect_host_kind();
     let ctx = RenderCtx {
         config: &cfg,
         shell: core_shell,
-        host: HostKind::None,
+        host,
         cwd: cwd.as_path(),
         git: git.as_ref(),
         last_status,
@@ -309,7 +314,7 @@ fn factory_default_config() -> Config {
 schema_version = 1
 [layout]
 left = ["context", "dir", "vcs", "prompt_char"]
-right = ["status", "command_execution_time", "background_jobs", "time"]
+right = ["ai_host", "status", "command_execution_time", "background_jobs", "time"]
 [layout.frame]
 glyph = "╭─"
 foreground = "blue"

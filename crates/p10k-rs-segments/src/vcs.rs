@@ -17,6 +17,17 @@ use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 /// Overridable via `[segment.vcs].icon = "..."` in the user's TOML config.
 const DEFAULT_ICON: &str = "\u{f1d3}";
 
+/// Glyph used to mark a detached-HEAD render (Nerd Font `mdi-source-commit`).
+/// Prepended to the 7-char SHA prefix so the prompt visually announces "you
+/// are not on a branch" rather than silently swapping a branch name for hex.
+const DETACHED_HEAD_GLYPH: &str = "\u{f00ec}";
+
+/// Length of the abbreviated SHA we render in detached-HEAD mode. Matches
+/// `git`'s default short-OID width and upstream P10K's `VCS_COMMIT_HASH`
+/// truncation. Source `commit` is already `SafeText` — ASCII hex passes
+/// through sanitisation unchanged.
+const SHA_PREFIX_LEN: usize = 7;
+
 /// Version-control segment: shows current branch + dirty marker.
 #[derive(Debug, Default)]
 pub struct Vcs;
@@ -59,8 +70,45 @@ impl Segment for Vcs {
         let any_change_counts = git.staged > 0 || git.unstaged > 0 || git.untracked > 0;
         let show_dirty_marker = git.dirty && !any_change_counts;
 
-        let mut plain = String::with_capacity(git.branch.len() + 32);
-        plain.push_str(git.branch.as_str());
+        // Detached-HEAD detection (slice 47). Upstream P10K convention: a
+        // branch literally equal to `"HEAD"` (or empty) with a non-empty
+        // commit OID means the working tree is parked on a bare commit
+        // rather than a named ref. We swap the branch label for the
+        // `mdi-source-commit` glyph + 7-char SHA prefix so the prompt
+        // can't lie about "which branch am I on" when the answer is
+        // "none". The SHA is sliced off `SafeText` — ASCII hex is safe
+        // by construction, but we still pull from the already-sanitised
+        // value so an upstream wire-format change that smuggles a
+        // non-hex byte into field 3 can't reintroduce control chars.
+        let branch_label = git.branch.as_str();
+        let commit_label = git.commit.as_str();
+        let detached =
+            (branch_label == "HEAD" || branch_label.is_empty()) && !commit_label.is_empty();
+        let sha_prefix = if detached {
+            commit_label
+                .chars()
+                .take(SHA_PREFIX_LEN)
+                .collect::<String>()
+        } else {
+            String::new()
+        };
+
+        let mut plain = String::with_capacity(git.branch.len() + git.tag.len() + 32);
+        if detached {
+            plain.push_str(DETACHED_HEAD_GLYPH);
+            plain.push_str(&sha_prefix);
+        } else {
+            plain.push_str(branch_label);
+        }
+        // Tag display (slice 47). Upstream P10K renders ` @ <tag>` after
+        // the branch label when HEAD points at a tag. The daemon's wire
+        // field 18 surfaces the greatest-lex tag pointing at HEAD; an
+        // empty `tag` (older daemons, `ShellOut`, or HEAD not on a tag)
+        // skips this entirely so the look is unchanged for the common
+        // case.
+        if !git.tag.as_str().is_empty() {
+            let _ = write!(plain, " @ {}", git.tag.as_str());
+        }
         if git.ahead > 0 {
             let _ = write!(plain, " \u{21e1}{}", git.ahead);
         }
@@ -460,6 +508,113 @@ mod tests {
             out_clean.text.contains('\u{f1d3}'),
             "clean state must still render the default icon: {:?}",
             out_clean.text
+        );
+    }
+
+    #[test]
+    fn renders_detached_head_with_sha_prefix() {
+        // Slice 47: branch == "HEAD" + non-empty commit => detached. We
+        // swap the branch label for `mdi-source-commit` + 7-char SHA so
+        // the prompt visibly announces "no branch" instead of literally
+        // showing the string "HEAD".
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "HEAD".into(),
+            commit: "7b3a9f2deadbeef12345678".into(),
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains('\u{f00ec}'),
+            "missing detached-HEAD glyph: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("7b3a9f2"),
+            "missing 7-char SHA prefix: {:?}",
+            out.text
+        );
+        // The literal "HEAD" must not leak through — it's been
+        // structurally replaced by the glyph+sha display.
+        assert!(
+            !out.text.contains("HEAD"),
+            "raw branch label HEAD leaked into detached render: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn renders_normal_branch_when_not_detached() {
+        // Belt-and-braces: a non-"HEAD" branch with a populated commit
+        // OID must still render the branch name, NOT the SHA prefix.
+        // Guards against the detached path firing whenever `commit` is
+        // present (which the daemon backend populates for every repo).
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            commit: "7b3a9f2deadbeef12345678".into(),
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains("main"), "missing branch: {:?}", out.text);
+        assert!(
+            !out.text.contains("7b3a9f2"),
+            "SHA prefix must not appear on a named branch: {:?}",
+            out.text
+        );
+        assert!(
+            !out.text.contains('\u{f00ec}'),
+            "detached-HEAD glyph must not appear on a named branch: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn renders_tag_after_branch() {
+        // Slice 47: tag display. Upstream P10K format is `<branch> @ <tag>`;
+        // we surface the daemon's field-18 tag inside the same head_fg
+        // colour band (no special marker — it's not an alarm state).
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            tag: "v1.2.3".into(),
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("main @ v1.2.3"),
+            "missing tag-after-branch render: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn renders_detached_head_with_tag() {
+        // Detached + tag co-exist: glyph + sha THEN ` @ <tag>` — same
+        // order as the branch case, just with the SHA standing in for
+        // the branch label. Matches how upstream P10K reads a
+        // tag-annotated checkout.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "HEAD".into(),
+            commit: "abcdef0123456789".into(),
+            tag: "v2.0.0".into(),
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("abcdef0"),
+            "missing SHA prefix: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("@ v2.0.0"),
+            "missing tag after detached SHA: {:?}",
+            out.text
         );
     }
 }

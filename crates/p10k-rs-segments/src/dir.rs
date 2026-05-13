@@ -355,8 +355,15 @@ mod tests {
     }
 
     /// Construct a [`DirTruncate`] config with the given strategy / length.
+    /// Builds via `Default::default()` + field assignment because
+    /// `DirTruncate` is `#[non_exhaustive]` and struct-expression syntax
+    /// (with or without `..Default::default()`) is forbidden from outside
+    /// the defining crate.
     fn trunc(strategy: DirTruncateStrategy, length: u8) -> DirTruncate {
-        DirTruncate { strategy, length }
+        let mut t = DirTruncate::default();
+        t.strategy = strategy;
+        t.length = length;
+        t
     }
 
     #[test]

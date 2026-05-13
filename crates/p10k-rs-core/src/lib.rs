@@ -185,7 +185,7 @@ const POWERLINE_ARROW_LEFT: char = '\u{e0b2}';
 /// the outputs into a Powerlevel10k-style ribbon:
 ///
 /// - Adjacent segments with backgrounds get a powerline arrow
-///   (`\u{e0b0}`) between them, coloured fg=prev_bg, bg=next_bg, so the
+///   (`\u{e0b0}`) between them, coloured `fg=prev_bg`, `bg=next_bg`, so the
 ///   handoff reads as a single ribbon.
 /// - A closing arrow into terminal default follows the last
 ///   bg-bearing segment on line 1.
@@ -216,49 +216,7 @@ pub fn render_prompt(
     let mode = ctx.config.colors;
     let mut left = String::new();
 
-    if let Some(ruler) = ctx.config.layout.ruler.as_ref() {
-        if let Some(glyph) = ruler.glyph.as_deref().filter(|g| !g.is_empty()) {
-            let fg_color = ruler
-                .foreground
-                .clone()
-                .unwrap_or(style::Color::Named("white".into()));
-            let fg = style::sgr_fg(&fg_color, mode);
-            let width = terminal_width();
-            left.push_str(&fg);
-            left.push_str(&glyph.repeat(width));
-            left.push_str(style::reset_fg());
-            left.push('\n');
-        }
-    }
-
-    // Frame top-corner ("╭─" by convention) when configured.
-    let frame_fg_color = ctx
-        .config
-        .layout
-        .frame
-        .as_ref()
-        .and_then(|f| f.foreground.clone())
-        .unwrap_or(style::Color::Named("white".into()));
-    let frame_fg = style::sgr_fg(&frame_fg_color, mode);
-    let frame_active = ctx
-        .config
-        .layout
-        .frame
-        .as_ref()
-        .and_then(|f| f.glyph.as_deref())
-        .is_some_and(|g| !g.is_empty());
-    if frame_active {
-        let glyph = ctx
-            .config
-            .layout
-            .frame
-            .as_ref()
-            .and_then(|f| f.glyph.as_deref())
-            .unwrap_or("");
-        left.push_str(&frame_fg);
-        left.push_str(glyph);
-        left.push_str(style::reset_fg());
-    }
+    let (frame_fg, frame_active) = append_ruler_and_frame_top(&mut left, ctx, mode);
 
     // Resolve enabled segments up front so we can split off the
     // line-2 trailing segment without iterating twice.
@@ -342,43 +300,12 @@ pub fn render_prompt(
         left.push_str(style::reset_fg());
     }
 
-    // Line 2 (prompt_char, today) behind a `╰─` corner — or whatever
-    // `[layout.frame].bottom_glyph` overrides it to. Default preserves
-    // the slice-28 hardcoded look byte-for-byte.
-    if !line2.is_empty() {
-        left.push('\n');
-        if frame_active {
-            let bottom_glyph = ctx
-                .config
-                .layout
-                .frame
-                .as_ref()
-                .and_then(|f| f.bottom_glyph.as_deref())
-                .unwrap_or("\u{2570}\u{2500}");
-            left.push_str(&frame_fg);
-            left.push_str(bottom_glyph);
-            left.push_str(style::reset_fg());
-        }
-        for (out, name) in line2 {
-            let (pad_left, pad_right) = ctx
-                .config
-                .segments
-                .get(*name)
-                .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
-            for _ in 0..pad_left {
-                left.push(' ');
-            }
-            left.push_str(&out.text);
-            for _ in 0..pad_right {
-                left.push(' ');
-            }
-        }
-    }
+    append_line2(&mut left, line2, ctx, frame_active, &frame_fg);
 
     let left = wrap_for_shell(&left, ctx.shell);
     let right = render_right(right_segments, ctx);
     let right = wrap_for_shell(&right, ctx.shell);
-    let transient = render_transient(segments, ctx);
+    let transient = Some(render_transient(segments, ctx));
     Prompt {
         left,
         right,
@@ -408,7 +335,102 @@ pub fn render_prompt(
 /// configured layout has no `prompt_char` segment the result is an
 /// empty (post-wrap) string — the caller then assigns `PROMPT=""`,
 /// which is the least surprising fallback.
-fn render_transient(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Option<String> {
+/// Emit the optional ruler line + top-left frame corner glyph and
+/// return `(frame_fg_sgr, frame_active)` so the caller can reuse them
+/// for line 2's bottom corner. Extracted from `render_prompt` to keep
+/// that function under clippy's `too_many_lines` threshold.
+fn append_ruler_and_frame_top(
+    left: &mut String,
+    ctx: &RenderCtx<'_>,
+    mode: style::ColorMode,
+) -> (String, bool) {
+    if let Some(ruler) = ctx.config.layout.ruler.as_ref() {
+        if let Some(glyph) = ruler.glyph.as_deref().filter(|g| !g.is_empty()) {
+            let fg_color = ruler
+                .foreground
+                .clone()
+                .unwrap_or(style::Color::Named("white".into()));
+            let fg = style::sgr_fg(&fg_color, mode);
+            let width = terminal_width();
+            left.push_str(&fg);
+            left.push_str(&glyph.repeat(width));
+            left.push_str(style::reset_fg());
+            left.push('\n');
+        }
+    }
+    let frame_fg_color = ctx
+        .config
+        .layout
+        .frame
+        .as_ref()
+        .and_then(|f| f.foreground.clone())
+        .unwrap_or(style::Color::Named("white".into()));
+    let frame_fg = style::sgr_fg(&frame_fg_color, mode);
+    let frame_active = ctx
+        .config
+        .layout
+        .frame
+        .as_ref()
+        .and_then(|f| f.glyph.as_deref())
+        .is_some_and(|g| !g.is_empty());
+    if frame_active {
+        let glyph = ctx
+            .config
+            .layout
+            .frame
+            .as_ref()
+            .and_then(|f| f.glyph.as_deref())
+            .unwrap_or("");
+        left.push_str(&frame_fg);
+        left.push_str(glyph);
+        left.push_str(style::reset_fg());
+    }
+    (frame_fg, frame_active)
+}
+
+/// Emit the multi-line trailing segment(s) — typically `prompt_char` —
+/// behind the bottom-corner frame glyph. Extracted from `render_prompt`
+/// to keep that function under clippy's `too_many_lines` threshold.
+fn append_line2(
+    left: &mut String,
+    line2: &[(SegmentOutput, &str)],
+    ctx: &RenderCtx<'_>,
+    frame_active: bool,
+    frame_fg: &str,
+) {
+    if line2.is_empty() {
+        return;
+    }
+    left.push('\n');
+    if frame_active {
+        let bottom_glyph = ctx
+            .config
+            .layout
+            .frame
+            .as_ref()
+            .and_then(|f| f.bottom_glyph.as_deref())
+            .unwrap_or("\u{2570}\u{2500}");
+        left.push_str(frame_fg);
+        left.push_str(bottom_glyph);
+        left.push_str(style::reset_fg());
+    }
+    for (out, name) in line2 {
+        let (pad_left, pad_right) = ctx
+            .config
+            .segments
+            .get(*name)
+            .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
+        for _ in 0..pad_left {
+            left.push(' ');
+        }
+        left.push_str(&out.text);
+        for _ in 0..pad_right {
+            left.push(' ');
+        }
+    }
+}
+
+fn render_transient(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
     let mut out = String::new();
     for seg in segments {
         if seg.name() == "prompt_char" && seg.enabled(ctx) {
@@ -417,7 +439,7 @@ fn render_transient(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> Optio
             break;
         }
     }
-    Some(wrap_for_shell(&out, ctx.shell))
+    wrap_for_shell(&out, ctx.shell)
 }
 
 /// Assemble the right-side ribbon.
@@ -739,17 +761,27 @@ pub enum Shell {
 
 /// Detected AI host environment.
 ///
-/// The expanded enum (model strings, context sizing, etc.) is owned by
-/// `p10k-rs-ai`; this is the I/O-free placeholder for use inside
-/// [`RenderCtx`].
-#[derive(Debug, Clone, Default)]
+/// Carried by [`RenderCtx::host`] so segments can react to running inside
+/// an AI shell. Detection lives in `p10k-rs-ai::detect_host_kind`; this
+/// crate stays I/O-free per its `CLAUDE.md` and only owns the enum that
+/// flows through the render pipeline.
+///
+/// The variants are deliberately unit-only for the MVP — per-host
+/// structured data (model strings, context tokens, etc.) can be added
+/// in a future slice without breaking the segment surface, thanks to
+/// `#[non_exhaustive]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HostKind {
     /// No AI host detected.
     #[default]
     None,
-    /// Some host detected; see `p10k-rs-ai` for the fully-typed variant.
-    Some,
+    /// Anthropic Claude Code CLI.
+    ClaudeCode,
+    /// Aider AI pair-programmer.
+    Aider,
+    /// Cursor editor terminal.
+    Cursor,
 }
 
 /// Pre-computed git state for the current cwd.
@@ -801,6 +833,15 @@ pub struct GitState {
     /// Wrapped in [`SafeText`] for the same reason as `branch` — the value
     /// could ride through from a malicious `.git/MERGE_MSG` etc.
     pub action: SafeText,
+    /// Greatest (lexicographic) tag pointing at HEAD, per gitstatusd's
+    /// `VCS_STATUS_TAG` (wire-format field 18). Empty when HEAD isn't on
+    /// a tag, when the backend doesn't surface tags (`ShellOut`), or when
+    /// the daemon's wire format predates the tag field.
+    ///
+    /// `SafeText` invariant: tag names ride straight off the wire and into
+    /// the prompt next to the branch / SHA, so the type system pins down
+    /// the sanitisation pass for the same reason as [`GitState::branch`].
+    pub tag: SafeText,
 }
 
 /// Snapshot of environment variables relevant to segments.

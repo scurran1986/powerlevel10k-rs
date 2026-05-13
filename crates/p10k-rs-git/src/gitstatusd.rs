@@ -197,6 +197,10 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     //   14 = ahead
     //   15 = behind
     //   16 = num stashes
+    //   18 = tag (greatest lexicographic tag pointing at HEAD) — optional;
+    //        only present on daemons emitting the full 27-payload wire
+    //        format. Older / minimal responders cap at 17 fields, so we
+    //        gate the read on length instead of bumping the minimum.
     let commit = untrusted_field(3);
     let branch = untrusted_field(4);
     let action = normalise_action(s(8));
@@ -207,6 +211,11 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
     let ahead = parse_u(14);
     let behind = parse_u(15);
     let stash = parse_u(16);
+    let tag = if fields.len() > 18 {
+        untrusted_field(18)
+    } else {
+        SafeText::default()
+    };
     let has_conflicts = conflicts > 0;
     let dirty = staged > 0 || unstaged > 0 || conflicts > 0 || untracked > 0;
     Some(GitState {
@@ -221,6 +230,7 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
         commit,
         stash,
         action,
+        tag,
     })
 }
 
@@ -443,6 +453,50 @@ mod tests {
         ]);
         let g = parse_response(&bytes).unwrap();
         assert_eq!(g.stash, 4);
+    }
+
+    #[test]
+    fn parses_tag_when_present() {
+        // Slice 47: wire-format field 18 carries `VCS_STATUS_TAG`, the
+        // greatest lexicographic tag pointing at HEAD. Older daemons cap
+        // at 17 fields, so the parser reads field 18 only when present.
+        // Pad the response out to 19 fields here to exercise the read.
+        let bytes = build_response(&[
+            "id",
+            "1",
+            "/repo",
+            "abc",
+            "main",
+            "",
+            "",
+            "",
+            "",
+            "100",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "<unused-17>",
+            "v1.2.3",
+        ]);
+        let g = parse_response(&bytes).unwrap();
+        assert_eq!(g.tag, "v1.2.3");
+    }
+
+    #[test]
+    fn parses_tag_empty_when_absent_from_wire() {
+        // The 17-field minimum stays. A daemon that doesn't emit field 18
+        // (older builds, or a future trimmed mode) must still parse
+        // cleanly with an empty tag — not bail.
+        let bytes = build_response(&[
+            "id", "1", "/repo", "abc", "main", "", "", "", "", "100", "0", "0", "0", "0", "0", "0",
+            "0",
+        ]);
+        let g = parse_response(&bytes).unwrap();
+        assert_eq!(g.tag, "");
     }
 
     #[test]

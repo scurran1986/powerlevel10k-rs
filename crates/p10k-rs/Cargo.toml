@@ -25,6 +25,7 @@ p10k-rs-git = { workspace = true }
 p10k-rs-segments = { workspace = true }
 p10k-rs-shell = { workspace = true }
 p10k-rs-wizard = { workspace = true }
+p10k-rs-ai = { workspace = true }
 
 clap = { workspace = true }
 anyhow = { workspace = true }

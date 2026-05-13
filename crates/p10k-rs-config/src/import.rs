@@ -32,6 +32,7 @@ use crate::{
 /// invariant so a future regression is caught immediately. Exposed `pub`
 /// solely so that cross-crate test can read it — no other consumer.
 pub const KNOWN_SEGMENT_NAMES: &[&str] = &[
+    "ai_host",
     "anaconda",
     "aws",
     "background_jobs",

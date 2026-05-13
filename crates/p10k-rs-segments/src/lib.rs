@@ -14,6 +14,7 @@
 
 use p10k_rs_core::Segment;
 
+pub mod ai_host;
 pub mod anaconda;
 pub mod aws;
 pub mod background_jobs;
@@ -68,6 +69,9 @@ pub fn segment_names() -> &'static [&'static str] {
         "node_version",
         "python_version",
         "rust_version",
+        // AI-host badge (slice 46): visible only when running inside a
+        // detected AI shell (Claude Code, Aider, Cursor).
+        "ai_host",
     ]
 }
 
@@ -81,6 +85,7 @@ pub fn segment_names() -> &'static [&'static str] {
 #[must_use]
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {
+        "ai_host" => Some(Box::new(ai_host::AiHost)),
         "anaconda" => Some(Box::new(anaconda::Anaconda)),
         "aws" => Some(Box::new(aws::Aws)),
         "background_jobs" => Some(Box::new(background_jobs::BackgroundJobs)),
@@ -114,6 +119,7 @@ mod tests {
     #[test]
     fn build_returns_known_segments() {
         for name in [
+            "ai_host",
             "anaconda",
             "aws",
             "background_jobs",

@@ -296,6 +296,7 @@ dependencies = [
  "anyhow",
  "clap",
  "globset",
+ "p10k-rs-ai",
  "p10k-rs-config",
  "p10k-rs-core",
  "p10k-rs-git",
@@ -310,6 +311,7 @@ dependencies = [
 name = "p10k-rs-ai"
 version = "0.1.0"
 dependencies = [
+ "p10k-rs-core",
  "serde",
  "serde_json",
  "thiserror",
