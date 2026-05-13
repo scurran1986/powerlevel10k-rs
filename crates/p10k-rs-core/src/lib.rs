@@ -383,7 +383,7 @@ fn append_ruler_and_frame_top(
             let fg_color = ruler
                 .foreground
                 .clone()
-                .unwrap_or(style::Color::Named("white".into()));
+                .unwrap_or_else(|| style::Color::Named("white".into()));
             let fg = style::sgr_fg(&fg_color, mode);
             let width = terminal_width();
             left.push_str(&fg);
@@ -398,7 +398,7 @@ fn append_ruler_and_frame_top(
         .frame
         .as_ref()
         .and_then(|f| f.foreground.clone())
-        .unwrap_or(style::Color::Named("white".into()));
+        .unwrap_or_else(|| style::Color::Named("white".into()));
     let frame_fg = style::sgr_fg(&frame_fg_color, mode);
     let frame_active = ctx
         .config
