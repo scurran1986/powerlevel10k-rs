@@ -20,3 +20,6 @@ Thumbs.db
 
 # OMC tooling local state (per-developer; not project code)
 /.omc/
+
+# mdBook generated output
+/docs/book/

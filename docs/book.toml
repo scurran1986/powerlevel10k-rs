@@ -1,0 +1,16 @@
+[book]
+title = "powerlevel10k-rs"
+authors = ["Sean Curran"]
+description = "Rust port and spiritual successor to Powerlevel10k. Single static binary, declarative TOML config, multi-shell prompt, with gitstatusd-class git latency as the load-bearing performance claim."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/scurran1986/powerlevel10k-rs"
+edit-url-template = "https://github.com/scurran1986/powerlevel10k-rs/edit/main/docs/{path}"
