@@ -214,6 +214,10 @@ fn cmd_prompt(
     // `ShellOut` for ad-hoc CLI invocations and shells where the daemon
     // couldn't start.
     let git = git_status(cwd.as_path());
+    // Probe Jujutsu in parallel — `jj` has no daemon analogue, just a
+    // filesystem walk to `.jj/` plus a shell-out to `jj log` on hit.
+    // Returns `None` outside a jj repo or when `jj` isn't on `$PATH`.
+    let jj = jj_status(cwd.as_path());
 
     // Resolve the user's config. Missing file or parse error → factory
     // default. The contract for this slice is byte-identical output to the
@@ -237,6 +241,7 @@ fn cmd_prompt(
         host,
         cwd: cwd.as_path(),
         git: git.as_ref(),
+        jj: jj.as_ref(),
         last_status,
         last_duration: Duration::from_millis(last_duration_ms),
         jobs: 0,
@@ -559,6 +564,17 @@ fn git_status(path: &std::path::Path) -> Option<p10k_rs_core::GitState> {
         }
     }
     GitShellOut.status(path)
+}
+
+/// Probe Jujutsu state for `path`.
+///
+/// Unlike git, jj has no daemon analogue today — the producer is a
+/// filesystem walk for `.jj/` plus a `jj log` shell-out on hit. The
+/// cost is comparable to the `ShellOut` git fallback (sub-millisecond
+/// when not in a repo, single-digit ms when in one). Returns `None`
+/// outside a jj repo or when `jj` isn't on `$PATH`.
+fn jj_status(path: &std::path::Path) -> Option<p10k_rs_core::JjState> {
+    p10k_rs_jj::detect_jj(path)
 }
 
 /// Run the interactive configure wizard and write the resulting TOML to stdout.

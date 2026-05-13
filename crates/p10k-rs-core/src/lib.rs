@@ -105,6 +105,10 @@ pub struct RenderCtx<'a> {
     pub cwd: &'a Path,
     /// Pre-computed git state, or `None` if outside a repository.
     pub git: Option<&'a GitState>,
+    /// Pre-computed Jujutsu (`jj`) state, or `None` if outside a jj repo
+    /// or `jj` isn't on `$PATH`. Produced by `p10k-rs-jj::detect_jj` so
+    /// segments can render jj info without re-shelling out per prompt.
+    pub jj: Option<&'a JjState>,
     /// Exit code of the last command. `0` means success.
     pub last_status: i32,
     /// Wall-clock duration of the last command.
@@ -169,6 +173,42 @@ pub struct Prompt {
     pub transient: Option<String>,
 }
 
+/// Build an OSC 7 sequence reporting `cwd` to the host terminal.
+///
+/// Inlined copy of `p10k_rs_ai::osc7_emit` — the dependency direction
+/// is `ai → core`, so this crate can't reach into the AI crate for
+/// the helper. Both implementations share the same encoder shape; the
+/// `p10k-rs-ai` version is the canonical public entry point and what
+/// statusline / external callers reach for.
+///
+/// Encoding: RFC-3986-style percent-encoder over the path's lossy UTF-8
+/// representation. The unreserved set (`A-Z a-z 0-9 - _ . ~`) and `/`
+/// pass through; every other byte becomes `%XX`. Empty hostname
+/// (`file:///path`) — Claude Code, VSCode, and Cursor accept that
+/// form, and probing a hostname would push us off the I/O-free render
+/// path.
+fn osc7_for_cwd(cwd: &Path) -> String {
+    let raw = cwd.to_string_lossy();
+    let mut encoded = String::with_capacity(raw.len() + 16);
+    for b in raw.as_bytes() {
+        let c = *b;
+        let unreserved = c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b'~' | b'/');
+        if unreserved {
+            encoded.push(c as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{c:02X}");
+        }
+    }
+    format!("\x1b]7;file://{encoded}\x1b\\")
+}
+
+/// OSC 133 prompt-start marker (`A`).
+const OSC133_A: &str = "\x1b]133;A\x07";
+
+/// OSC 133 command-line-start marker (`B`).
+const OSC133_B: &str = "\x1b]133;B\x07";
+
 /// Powerline right-pointing solid arrow (Nerd Font / Powerline glyph).
 /// Drawn between segments with differing background colours so the
 /// transition reads as a single continuous ribbon.
@@ -215,6 +255,23 @@ pub fn render_prompt(
     let separator = ctx.config.layout.separators.left.as_deref().unwrap_or(" ");
     let mode = ctx.config.colors;
     let mut left = String::new();
+
+    // Slice 55 — shell-integration sequences for AI / IDE hosts.
+    //
+    // OSC 7 reports the cwd so the host can update its embedded shell
+    // navigator. OSC 133 `A` marks the semantic prompt boundary; the
+    // matching `B` is appended at the very end of `left` below.
+    //
+    // Gate on `HostKind::None`: vanilla terminals don't parse these
+    // sequences and would render nothing visible either way, but
+    // keeping the prompt byte-identical to the historical output when
+    // no host is detected eliminates a class of "did the prompt
+    // change?" support questions. Hosts that benefit (Claude Code,
+    // Cursor, VSCode agent terminals) opt in via their env var.
+    if ctx.host != HostKind::None {
+        left.push_str(&osc7_for_cwd(ctx.cwd));
+        left.push_str(OSC133_A);
+    }
 
     let (frame_fg, frame_active) = append_ruler_and_frame_top(&mut left, ctx, mode);
 
@@ -301,6 +358,12 @@ pub fn render_prompt(
     }
 
     append_line2(&mut left, line2, ctx, frame_active, &frame_fg);
+
+    // Closing OSC 133 `B`: end of PS1, start of the editable command
+    // line. Paired with the `A` emitted at the top of `left` above.
+    if ctx.host != HostKind::None {
+        left.push_str(OSC133_B);
+    }
 
     let left = wrap_for_shell(&left, ctx.shell);
     let right = render_right(right_segments, ctx);
@@ -581,7 +644,11 @@ fn tty_winsize_cols() -> Option<usize> {
 /// Per-shell escape-wrapping for the assembled prompt string.
 ///
 /// - **zsh**: each `\x1b[…m` SGR escape is wrapped in `%{…%}` so the prompt
-///   width is computed correctly. Outside of those wrapped escapes, every
+///   width is computed correctly. OSC sequences (`\x1b]…<BEL>` or
+///   `\x1b]…\x1b\\`) are also bracketed — zsh's prompt-width tracker
+///   doesn't know they're zero-width without the `%{…%}` markers, and
+///   slice 55 started emitting OSC 7 / OSC 133 inside the prompt for
+///   shell-integration. Outside of those wrapped escapes, every
 ///   literal `%` is doubled to `%%` because zsh treats `%` in PROMPT as the
 ///   start of a prompt-expansion escape (`%n` → username, `%/` → cwd, …),
 ///   and that is how an attacker who controls a branch name or directory
@@ -603,7 +670,8 @@ fn wrap_for_shell(s: &str, shell: Shell) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            // Scan to terminating SGR byte ('m' for the only escapes we emit).
+            // CSI / SGR: scan to terminating byte ('m' for the only
+            // escapes we emit). Wrapped so zsh's width tracker skips it.
             let mut j = i + 2;
             while j < bytes.len() && bytes[j] != b'm' {
                 j += 1;
@@ -613,6 +681,31 @@ fn wrap_for_shell(s: &str, shell: Shell) -> String {
                 out.push_str(&s[i..=j]);
                 out.push_str("%}");
                 i = j + 1;
+                continue;
+            }
+        }
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b']' {
+            // OSC: terminated by either `\x07` (BEL) or `\x1b\\` (ST).
+            // Both terminators exist in practice — our OSC 7 uses ST,
+            // OSC 133 uses BEL — so scan for whichever comes first.
+            let mut j = i + 2;
+            let mut end_inclusive: Option<usize> = None;
+            while j < bytes.len() {
+                if bytes[j] == 0x07 {
+                    end_inclusive = Some(j);
+                    break;
+                }
+                if bytes[j] == 0x1b && j + 1 < bytes.len() && bytes[j + 1] == b'\\' {
+                    end_inclusive = Some(j + 1);
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(end) = end_inclusive {
+                out.push_str("%{");
+                out.push_str(&s[i..=end]);
+                out.push_str("%}");
+                i = end + 1;
                 continue;
             }
         }
@@ -728,6 +821,103 @@ mod tests {
         // get the live width instead. Either path is `>= 1`.
         assert!(terminal_width() >= 1);
     }
+
+    #[test]
+    fn osc7_for_cwd_encodes_simple_path() {
+        let s = osc7_for_cwd(Path::new("/home/seaburdz"));
+        assert_eq!(s, "\x1b]7;file:///home/seaburdz\x1b\\");
+    }
+
+    #[test]
+    fn osc7_for_cwd_percent_encodes_spaces() {
+        let s = osc7_for_cwd(Path::new("/tmp/foo bar"));
+        assert_eq!(s, "\x1b]7;file:///tmp/foo%20bar\x1b\\");
+    }
+
+    #[test]
+    fn wrap_for_zsh_brackets_osc_bel_terminated() {
+        // OSC 133 ends with BEL (`\x07`). The wrap pass must mark the
+        // whole sequence zero-width so zsh's prompt-width tracker
+        // doesn't count it as visible columns.
+        let raw = "\x1b]133;A\x07hello";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b]133;A\x07%}hello");
+    }
+
+    #[test]
+    fn wrap_for_zsh_brackets_osc_st_terminated() {
+        // OSC 7 uses the `\x1b\\` (ST) terminator. Same width-tracking
+        // problem; same fix.
+        let raw = "\x1b]7;file:///tmp\x1b\\done";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(wrapped, "%{\x1b]7;file:///tmp\x1b\\%}done");
+    }
+
+    fn render_ctx_for_host<'a>(
+        cfg: &'a Config,
+        env: &'a EnvSnapshot,
+        cwd: &'a Path,
+        host: HostKind,
+    ) -> RenderCtx<'a> {
+        RenderCtx {
+            config: cfg,
+            shell: Shell::Bash, // bypass `wrap_for_shell` so we can grep raw bytes
+            host,
+            cwd,
+            git: None,
+            jj: None,
+            last_status: 0,
+            last_duration: Duration::ZERO,
+            jobs: 0,
+            now: SystemTime::UNIX_EPOCH,
+            env,
+            upcoming_command: "",
+        }
+    }
+
+    #[test]
+    fn render_prompt_emits_osc_when_host_is_claude_code() {
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::ClaudeCode);
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            prompt.left.contains("\x1b]7;file:///tmp/work\x1b\\"),
+            "expected OSC 7 cwd report in left: {:?}",
+            prompt.left
+        );
+        assert!(
+            prompt.left.contains("\x1b]133;A\x07"),
+            "expected OSC 133 A in left: {:?}",
+            prompt.left
+        );
+        assert!(
+            prompt.left.contains("\x1b]133;B\x07"),
+            "expected OSC 133 B in left: {:?}",
+            prompt.left
+        );
+    }
+
+    #[test]
+    fn render_prompt_omits_osc_when_host_is_none() {
+        // Vanilla terminals get the byte-identical historical output.
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::None);
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            !prompt.left.contains("\x1b]7;"),
+            "OSC 7 must not appear without a host: {:?}",
+            prompt.left
+        );
+        assert!(
+            !prompt.left.contains("\x1b]133;"),
+            "OSC 133 must not appear without a host: {:?}",
+            prompt.left
+        );
+    }
 }
 
 // -- Shared placeholder types ------------------------------------------------
@@ -842,6 +1032,46 @@ pub struct GitState {
     /// the prompt next to the branch / SHA, so the type system pins down
     /// the sanitisation pass for the same reason as [`GitState::branch`].
     pub tag: SafeText,
+}
+
+/// Pre-computed Jujutsu (`jj`) state for the current cwd.
+///
+/// Mirror of [`GitState`] for the Jujutsu VCS — held by
+/// [`RenderCtx::jj`] so segments can render jj info without re-shelling
+/// out per prompt. Producer lives in `p10k-rs-jj` (`detect_jj`).
+///
+/// jj's data model differs from git's in two load-bearing ways the
+/// fields capture:
+///
+/// - `change_id` is jj's primary identifier (replaces git's commit
+///   SHA as the identity of a working state); `commit_id` is the
+///   git-equivalent SHA, populated when jj's backend is the git
+///   compat one (the default for new repos).
+/// - `bookmark` is jj's closest analogue to a git branch — a movable
+///   named pointer. Empty when the change has no bookmark; jj allows
+///   that whereas git always parks HEAD on *something*.
+///
+/// Backends that can't cheaply populate every field leave the others
+/// at their default; the MVP `detect_jj` shell-out fills the first
+/// five and leaves `conflicts` / `divergent` at `false`.
+#[derive(Debug, Default, Clone)]
+pub struct JjState {
+    /// Working-copy change identifier (`@` in jj parlance). `SafeText`
+    /// invariant — same reason as [`GitState::branch`].
+    pub change_id: SafeText,
+    /// Git-equivalent commit SHA. Empty when the backend isn't git.
+    pub commit_id: SafeText,
+    /// First bookmark pointing at `@`. Empty when the change has none.
+    pub bookmark: SafeText,
+    /// First line of the commit description. Empty for the implicit
+    /// "no description set" placeholder.
+    pub description: SafeText,
+    /// `true` when the working copy has any uncommitted change.
+    pub dirty: bool,
+    /// `true` when the working copy or its parents are in conflict.
+    pub conflicts: bool,
+    /// `true` when multiple changes share this `change_id`.
+    pub divergent: bool,
 }
 
 /// Snapshot of environment variables relevant to segments.

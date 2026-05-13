@@ -23,6 +23,7 @@ pub mod context;
 pub mod dir;
 pub mod docker_context;
 pub mod fnm;
+pub mod jj;
 pub mod kubecontext;
 pub mod mise;
 pub mod node_version;
@@ -60,6 +61,10 @@ pub fn segment_names() -> &'static [&'static str] {
         "vi_mode",
         "root_indicator",
         "vcs",
+        // Jujutsu sibling to `vcs`. Auto-hidden when not in a `.jj/`
+        // working copy, so safe to keep in the always-on group; users
+        // who run git only never pay anything for it.
+        "jj",
         // Auto-detected.
         "virtualenv",
         "anaconda",
@@ -108,6 +113,7 @@ pub fn build(name: &str) -> Option<Box<dyn Segment>> {
         "dir" => Some(Box::new(dir::Dir)),
         "docker_context" => Some(Box::new(docker_context::DockerContext)),
         "fnm" => Some(Box::new(fnm::Fnm)),
+        "jj" => Some(Box::new(jj::Jj)),
         "kubecontext" => Some(Box::new(kubecontext::Kubecontext)),
         // Both names resolve to the same segment so legacy configs work.
         "mise" | "rtx" => Some(Box::new(mise::Mise)),
@@ -147,6 +153,7 @@ mod tests {
             "dir",
             "docker_context",
             "fnm",
+            "jj",
             "kubecontext",
             "mise",
             "node_version",

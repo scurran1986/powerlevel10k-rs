@@ -18,6 +18,7 @@ members = [
     "crates/p10k-rs-config",
     "crates/p10k-rs-segments",
     "crates/p10k-rs-git",
+    "crates/p10k-rs-jj",
     "crates/p10k-rs-shell",
     "crates/p10k-rs-wizard",
     "crates/p10k-rs-ai",
@@ -83,6 +84,7 @@ p10k-rs-core = { path = "crates/p10k-rs-core", version = "0.1.0" }
 p10k-rs-config = { path = "crates/p10k-rs-config", version = "0.1.0" }
 p10k-rs-segments = { path = "crates/p10k-rs-segments", version = "0.1.0" }
 p10k-rs-git = { path = "crates/p10k-rs-git", version = "0.1.0" }
+p10k-rs-jj = { path = "crates/p10k-rs-jj", version = "0.1.0" }
 p10k-rs-shell = { path = "crates/p10k-rs-shell", version = "0.1.0" }
 p10k-rs-wizard = { path = "crates/p10k-rs-wizard", version = "0.1.0" }
 p10k-rs-ai = { path = "crates/p10k-rs-ai", version = "0.1.0" }

@@ -300,6 +300,7 @@ dependencies = [
  "p10k-rs-config",
  "p10k-rs-core",
  "p10k-rs-git",
+ "p10k-rs-jj",
  "p10k-rs-segments",
  "p10k-rs-shell",
  "p10k-rs-wizard",
@@ -352,6 +353,15 @@ dependencies = [
 [[package]]
 name = "p10k-rs-ipc"
 version = "0.1.0"
+
+[[package]]
+name = "p10k-rs-jj"
+version = "0.1.0"
+dependencies = [
+ "p10k-rs-core",
+ "thiserror",
+ "tracing",
+]
 
 [[package]]
 name = "p10k-rs-segments"

@@ -41,6 +41,7 @@ pub const KNOWN_SEGMENT_NAMES: &[&str] = &[
     "dir",
     "docker_context",
     "fnm",
+    "jj",
     "kubecontext",
     "mise",
     "node_version",

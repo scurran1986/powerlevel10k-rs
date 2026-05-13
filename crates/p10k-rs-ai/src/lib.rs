@@ -102,38 +102,90 @@ pub fn render_statusline(_host: HostKind, _json_in: &[u8]) -> String {
 }
 
 /// Emit an OSC 7 sequence reporting `cwd` to the host terminal.
+///
+/// Format: `\x1b]7;file://<host>/<percent-encoded-path>\x1b\\`. The
+/// hostname is left empty (`file:///path`) — Claude Code, VSCode, and
+/// Cursor parse the path regardless of the host field, and probing for
+/// a hostname would push us off the I/O-free render path.
+///
+/// Path encoding uses a conservative RFC-3986-style percent-encoder:
+/// the unreserved set (`A-Z a-z 0-9 - _ . ~`) plus `/` (path separator)
+/// pass through; every other byte is encoded as `%XX`. Spaces become
+/// `%20`. Non-UTF-8 paths are encoded byte-by-byte via the lossy UTF-8
+/// representation — `Path::to_string_lossy` already replaces invalid
+/// sequences with U+FFFD, which then percent-encodes cleanly.
+///
+/// Control bytes don't appear here in practice: `RenderCtx::cwd` is
+/// the process cwd, which the kernel guarantees is free of `\0`; any
+/// other control byte the renderer eventually surfaces has already been
+/// stripped by `sanitize_for_terminal`. The encoder still escapes them
+/// defensively as `%XX`.
 #[must_use]
-pub fn osc7_emit(_cwd: &Path) -> String {
-    unimplemented!("osc7_emit lands with the AI integration phase")
+pub fn osc7_emit(cwd: &Path) -> String {
+    let raw = cwd.to_string_lossy();
+    let mut encoded = String::with_capacity(raw.len() + 16);
+    for b in raw.as_bytes() {
+        let c = *b;
+        let unreserved = c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b'~' | b'/');
+        if unreserved {
+            encoded.push(c as char);
+        } else {
+            use std::fmt::Write;
+            // `write!` into a String only fails on allocator failure,
+            // which would already have aborted before now.
+            let _ = write!(encoded, "%{c:02X}");
+        }
+    }
+    format!("\x1b]7;file://{encoded}\x1b\\")
 }
 
-/// OSC 133 prompt-start marker (semantic prompts).
+/// OSC 133 prompt-start marker (`A` — semantic prompt boundary).
+///
+/// Building block for [`osc133_command_start`]. Hosts that parse only
+/// the `A` marker (some older VSCode shell-integration probes) can use
+/// this directly.
 #[must_use]
 pub fn osc133_prompt_start() -> &'static str {
     "\x1b]133;A\x07"
 }
 
-/// OSC 133 prompt-end marker.
+/// OSC 133 command-line-start marker (`B` — end of PS1, start of the
+/// editable command line).
 #[must_use]
 pub fn osc133_prompt_end() -> &'static str {
     "\x1b]133;B\x07"
 }
 
-/// OSC 133 command-start marker.
+/// Concatenated OSC 133 `A` + `B` for the prompt boundary.
+///
+/// Emitted by the binary at the head of the rendered prompt: `A` marks
+/// where PS1 begins, `B` is appended at the tail of PS1 by the renderer
+/// in a separate call to [`osc133_prompt_end`]. This helper exists for
+/// the common "emit both at once" case the render path doesn't use, plus
+/// future statusline paths that don't have a split point.
 #[must_use]
-pub fn osc133_command_start() -> &'static str {
-    "\x1b]133;C\x07"
+pub fn osc133_command_start() -> String {
+    let mut s = String::with_capacity(16);
+    s.push_str(osc133_prompt_start());
+    s.push_str(osc133_prompt_end());
+    s
 }
 
-/// OSC 133 command-end marker carrying the exit code.
+/// OSC 133 command-end marker carrying the exit code (`D;<exit>`).
+///
+/// Emitted by the shell's `precmd` hook with `$?` — the prompt itself
+/// never sees the exit code at the right point to emit this, so the
+/// pure-function shape here is for the init script to embed and unit
+/// tests to pin the format.
 #[must_use]
-pub fn osc133_command_end(_exit: i32) -> String {
-    unimplemented!("osc133_command_end lands with the AI integration phase")
+pub fn osc133_command_end(exit: i32) -> String {
+    format!("\x1b]133;D;{exit}\x07")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_from_env, HostKind};
+    use super::{detect_from_env, osc133_command_end, osc133_command_start, osc7_emit, HostKind};
+    use std::path::Path;
 
     /// Build a fake env lookup from a list of key/value pairs. Anything
     /// not listed returns `None`.
@@ -204,5 +256,47 @@ mod tests {
             ("CURSOR_TRACE_ID", "abc"),
         ]));
         assert_eq!(kind, HostKind::Aider);
+    }
+
+    #[test]
+    fn osc7_encodes_simple_path() {
+        // ASCII unreserved + `/`: pass-through, wrapped in the OSC
+        // envelope with an empty host (Claude Code accepts `file:///…`).
+        let s = osc7_emit(Path::new("/home/seaburdz"));
+        assert_eq!(s, "\x1b]7;file:///home/seaburdz\x1b\\");
+    }
+
+    #[test]
+    fn osc7_percent_encodes_spaces_and_special_chars() {
+        // Spaces become `%20`. Capital hex per RFC 3986.
+        let s = osc7_emit(Path::new("/tmp/foo bar"));
+        assert_eq!(s, "\x1b]7;file:///tmp/foo%20bar\x1b\\");
+    }
+
+    #[test]
+    fn osc7_preserves_unreserved_set() {
+        // The unreserved set (`A-Z a-z 0-9 - _ . ~`) must not be
+        // encoded — a `~` in a path stays a `~`, not `%7E`.
+        let s = osc7_emit(Path::new("/home/~user/a.b-c_d"));
+        assert_eq!(s, "\x1b]7;file:///home/~user/a.b-c_d\x1b\\");
+    }
+
+    #[test]
+    fn osc133_command_start_emits_a_then_b() {
+        // The "prompt" boundary the binary emits at the head of PS1 is
+        // the A+B pair so a host that snapshots only one of them still
+        // gets a useful signal.
+        assert_eq!(osc133_command_start(), "\x1b]133;A\x07\x1b]133;B\x07");
+    }
+
+    #[test]
+    fn osc133_command_end_includes_exit_code() {
+        assert_eq!(osc133_command_end(0), "\x1b]133;D;0\x07");
+        assert_eq!(osc133_command_end(130), "\x1b]133;D;130\x07");
+        // Negative codes: zsh stores `$?` as unsigned, but the function
+        // is `i32` for ergonomic interop with `RenderCtx::last_status`.
+        // Round-trip the literal so hosts that parse signed get what
+        // they expect.
+        assert_eq!(osc133_command_end(-1), "\x1b]133;D;-1\x07");
     }
 }

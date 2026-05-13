@@ -159,14 +159,51 @@ typeset -gi _p10k_rs_cmd_start=0
 # slice.
 typeset -g _P10K_RS_UPCOMING_CMD=""
 
+# Slice 55 — OSC 133 shell-integration markers for AI / IDE hosts.
+#
+# Gate the emissions on a detected AI host. The binary's `render_prompt`
+# emits OSC 7 + OSC 133 A/B around PS1 when `ctx.host != None`; the
+# shell pairs that with `C` (start of output) at preexec and `D;<exit>`
+# (end of output) at precmd. Hosts (Claude Code, Cursor, VSCode agent
+# mode) use the matched A→B→C→D sequence to slice scrollback into
+# semantic command boundaries.
+#
+# Detect once at sourcing time, not per-prompt — `$CLAUDECODE`,
+# `$CURSOR_TRACE_ID`, etc. don't change within a shell session. A miss
+# here costs only the OSC bytes; vanilla terminals would ignore them,
+# but we suppress to keep scrollback clean for users running outside an
+# AI host.
+typeset -g _P10K_RS_AI_HOST=""
+if [[ -n "${CLAUDECODE:-}" ]]; then
+  _P10K_RS_AI_HOST="claude-code"
+elif [[ -n "${AIDER_API_KEY:-}${AIDER_MODEL:-}${AIDER_AUTO_COMMITS:-}" ]]; then
+  _P10K_RS_AI_HOST="aider"
+elif [[ -n "${CURSOR_TRACE_ID:-}${CURSOR_SESSION_ID:-}" ]]; then
+  _P10K_RS_AI_HOST="cursor"
+fi
+
 _p10k_rs_preexec() {
   _p10k_rs_cmd_start=$EPOCHSECONDS
   # `$1` is the full command line about to run (already history-expanded).
   _P10K_RS_UPCOMING_CMD="$1"
+  # OSC 133 `C` — start of command output. Emitted between the user
+  # accepting the line and the command actually running, so the host
+  # can mark "everything after this byte and before the next prompt is
+  # command output". `printf` is a builtin, no fork.
+  if [[ -n "$_P10K_RS_AI_HOST" ]]; then
+    printf '\033]133;C\007'
+  fi
 }
 
 _p10k_rs_precmd() {
   local rs=$?
+  # OSC 133 `D;<exit>` — end of command output, carrying `$?`. Emit
+  # before any other precmd work so the marker lands tight against the
+  # last byte the command wrote. Mirrors `osc133_command_end(rs)` in
+  # `p10k-rs-ai`.
+  if [[ -n "$_P10K_RS_AI_HOST" ]]; then
+    printf '\033]133;D;%d\007' "$rs"
+  fi
   local elapsed_ms=0
   if (( _p10k_rs_cmd_start > 0 )); then
     elapsed_ms=$(( (EPOCHSECONDS - _p10k_rs_cmd_start) * 1000 ))

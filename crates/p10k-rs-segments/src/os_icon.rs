@@ -205,6 +205,7 @@ mod tests {
             host: HostKind::None,
             cwd: Path::new("/"),
             git: None,
+            jj: None,
             last_status: 0,
             last_duration: Duration::ZERO,
             jobs: 0,

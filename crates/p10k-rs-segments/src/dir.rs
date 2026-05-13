@@ -513,6 +513,7 @@ mod tests {
             host: HostKind::None,
             cwd,
             git: None,
+            jj: None,
             last_status: 0,
             last_duration: Duration::ZERO,
             jobs: 0,
