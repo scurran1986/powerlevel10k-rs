@@ -21,10 +21,14 @@ pub mod background_jobs;
 pub mod command_execution_time;
 pub mod context;
 pub mod dir;
+pub mod docker_context;
+pub mod fnm;
 pub mod kubecontext;
+pub mod mise;
 pub mod node_version;
 pub mod nodenv;
 pub mod os_icon;
+pub mod pixi;
 pub mod prompt_char;
 pub mod pyenv;
 pub mod python_version;
@@ -72,6 +76,14 @@ pub fn segment_names() -> &'static [&'static str] {
         // AI-host badge (slice 46): visible only when running inside a
         // detected AI shell (Claude Code, Aider, Cursor).
         "ai_host",
+        // Modern version managers + container-context (slices 48-50).
+        // mise (formerly rtx) is the dominant cross-language version manager;
+        // fnm covers Node-only fast switching; pixi is the conda alternative.
+        // docker_context mirrors kubecontext for multi-host docker workflows.
+        "mise",
+        "fnm",
+        "pixi",
+        "docker_context",
     ]
 }
 
@@ -81,7 +93,9 @@ pub fn segment_names() -> &'static [&'static str] {
 /// to log and skip — an unknown name in a user config should be a non-fatal
 /// `tracing::warn!`, not an error.
 ///
-/// All 21 segments enumerated in [`segment_names`] are now wired.
+/// All segments enumerated in [`segment_names`] are wired here. `"rtx"`
+/// is accepted as a deprecated alias for `"mise"` — mise the tool was
+/// renamed in 2024 and many configs still reference the old name.
 #[must_use]
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {
@@ -92,10 +106,15 @@ pub fn build(name: &str) -> Option<Box<dyn Segment>> {
         "command_execution_time" => Some(Box::new(command_execution_time::CommandExecutionTime)),
         "context" => Some(Box::new(context::Context)),
         "dir" => Some(Box::new(dir::Dir)),
+        "docker_context" => Some(Box::new(docker_context::DockerContext)),
+        "fnm" => Some(Box::new(fnm::Fnm)),
         "kubecontext" => Some(Box::new(kubecontext::Kubecontext)),
+        // Both names resolve to the same segment so legacy configs work.
+        "mise" | "rtx" => Some(Box::new(mise::Mise)),
         "node_version" => Some(Box::new(node_version::NodeVersion)),
         "nodenv" => Some(Box::new(nodenv::Nodenv)),
         "os_icon" => Some(Box::new(os_icon::OsIcon)),
+        "pixi" => Some(Box::new(pixi::Pixi)),
         "prompt_char" => Some(Box::new(prompt_char::PromptChar)),
         "pyenv" => Some(Box::new(pyenv::Pyenv)),
         "python_version" => Some(Box::new(python_version::PythonVersion)),
@@ -126,10 +145,14 @@ mod tests {
             "command_execution_time",
             "context",
             "dir",
+            "docker_context",
+            "fnm",
             "kubecontext",
+            "mise",
             "node_version",
             "nodenv",
             "os_icon",
+            "pixi",
             "prompt_char",
             "pyenv",
             "python_version",

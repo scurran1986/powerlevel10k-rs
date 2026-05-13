@@ -361,6 +361,8 @@ dependencies = [
  "p10k-rs-config",
  "p10k-rs-core",
  "rustix 0.38.44",
+ "serde",
+ "serde_json",
  "thiserror",
  "time",
  "tracing",
