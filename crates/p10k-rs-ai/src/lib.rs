@@ -93,12 +93,16 @@ pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
 /// Render the JSON statusline payload for `host`, given the host's input
 /// JSON on stdin.
 ///
-/// # Panics
-///
-/// Currently unimplemented.
+/// Returns an empty string today — the per-host statusline format lands
+/// in the AI integration phase (slice 61). The function exists as a
+/// stable public entry point so the binary's `statusline --host …`
+/// subcommand can route to it once richer per-host metadata is wired.
+/// Returning `""` instead of panicking keeps the public surface
+/// crash-safe: a caller that reaches this from a misrouted CLI invocation
+/// gets no output rather than a process-killing `unimplemented!()`.
 #[must_use]
 pub fn render_statusline(_host: HostKind, _json_in: &[u8]) -> String {
-    unimplemented!("render_statusline lands with the AI integration phase")
+    String::new()
 }
 
 /// Emit an OSC 7 sequence reporting `cwd` to the host terminal.
@@ -184,8 +188,23 @@ pub fn osc133_command_end(exit: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_from_env, osc133_command_end, osc133_command_start, osc7_emit, HostKind};
+    use super::{
+        detect_from_env, osc133_command_end, osc133_command_start, osc7_emit, render_statusline,
+        HostKind,
+    };
     use std::path::Path;
+
+    #[test]
+    fn render_statusline_stub_returns_empty_without_panicking() {
+        // The function is a public stub for the AI statusline phase. The
+        // contract today is "returns an empty string, never panics" so a
+        // misrouted CLI call (`statusline --host …` before the per-host
+        // payload format is wired) degrades gracefully instead of taking
+        // the process down. Pin the contract.
+        assert_eq!(render_statusline(HostKind::None, b""), "");
+        assert_eq!(render_statusline(HostKind::ClaudeCode, b"{}"), "");
+        assert_eq!(render_statusline(HostKind::Aider, b"\x00\xff"), "");
+    }
 
     /// Build a fake env lookup from a list of key/value pairs. Anything
     /// not listed returns `None`.
