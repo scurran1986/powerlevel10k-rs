@@ -440,6 +440,14 @@ fn append_line2(
 /// ribbon. The state machine is identical to the body of `render_prompt`
 /// pre-slice-57 — extracted so line 1 and line 2 share one
 /// implementation now that line 2 can carry bg-bearing segments.
+///
+/// Mirror function for the right side is [`render_right`]. The two
+/// look superficially similar but differ on four structural axes
+/// (arrow direction, leading-vs-trailing transition, mirrored fg/bg
+/// in the both-have-bg arm, closing arrow into terminal default), so
+/// they intentionally remain two purpose-named functions rather than
+/// one parametric helper. If a third side ever appears the abstraction
+/// boundary becomes worth revisiting.
 fn append_ribbon(
     left: &mut String,
     items: &[(SegmentOutput, &str)],
