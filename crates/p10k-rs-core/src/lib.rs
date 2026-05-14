@@ -348,28 +348,6 @@ pub fn render_prompt(
     }
 }
 
-/// Render the transient (collapsed) prompt.
-///
-/// Always returns `Some(_)` — the policy decision ("should the shell
-/// actually swap PROMPT for this collapsed form?") is the init
-/// script's, gated on [`Config::transient_prompt`]. Returning the
-/// rendered bytes unconditionally lets the binary expose
-/// `--render-side transient` as a pure render request, regardless of
-/// the user's mode setting.
-///
-/// The transient render walks no segments other than `prompt_char`,
-/// emits no frame, ruler, segments, or trailing newline — one line of
-/// `<fg>❯</fg>`. [`TransientPromptMode::Quiet`],
-/// [`TransientPromptMode::SameDir`], and
-/// [`TransientPromptMode::UniqueDir`] are presently indistinguishable
-/// at the render layer; a future slice can branch on the mode without
-/// a schema change.
-///
-/// The result is wrapped for the target shell so its SGRs survive
-/// zsh's prompt-width tracker exactly like `left`/`right`. When the
-/// configured layout has no `prompt_char` segment the result is an
-/// empty (post-wrap) string — the caller then assigns `PROMPT=""`,
-/// which is the least surprising fallback.
 /// Emit the optional ruler line + top-left frame corner glyph and
 /// return `(frame_fg_sgr, frame_active)` so the caller can reuse them
 /// for line 2's bottom corner. Extracted from `render_prompt` to keep
@@ -520,6 +498,27 @@ fn append_ribbon(
     }
 }
 
+/// Render the transient (collapsed) prompt.
+///
+/// Always returns the rendered bytes — the policy decision ("should
+/// the shell actually swap PROMPT for this collapsed form?") is the
+/// init script's, gated on [`p10k_rs_config::TransientPromptMode`].
+/// Returning the bytes unconditionally lets the binary expose
+/// `--render-side transient` as a pure render request, regardless of
+/// the user's mode setting.
+///
+/// The transient render walks no segments other than `prompt_char`,
+/// emits no frame, ruler, segments, or trailing newline — one line of
+/// `<fg>❯</fg>`. `TransientPromptMode::Quiet`,
+/// `TransientPromptMode::SameDir`, and `TransientPromptMode::UniqueDir`
+/// are presently indistinguishable at the render layer; a future slice
+/// can branch on the mode without a schema change.
+///
+/// The result is wrapped for the target shell so its SGRs survive
+/// zsh's prompt-width tracker exactly like `left`/`right`. When the
+/// configured layout has no `prompt_char` segment the result is an
+/// empty (post-wrap) string — the caller then assigns `PROMPT=""`,
+/// which is the least surprising fallback.
 fn render_transient(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
     let mut out = String::new();
     for seg in segments {
