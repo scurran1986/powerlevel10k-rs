@@ -32,6 +32,10 @@ clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Used solely for the portable `OFlags::NOFOLLOW` constant on the
+# instant-prompt dump write. Already pulled transitively by p10k-rs-core /
+# p10k-rs-git, so no new bytes in the dep tree.
+rustix = { workspace = true }
 # Slice 32: per-segment cwd gating via `show_in_dir` / `disabled_dir_pattern`.
 # `globset` is the standard Rust glob library (used by ripgrep, cargo-edit,
 # watchexec, etc.; ~hundreds of reverse-deps on crates.io) and compiles each

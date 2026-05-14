@@ -458,6 +458,10 @@ fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
 /// The trailing literal space inside the quoted value matches the precmd
 /// hook's `"$(... ) "` shape, so sourcing the dump produces the same
 /// PROMPT bytes the precmd would have set.
+///
+/// Security: the dump is `source`d by the shell at startup, so its bytes
+/// run as code. We harden the write against symlink/race attacks on a
+/// multi-user host where the dump dir or tempfile path could be hostile.
 fn write_instant_dump(
     path: &std::path::Path,
     rendered: &str,
@@ -475,9 +479,53 @@ fn write_instant_dump(
     // be on the same filesystem as the destination for `rename` to be
     // atomic; placing it next to the destination guarantees that.
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, content.as_bytes())?;
+    // A leftover `.tmp` from a previous crashed run would block the
+    // `O_CREAT|O_EXCL` open below. Unlinking it is safe: the dump dir is
+    // per-user and the `.tmp` suffix is ours; we never trust it for
+    // anything else.
+    let _ = std::fs::remove_file(&tmp);
+    write_dump_tmp_atomic(&tmp, content.as_bytes())?;
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+/// Write `content` to `tmp` with paranoid open flags.
+///
+/// On unix the open is `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW` at mode
+/// `0o600`, and we `fsync(2)` the fd before returning. Rationale:
+///
+/// - `O_CREAT|O_EXCL` (Rust `create_new(true)`) refuses to open an
+///   existing path. POSIX says a symlink "counts as existing" for this
+///   check regardless of the target, so this alone defeats classic
+///   `/tmp/foo.tmp` → `/etc/shadow` pre-plant attacks.
+/// - `O_NOFOLLOW` is belt-and-suspenders for the same threat.
+/// - Mode `0o600`: the dump line contains the literal rendered PROMPT,
+///   which can include cwd path components users may consider sensitive
+///   on a multi-user host. The default umask of `0o022` would leak the
+///   file to "others".
+/// - `sync_all()` (fsync) before rename: without it, a power loss between
+///   the rename and writeback would leave the next shell sourcing a
+///   zero-byte file.
+#[cfg(unix)]
+fn write_dump_tmp_atomic(tmp: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    #[allow(clippy::cast_possible_wrap)]
+    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(nofollow)
+        .mode(0o600)
+        .open(tmp)?;
+    f.write_all(content)?;
+    f.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_dump_tmp_atomic(tmp: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    std::fs::write(tmp, content)
 }
 
 /// Build the dump file's content for zsh: `PROMPT='<escaped-rendered> '\n`.
@@ -638,4 +686,58 @@ fn init_tracing() {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+#[allow(clippy::unwrap_used)]
+mod write_dump_tests {
+    use super::{write_instant_dump, CoreShell};
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    fn scratch_path(tag: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "p10k-rs-dump-test-{tag}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn write_instant_dump_creates_file_with_owner_only_mode() {
+        // The dump can contain cwd path components that some users treat
+        // as sensitive on a multi-user host; the file must not be
+        // world-readable.
+        let dump = scratch_path("mode");
+        write_instant_dump(&dump, "\u{276f} ", CoreShell::Zsh).unwrap();
+        let md = std::fs::metadata(&dump).unwrap();
+        let mode = md.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "expected 0o600, got 0o{mode:o}");
+        let _ = std::fs::remove_file(&dump);
+    }
+
+    #[test]
+    fn write_instant_dump_does_not_follow_preplanted_symlink() {
+        // Attacker pre-plants `<dump>.tmp` as a symlink to a sensitive
+        // file. The unlink-then-create_new sequence (with O_NOFOLLOW belt
+        // and `O_CREAT|O_EXCL` suspenders) must leave the symlink target
+        // untouched.
+        let dump = scratch_path("symlink");
+        let tmp = dump.with_extension("tmp");
+        let target = scratch_path("symlink-target");
+        std::fs::write(&target, b"untouched\n").unwrap();
+        std::os::unix::fs::symlink(&target, &tmp).unwrap();
+        write_instant_dump(&dump, "x", CoreShell::Zsh).unwrap();
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"untouched\n",
+            "symlink target was written through"
+        );
+        let _ = std::fs::remove_file(&dump);
+        let _ = std::fs::remove_file(&target);
+    }
 }

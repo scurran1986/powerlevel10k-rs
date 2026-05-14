@@ -50,6 +50,20 @@ const RS: u8 = 0x1E;
 /// and the binary falls back to `ShellOut`.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Upper bound on the response buffer. A well-formed gitstatusd record is
+/// well under 1 `KiB`; capping at 1 `MiB` stops a misbehaving (or hostile)
+/// peer from forcing unbounded heap growth before the delimiter byte.
+/// Hitting the cap returns `None` and falls back to `ShellOut`.
+const MAX_RESPONSE_LEN: usize = 1 << 20;
+
+/// POSIX `S_IFMT` — file-type mask within a stat `mode` field.
+#[cfg(unix)]
+const S_IFMT: u32 = 0o170_000;
+
+/// POSIX `S_IFIFO` — masked-mode value identifying a FIFO.
+#[cfg(unix)]
+const S_IFIFO: u32 = 0o010_000;
+
 /// Long-lived gitstatusd backend. Talks to a daemon spawned by the shell
 /// init script via two FIFO paths.
 ///
@@ -93,7 +107,13 @@ impl Backend for Gitstatusd {
         // Open both FIFOs. The shell holds R/W fds on each (kept alive for
         // process lifetime), so neither open should block — the daemon is
         // already on the other end.
-        let mut req = OpenOptions::new().write(true).open(&self.req_fifo).ok()?;
+        //
+        // `open_fifo_safely` closes the lstat→open TOCTOU window from
+        // `is_fifo()` by re-verifying type and owner against the fd we
+        // actually hold (with `O_NOFOLLOW` on the open itself so a
+        // mid-flight symlink swap returns `ELOOP` rather than the wrong
+        // pipe).
+        let mut req = open_fifo_safely(&self.req_fifo, FifoMode::Write)?;
 
         // Build request: `id\x1F<dir>\x1E`. id is opaque per
         // 07-gitstatus.md; we use "p10k-rs-prompt".
@@ -111,10 +131,71 @@ impl Backend for Gitstatusd {
         // Open resp and read until \x1E with a poll-driven deadline. If
         // the daemon doesn't respond by deadline we return None and the
         // binary falls back to ShellOut.
-        let resp = OpenOptions::new().read(true).open(&self.resp_fifo).ok()?;
+        let resp = open_fifo_safely(&self.resp_fifo, FifoMode::Read)?;
         let record = read_until_with_deadline(&resp, RS, self.timeout)?;
         parse_response(&record)
     }
+}
+
+/// Open mode for [`open_fifo_safely`].
+#[derive(Clone, Copy)]
+enum FifoMode {
+    Read,
+    Write,
+}
+
+/// Open `path` for read or write and verify on the resulting fd that
+/// the file is still a FIFO owned by the effective uid.
+///
+/// The `is_fifo()` check in [`Gitstatusd::from_env_paths`] runs lstat
+/// once at construction. By the time `Backend::status` is called the
+/// path may have been swapped (TOCTOU). Defences applied here:
+///
+/// - `O_NOFOLLOW` on the open: a symlink swap turns into `ELOOP`.
+/// - `fstat` on the open fd: re-verify the file type is still FIFO and
+///   the owner uid is still us. The check operates on the inode behind
+///   the fd we already hold, so it is race-free relative to any further
+///   path manipulation.
+///
+/// Returns `None` if any of: open fails, fstat fails, type isn't FIFO,
+/// owner uid differs. The caller falls back to `ShellOut`.
+#[cfg(unix)]
+fn open_fifo_safely(path: &Path, mode: FifoMode) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut opts = OpenOptions::new();
+    match mode {
+        FifoMode::Read => {
+            opts.read(true);
+        }
+        FifoMode::Write => {
+            opts.write(true);
+        }
+    }
+    #[allow(clippy::cast_possible_wrap)]
+    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
+    opts.custom_flags(nofollow);
+    let f = opts.open(path).ok()?;
+    let stat = rustix::fs::fstat(&f).ok()?;
+    // Re-verify file type via the canonical mode mask. Using bitmask
+    // arithmetic (S_IFMT / S_IFIFO hoisted as module consts) rather than
+    // `rustix::fs::FileType::from_raw_mode` so the check is identical
+    // across rustix releases that have churned that enum.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let mode_bits = stat.st_mode as u32;
+    if mode_bits & S_IFMT != S_IFIFO {
+        return None;
+    }
+    if stat.st_uid != rustix::process::geteuid().as_raw() {
+        return None;
+    }
+    Some(f)
+}
+
+#[cfg(not(unix))]
+fn open_fifo_safely(_path: &Path, _mode: FifoMode) -> Option<std::fs::File> {
+    // FIFO IPC is a unix concept; on non-unix targets we never construct
+    // a `Gitstatusd` in the first place (`is_fifo()` returns false).
+    None
 }
 
 /// Read from `f` into a buffer until `delim` appears or the deadline elapses.
@@ -149,6 +230,11 @@ fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Opti
         let n = rustix::io::read(f, &mut buf).ok()?;
         if n == 0 {
             // EOF before delimiter.
+            return None;
+        }
+        // Cap before extending so a misbehaving daemon can't force
+        // unbounded heap growth before a `\x1E` ever arrives.
+        if record.len().saturating_add(n) > MAX_RESPONSE_LEN {
             return None;
         }
         record.extend_from_slice(&buf[..n]);
@@ -566,5 +652,97 @@ mod tests {
         // Says "1" (is repo) but doesn't have the full 17 fields.
         let bytes = build_response(&["id", "1", "/repo", "deadbeef", "main"]);
         assert!(parse_response(&bytes).is_none());
+    }
+
+    // ---------- security regression tests (slice E) ----------
+
+    /// Build a unique scratch dir under `$TMPDIR` for filesystem tests.
+    /// We hand-roll instead of pulling `tempfile` back in (removed in
+    /// slice 9 per workspace dep policy).
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let p = std::env::temp_dir().join(format!(
+            "p10k-rs-gitstatusd-test-{tag}-{}-{stamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&p).unwrap();
+        p
+    }
+
+    fn rm_rf(p: &Path) {
+        let _ = std::fs::remove_dir_all(p);
+    }
+
+    fn mkfifo(path: &Path) {
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            path,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn open_fifo_safely_accepts_real_fifo_owned_by_us() {
+        let dir = scratch_dir("fifo-accept");
+        let p = dir.join("req");
+        mkfifo(&p);
+        // R/W open keeps both ends "occupied" so neither read-only nor
+        // write-only open will block. Matches the zsh init script's
+        // keep-alive trick (`exec 3<>"$req_fifo"`).
+        let _holder = OpenOptions::new().read(true).write(true).open(&p).unwrap();
+        assert!(open_fifo_safely(&p, FifoMode::Read).is_some());
+        assert!(open_fifo_safely(&p, FifoMode::Write).is_some());
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn open_fifo_safely_rejects_regular_file() {
+        let dir = scratch_dir("fifo-reject-regular");
+        let p = dir.join("not_a_fifo");
+        std::fs::write(&p, b"hello").unwrap();
+        assert!(open_fifo_safely(&p, FifoMode::Read).is_none());
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn open_fifo_safely_rejects_symlink_to_fifo() {
+        // Defence against the TOCTOU swap: even if the path is a symlink
+        // to a real FIFO, O_NOFOLLOW on open should fail.
+        let dir = scratch_dir("fifo-reject-symlink");
+        let real = dir.join("real");
+        mkfifo(&real);
+        let _holder = OpenOptions::new().read(true).write(true).open(&real).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(open_fifo_safely(&link, FifoMode::Read).is_none());
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn read_until_caps_at_max_response_len() {
+        // Stream past the 1 MiB cap without ever emitting the delimiter.
+        // The reader must return None instead of unbounded heap growth.
+        let (rfd, wfd) = rustix::pipe::pipe().unwrap();
+        let writer = std::thread::spawn(move || {
+            let chunk = vec![b'X'; 64 * 1024];
+            // ~18 MiB worth of writes; one of them will fail with EPIPE
+            // once the reader returns and drops `rfd`. That's fine — the
+            // thread just exits.
+            for _ in 0..(MAX_RESPONSE_LEN / chunk.len() + 16) {
+                if rustix::io::write(&wfd, &chunk).is_err() {
+                    return;
+                }
+            }
+        });
+        let result = read_until_with_deadline(&rfd, RS, Duration::from_secs(5));
+        drop(rfd); // unblock the writer thread via EPIPE
+        writer.join().unwrap();
+        assert!(result.is_none(), "expected None when stream exceeds cap");
     }
 }
