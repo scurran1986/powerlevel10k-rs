@@ -181,9 +181,12 @@ fn open_fifo_safely(path: &Path, mode: FifoMode) -> Option<std::fs::File> {
     // `rustix::fs::FileType::from_raw_mode` so the check is identical
     // across rustix releases that have churned that enum.
     //
-    // `st_mode` is `u32` on Linux and `u16` on macOS; `u32::from`
-    // widens both losslessly and avoids the `clippy::cast_lossless`
-    // warning that fired on the macOS leg of CI.
+    // `st_mode` is `u32` on Linux and `u16` on macOS. `u32::from`
+    // widens both losslessly. On Linux this is a no-op conversion
+    // which trips `useless_conversion`; on macOS the `as u32`
+    // alternative trips `cast_lossless`. The allow below lets one
+    // form satisfy both targets.
+    #[allow(clippy::useless_conversion)]
     let mode_bits: u32 = u32::from(stat.st_mode);
     if mode_bits & S_IFMT != S_IFIFO {
         return None;
