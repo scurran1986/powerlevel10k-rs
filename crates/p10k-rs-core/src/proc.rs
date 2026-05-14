@@ -32,8 +32,10 @@
 //! ## Pipe capture
 //!
 //! The helper sets `stdin(Stdio::null())`, `stdout(Stdio::piped())`,
-//! and `stderr(Stdio::piped())` on the [`Command`](std::process::Command)
-//! itself, overriding whatever the caller configured. This is the
+//! and `stderr(Stdio::piped())` on the [`Command`] itself, overriding
+//! whatever the caller configured.
+//!
+//! [`Command`]: std::process::Command This is the
 //! simpler of the two designs the spec considered: callers don't have
 //! to remember to set up the pipes, and we get a single chokepoint that
 //! guarantees we can read the child's output regardless of how the

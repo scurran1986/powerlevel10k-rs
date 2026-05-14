@@ -49,9 +49,10 @@ const MAX_WALKUP: usize = 64;
 ///   half-initialised repo, a jj version that doesn't accept the
 ///   template we send).
 ///
-/// Walks up at most [`MAX_WALKUP`] levels from `cwd`. The walk stops at
-/// the first `.jj/` it finds (jj working copies don't nest the way git
-/// submodules do, so the first hit is always the right one).
+/// Walks up at most 64 levels from `cwd` (the `MAX_WALKUP` bound).
+/// The walk stops at the first `.jj/` it finds (jj working copies
+/// don't nest the way git submodules do, so the first hit is always
+/// the right one).
 #[must_use]
 pub fn detect_jj(cwd: &Path) -> Option<JjState> {
     let root = find_jj_root(cwd)?;

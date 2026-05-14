@@ -717,7 +717,11 @@ mod tests {
         let dir = scratch_dir("fifo-reject-symlink");
         let real = dir.join("real");
         mkfifo(&real);
-        let _holder = OpenOptions::new().read(true).write(true).open(&real).unwrap();
+        let _holder = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&real)
+            .unwrap();
         let link = dir.join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         assert!(open_fifo_safely(&link, FifoMode::Read).is_none());

@@ -15,15 +15,7 @@ categories.workspace = true
 
 [dependencies]
 p10k-rs-config = { workspace = true }
-serde = { workspace = true, optional = true }
-thiserror = { workspace = true }
-anstyle = { workspace = true }
 rustix = { workspace = true }
-
-[features]
-default = []
-# Enable serde derives on public types so `--json` consumers can serialise them.
-serde = ["dep:serde"]
 
 [lints]
 workspace = true

@@ -81,9 +81,9 @@ pub fn palette() -> Option<&'static [Color; 16]> {
 /// Run the OSC 4 probe against `/dev/tty` and return the 16-entry palette.
 ///
 /// Returns `None` if `/dev/tty` cannot be opened, isn't a TTY, the
-/// terminal doesn't reply to a query within [`PER_QUERY_TIMEOUT`], any
-/// individual response fails to parse, or the total elapsed time
-/// exceeds [`TOTAL_BUDGET`].
+/// terminal doesn't reply to a query within the per-query timeout
+/// (50 ms), any individual response fails to parse, or the total
+/// elapsed time exceeds the per-call budget (800 ms).
 ///
 /// Public so tests and the rare external caller (a diagnostics command,
 /// for instance) can force a re-probe; normal renderer code goes

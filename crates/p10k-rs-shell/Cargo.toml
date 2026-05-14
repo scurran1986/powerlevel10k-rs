@@ -14,7 +14,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-p10k-rs-core = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

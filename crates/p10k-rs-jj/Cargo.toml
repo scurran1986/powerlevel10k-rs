@@ -15,8 +15,6 @@ categories.workspace = true
 
 [dependencies]
 p10k-rs-core = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
 
 [lints]
 workspace = true

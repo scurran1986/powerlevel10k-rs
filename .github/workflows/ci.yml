@@ -69,3 +69,17 @@ jobs:
           command: check
           # Default scope: advisories, licenses, bans, sources.
           arguments: --all-features
+
+  machete:
+    name: cargo-machete
+    # Catches the slow drift of `dep.workspace = true` lines accumulating in
+    # crate `Cargo.toml`s after the only consumer is removed — 16 such drops
+    # landed in the slice that wired this job in. Pinned to a version that
+    # builds on the MSRV (stable - 2 = 1.88); upstream's latest needs 1.91.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-machete --version 0.7.0 --locked
+      - run: cargo machete

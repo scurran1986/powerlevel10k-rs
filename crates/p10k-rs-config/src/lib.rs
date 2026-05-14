@@ -111,10 +111,11 @@ pub type Result<T> = std::result::Result<T, ConfigError>;
 ///
 /// # Sanitisation contract
 ///
-/// [`Config::from_toml`] runs [`sanitize_for_terminal`] on every prompt-bound
-/// string — separator glyphs, frame/ruler glyphs, segment icons, and per-state
-/// icons. The on-disk shape stays `String`; sanitisation happens at the parse
-/// boundary so segments can hand the sanitised value straight into the
+/// [`Config::from_toml`] strips every Unicode control codepoint
+/// (except `\t`) from every prompt-bound string — separator glyphs,
+/// frame/ruler glyphs, segment icons, and per-state icons. The
+/// on-disk shape stays `String`; sanitisation happens at the parse
+/// boundary so segments can hand the value straight into the
 /// rendered prompt without re-checking. See the field rustdoc on
 /// [`Layout::separators`], [`Layout::frame`], [`Layout::ruler`],
 /// [`SegmentConfig::icon`], and [`StateOverrides::icon`].
@@ -501,7 +502,7 @@ impl Config {
     ///
     /// # Sanitisation
     ///
-    /// After successful parse, [`sanitize_for_terminal`] runs over:
+    /// After successful parse, the control-byte stripper runs over:
     /// - `layout.separators.{left,right,subsegment}`
     /// - `layout.frame.glyph`
     /// - `layout.frame.bottom_glyph`
@@ -610,7 +611,8 @@ impl Config {
     }
 }
 
-/// Apply [`sanitize_for_terminal`] to an `Option<String>` in place.
+/// Apply the control-byte stripper (`safety::sanitize_for_terminal`)
+/// to an `Option<String>` in place.
 ///
 /// Skips `None` and the empty string (sanitisation is a no-op for empty input
 /// and the allocation isn't worth it).

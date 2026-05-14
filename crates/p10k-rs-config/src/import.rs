@@ -1,4 +1,4 @@
-//! Best-effort `~/.p10k.zsh` → [`Config`](crate::Config) importer.
+//! Best-effort `~/.p10k.zsh` → [`Config`] importer.
 //!
 //! Powerlevel10k stores configuration as a zsh script — it's not just data,
 //! it's executable. We intentionally do **not** execute it; instead we
@@ -77,7 +77,8 @@ pub struct ImportOutcome {
 /// Best-effort: malformed lines and unknown variables become warnings.
 /// The returned `Config` is sanitised by [`Config::from_toml`]-equivalent
 /// rules: every string field that lands in the prompt is run through
-/// [`crate::safety::sanitize_for_terminal`].
+/// the same control-byte stripper the parser uses (see the
+/// "Sanitisation" section on [`Config::from_toml`]).
 #[must_use]
 pub fn import_p10k_zsh(input: &str) -> ImportOutcome {
     let assignments = parse_assignments(input);

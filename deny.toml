@@ -47,8 +47,12 @@ wildcards = "deny"
 highlight = "all"
 # Deny crates with a known-better alternative the project standardised on.
 deny = [
-    # Use `OnceLock`/`LazyLock` from std.
-    { crate = "lazy_static", use-instead = "std::sync::OnceLock" },
+    # Use `OnceLock`/`LazyLock` from std. The `wrappers` allowance lets
+    # `sharded-slab` keep `lazy_static`: it sits under
+    # `tracing-subscriber`'s mandatory `registry` feature, which we use
+    # in the binary's `--RUST_LOG`-gated diagnostic path. The ban
+    # remains intact for any first-party code or future direct dep.
+    { crate = "lazy_static", use-instead = "std::sync::OnceLock", wrappers = ["sharded-slab"] },
     # Time policy: see ARCHITECTURE.md § 3.5.
     { crate = "chrono", use-instead = "time or jiff" },
     # No async runtime in MVP.
