@@ -40,24 +40,15 @@ git clone https://github.com/scurran1986/powerlevel10k-rs.git ~/.local/share/pow
 
 ## Status
 
-Early-alpha. Daily-driver-grade for the maintainer. Not packaged
-for general use yet.
+**v0.1.1 shipped.** Daily-driver-grade for the maintainer. Multi-arch
+release builds on every tag push (Linux x86_64/aarch64 GNU, macOS
+x86_64/aarch64). Full slice ledger in `CHANGELOG.md` — the headline
+features are listed below under "What works today".
 
-11 slices shipped:
-
-1. **slice 1** — Minimum runnable prompt: `dir` + `prompt_char`
-2. **slice 2** — ANSI color emission with zsh-aware `%{…%}` width tracking
-3. **slice 3** — `$?`-aware `prompt_char` (green on success, red on failure)
-4. **slice 4** — `vcs` segment via `git` shell-out
-5. **slice 5** — `command_execution_time` (cyan duration past 3 s)
-6. **slice 6** — `gitstatusd` long-lived daemon backend (ADR-0001 hot path)
-7. **slice 7** — Daemon hardening: 2 s `poll(2)` timeout, auto-respawn, rich `vcs` render
-8. **slice 8** — Instant prompt: sub-ms first prompt via cached dump file
-9. **slice 9** — Review-driven hardening: FIFO security, GPL wiring, doc refresh
-10. **slice 10** — `status` segment: exit code shown red on non-zero `$?`
-11. **slice 11** — Render-path hardening: `%`-expansion + ANSI-injection sanitization
-
-53 tests pass workspace-wide. Builds clean on stable Rust 1.88.
+**368 tests pass workspace-wide.** Builds clean on stable Rust 1.88
+across all five gates (`build`, `test`, `clippy -D warnings`,
+`fmt --check`, `doc -D warnings`) plus `cargo deny check` and
+`cargo machete`.
 
 ## Why this project exists
 
@@ -74,17 +65,21 @@ path is a long-lived `gitstatusd` daemon over FIFOs.
 
 | Feature | State |
 |---|---|
-| All 21 MVP segments (`MVP-SPEC.md` § 1.2) | done |
-| Per-segment styling via TOML (`foreground` / `background` / states) | done |
-| Three colour modes (Ansi8 / Ansi256 / Truecolor) with 16 P9k-compat names | done |
-| Instant prompt (sub-ms first shell) | done |
-| `gitstatusd` long-lived daemon backend | done |
+| All 21 MVP segments + 10 modern extras (`jj`, `ai_host`, `mise`, `fnm`, `pixi`, `docker_context`, `os_icon`, `node_version`, `python_version`, `rust_version`) | 31 segments wired |
+| Per-segment styling via TOML (`foreground` / `background` / per-state overrides) | done |
+| Four colour modes — `Ansi8` / `Ansi256` / `TrueColor` / `FollowTerminal` (OSC 4 palette probe) | done |
+| Powerline ribbon, multi-line frame, ruler, right prompt (`RPROMPT`) | done |
+| Transient prompt (zsh `zle-line-finish` collapses to a lone `❯`) | done |
+| Instant prompt (sub-ms first shell via cached `dump.zsh`) | done |
+| `gitstatusd` long-lived daemon over FIFOs (ADR-0001 hot path) | done |
 | `git` shell-out fallback | done |
-| Branch / cwd render-path sanitization | done |
+| Branch / cwd render-path sanitization (`SafeText`) | done |
 | `p10k-rs import ~/.p10k.zsh` (P9k importer) | done |
-| `p10k-rs configure` wizard | placeholder |
-| `bash` / `fish` init scripts | placeholder |
-| Multi-arch binary distribution | linux-x86_64 only |
+| `p10k-rs configure` wizard | stub |
+| `bash` init script (no RPROMPT, no preexec timing, no gitstatusd) | best-effort |
+| `fish` init script | stub |
+| Multi-arch binary distribution (Linux x86_64/aarch64 GNU, macOS x86_64/aarch64) | release workflow on tag |
+| mdBook documentation (`docs/`) | published via `.github/workflows/docs.yml` |
 
 ## Importing an existing Powerlevel10k config
 
@@ -113,11 +108,13 @@ crates/
   p10k-rs            # binary entrypoint
   p10k-rs-core       # Segment trait, render pipeline (no I/O)
   p10k-rs-config     # TOML schema + Powerlevel9k import (data only)
-  p10k-rs-segments   # segment implementations
+  p10k-rs-segments   # segment implementations (31 segments)
   p10k-rs-git        # gitstatusd client + git shell-out fallback
-  p10k-rs-shell      # per-shell init scripts
+  p10k-rs-jj         # Jujutsu VCS detection + state producer
+  p10k-rs-shell      # per-shell init scripts (zsh end-to-end; bash best-effort; fish stub)
   p10k-rs-wizard     # `configure` TUI (stub)
-  p10k-rs-ai         # AI-host detection / OSC emission (stub)
+  p10k-rs-ai         # AI-host detection + OSC 7/133 emission
+  p10k-rs-ipc        # FIFO plumbing
 ```
 
 ## Build from source / hacking
@@ -125,10 +122,14 @@ crates/
 ```bash
 git clone https://github.com/scurran1986/powerlevel10k-rs.git
 cd powerlevel10k-rs
-cargo build --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace --locked
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --locked
+# Dep-policy gates (also enforced in CI):
+cargo deny check       # cargo install cargo-deny
+cargo machete          # cargo install cargo-machete --version 0.7.0 --locked
 ```
 
 MSRV: stable - 2 (currently **1.88**). Pinned in `rust-toolchain.toml`.

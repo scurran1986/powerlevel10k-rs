@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
+## [Unreleased]
+
+Post-v0.1.1 fixes + retroactive review-swarm hardening.
+
+### Fixes (HEAD-trailing the v0.1.1 tag)
+
+- `d7d4528` `fix(ai)`: `render_statusline` returned `unimplemented!()`,
+  which killed the binary the first time anything sourced the AI
+  statusline path. Replaced with an empty-string stub until the
+  per-host metadata story lands.
+- `0c73a8e` `fix(core)`: `wrap_for_shell`'s CSI scanner only accepted
+  the `m` (SGR) final byte, so any non-SGR control sequence (cursor
+  moves, scrolling regions, etc.) emitted by a segment was left
+  un-bracketed in zsh mode — breaking the prompt-width tracker.
+  The scanner now accepts any ECMA-48 final byte (`0x40..=0x7E`).
+- `0bb21d4` `perf(core)`: avoid a heap alloc per render on the
+  ruler/frame fg default path (`unwrap_or_else` on `&Color`).
+
+### Slice E (`dbaca60`) — IPC + dump security hardening
+
+Closes 3 MEDIUM findings from the 20260514T023753Z review swarm.
+
+- `gitstatusd` FIFO open: closes the lstat→open TOCTOU window via
+  `open_fifo_safely`. Opens with `O_NOFOLLOW`, then `fstat`s the
+  held fd to re-verify file-type=FIFO and owner=euid. A mid-flight
+  symlink swap now returns `ELOOP` instead of redirecting IPC.
+- `gitstatusd` read buffer: 1 MiB cap on `read_until_with_deadline`
+  (previously unbounded; a misbehaving daemon could grow heap until
+  OOM before any delimiter byte).
+- Instant-prompt dump: tempfile open is now
+  `O_CREAT|O_EXCL|O_NOFOLLOW` at mode `0o600`, with `fsync(2)`
+  before rename. Defeats pre-planted-symlink attacks on the
+  `.tmp` path and survives power loss between rename and
+  writeback.
+
+### Slice A (`bfcc2f2`) — deterministic gate hygiene
+
+CI had been silently failing the `rustdoc` and `cargo-deny` jobs
+since the v0.1.1 release-notes commit (`552a83d`). This slice gets
+all five workspace gates honestly green and prevents the recurrence.
+
+- `cargo deny`: resolved the `lazy_static` ban (transitively via
+  `tracing-subscriber → sharded-slab`) with a documented
+  `wrappers = ["sharded-slab"]` allowance.
+- `cargo doc -D warnings`: fixed 7 pub-API doc-link errors pointing
+  at private items (`sanitize_for_terminal`, `PER_QUERY_TIMEOUT`,
+  `TOTAL_BUDGET`, `MAX_WALKUP`) and dropped two redundant explicit
+  link targets.
+- `cargo machete`: trimmed 16 unused `dep.workspace = true`
+  declarations across 7 crates. Retired the vestigial
+  `serde` feature on `p10k-rs-core` (no enabler).
+- CI: new `machete` job; `RUSTDOCFLAGS="-D warnings"` and
+  `cargo deny check` already in CI now actually pass.
+
 ## [0.1.1] - 2026-05-12
 
 Powerline ribbon + multi-line frame + 31 segments + dual-sided layout.
