@@ -404,7 +404,7 @@ fn parse_color(v: &str) -> Option<Color> {
     }
     // Bare names are passed through. The renderer maps them via the P9k
     // compat table in `p10k_rs_core::style`.
-    Some(Color::Named(trimmed.to_owned()))
+    Some(Color::Named(trimmed.to_owned().into()))
 }
 
 fn parse_hex_rgb(v: &str) -> Option<[u8; 3]> {

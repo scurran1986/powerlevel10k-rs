@@ -229,7 +229,7 @@ fn cmd_prompt(
             factory_default_config()
         }
     };
-    let env = EnvSnapshot::default();
+    let env = EnvSnapshot::from_env();
     // Probe the environment once per prompt for AI-host fingerprints
     // (`$CLAUDECODE`, `$AIDER_*`, `$CURSOR_*`). The result rides in
     // `RenderCtx.host` so segments like `ai_host` can react. Detection

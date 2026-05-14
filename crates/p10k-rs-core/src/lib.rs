@@ -280,8 +280,10 @@ pub fn render_prompt(
     let (frame_fg, frame_active) = append_ruler_and_frame_top(&mut left, ctx, mode);
 
     // Resolve enabled segments up front so we can split off the
-    // line-2 trailing segment without iterating twice.
-    let enabled: Vec<(SegmentOutput, &str)> = segments
+    // line-2 trailing segment without iterating twice. `mut` so the
+    // line-1/line-2 partition can consume the Vec via `into_iter`
+    // or `split_off` rather than cloning every `SegmentOutput`.
+    let mut enabled: Vec<(SegmentOutput, &str)> = segments
         .iter()
         .filter(|s| s.enabled(ctx))
         .map(|s| (s.render(ctx), s.name()))
@@ -301,8 +303,7 @@ pub fn render_prompt(
         let top_names: std::collections::HashSet<&str> =
             top_only.iter().map(|r| r.0.as_str()).collect();
         enabled
-            .iter()
-            .cloned()
+            .into_iter()
             .partition(|(_, name)| top_names.contains(*name))
     } else {
         let split_at = if frame_active
@@ -314,8 +315,8 @@ pub fn render_prompt(
         } else {
             enabled.len()
         };
-        let (a, b) = enabled.split_at(split_at);
-        (a.to_vec(), b.to_vec())
+        let tail = enabled.split_off(split_at);
+        (enabled, tail)
     };
 
     append_ribbon(&mut left, &line1_owned, ctx, mode, separator);
@@ -1240,6 +1241,29 @@ pub struct JjState {
 /// Built by the binary at the start of each prompt and held in `RenderCtx`.
 /// Segments read through this rather than calling [`std::env::var`] so unit
 /// tests can substitute fixtures.
+///
+/// Fields land segment-by-segment as need arises (the producer-discipline
+/// pattern flagged in the architecture review). Today: just `home`, used
+/// by the `dir` segment to collapse `$HOME` → `~` without paying a
+/// global-mutex `getenv` per render.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
-pub struct EnvSnapshot {}
+pub struct EnvSnapshot {
+    /// Value of `$HOME`, captured once per prompt at construction. `None`
+    /// when the variable is unset or contains invalid Unicode; segments
+    /// that depend on home-collapse fall back to the raw cwd in that case.
+    pub home: Option<String>,
+}
+
+impl EnvSnapshot {
+    /// Build an `EnvSnapshot` by reading the relevant `std::env` keys
+    /// once. Use this in the binary's prompt path; tests construct
+    /// fixtures via [`EnvSnapshot::default`] (everything `None`) and
+    /// set the fields they need by hand.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            home: std::env::var("HOME").ok(),
+        }
+    }
+}

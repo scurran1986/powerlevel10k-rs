@@ -46,8 +46,11 @@ impl Segment for Dir {
         // Sanitise before home-collapse so a malicious cwd containing
         // control bytes can't ride the unfiltered path into PROMPT (C2).
         let raw = sanitize_for_terminal(&ctx.cwd.display().to_string());
-        let home = std::env::var("HOME").ok();
-        let collapsed = home_collapse(&raw, home.as_deref());
+        // Read `$HOME` from the per-prompt env snapshot rather than the
+        // global env. The snapshot caches the value across this prompt
+        // render — avoids one libc-mutex'd `getenv` per call on every
+        // shell precmd hook.
+        let collapsed = home_collapse(&raw, ctx.env.home.as_deref());
         let truncate = ctx
             .config
             .segments

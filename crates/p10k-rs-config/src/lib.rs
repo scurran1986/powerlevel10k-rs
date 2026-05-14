@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -304,11 +305,17 @@ pub struct StateOverrides {
 ///
 /// The string variant retains `red`, `darkred`, `wheat4`, etc. The numeric
 /// variants land truecolor and 256-color values.
+///
+/// The named variant is `Cow<'static, str>` rather than `String` so that
+/// segment defaults can supply zero-allocation static literals
+/// (`Color::Named("blue".into())` becomes `Cow::Borrowed("blue")` via
+/// `From<&'static str>`). User-supplied values from TOML deserialize as
+/// `Cow::Owned` and behave like a `String` — same memory cost, same API.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Color {
     /// Named color (Powerlevel9k compat).
-    Named(String),
+    Named(Cow<'static, str>),
     /// Indexed 0–255 ANSI color.
     Indexed(u8),
     /// Truecolor `[r, g, b]`.
