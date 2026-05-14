@@ -677,14 +677,15 @@ mod tests {
     }
 
     fn mkfifo(path: &Path) {
-        rustix::fs::mknodat(
-            rustix::fs::CWD,
-            path,
-            rustix::fs::FileType::Fifo,
-            rustix::fs::Mode::from_raw_mode(0o600),
-            0,
-        )
-        .unwrap();
+        // Shell out: rustix 0.38 with our enabled features doesn't expose
+        // `mkfifoat`/`mknodat` portably (linux only). `/usr/bin/mkfifo`
+        // is in coreutils on every unix CI runner we target. Slow
+        // (~1 ms per test) but only test code.
+        let status = std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .expect("mkfifo binary not found");
+        assert!(status.success(), "mkfifo failed: {status:?}");
     }
 
     #[test]
