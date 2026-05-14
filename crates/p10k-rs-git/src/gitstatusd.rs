@@ -180,8 +180,11 @@ fn open_fifo_safely(path: &Path, mode: FifoMode) -> Option<std::fs::File> {
     // arithmetic (S_IFMT / S_IFIFO hoisted as module consts) rather than
     // `rustix::fs::FileType::from_raw_mode` so the check is identical
     // across rustix releases that have churned that enum.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let mode_bits = stat.st_mode as u32;
+    //
+    // `st_mode` is `u32` on Linux and `u16` on macOS; `u32::from`
+    // widens both losslessly and avoids the `clippy::cast_lossless`
+    // warning that fired on the macOS leg of CI.
+    let mode_bits: u32 = u32::from(stat.st_mode);
     if mode_bits & S_IFMT != S_IFIFO {
         return None;
     }
