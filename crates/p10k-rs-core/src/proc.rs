@@ -33,13 +33,11 @@
 //!
 //! The helper sets `stdin(Stdio::null())`, `stdout(Stdio::piped())`,
 //! and `stderr(Stdio::piped())` on the [`Command`] itself, overriding
-//! whatever the caller configured.
-//!
-//! [`Command`]: std::process::Command This is the
-//! simpler of the two designs the spec considered: callers don't have
-//! to remember to set up the pipes, and we get a single chokepoint that
-//! guarantees we can read the child's output regardless of how the
-//! `Command` was assembled. The trade-off is that a caller who *wants*
+//! whatever the caller configured. This is the simpler of the two
+//! designs the spec considered: callers don't have to remember to set
+//! up the pipes, and we get a single chokepoint that guarantees we can
+//! read the child's output regardless of how the `Command` was
+//! assembled. The trade-off is that a caller who *wants*
 //! the child to inherit stdout (e.g. for debugging) can't get that here
 //! — but no production caller does, and the version segments already
 //! piped everything for sanitisation anyway.
