@@ -684,7 +684,7 @@ mod tests {
         let status = std::process::Command::new("mkfifo")
             .arg(path)
             .status()
-            .expect("mkfifo binary not found");
+            .unwrap();
         assert!(status.success(), "mkfifo failed: {status:?}");
     }
 
