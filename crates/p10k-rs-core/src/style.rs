@@ -8,6 +8,8 @@
 //! [`Color`] and [`ColorMode`] are re-exported from `p10k-rs-config` so
 //! callers can name them without depending on the config crate directly.
 
+use std::borrow::Cow;
+
 pub use p10k_rs_config::{Color, ColorMode};
 
 use p10k_rs_config::Config;
@@ -36,14 +38,24 @@ pub fn reset_bg() -> &'static str {
 /// The emitted escape is mode-aware: a [`Color::Rgb`] under
 /// [`ColorMode::Ansi8`] degrades to the nearest 8-colour cube cell, etc.
 #[must_use]
-pub fn render_fg(config: &Config, segment: &str, state: Option<&str>, default: Color) -> String {
+pub fn render_fg(
+    config: &Config,
+    segment: &str,
+    state: Option<&str>,
+    default: Color,
+) -> Cow<'static, str> {
     let color = resolve(config, segment, state, Side::Fg, default);
     sgr_fg(&color, config.colors)
 }
 
 /// Same as [`render_fg`] but for the background.
 #[must_use]
-pub fn render_bg(config: &Config, segment: &str, state: Option<&str>, default: Color) -> String {
+pub fn render_bg(
+    config: &Config,
+    segment: &str,
+    state: Option<&str>,
+    default: Color,
+) -> Cow<'static, str> {
     let color = resolve(config, segment, state, Side::Bg, default);
     sgr_bg(&color, config.colors)
 }
@@ -115,26 +127,51 @@ fn resolve(
     base.cloned().unwrap_or(default)
 }
 
+/// Precomputed SGR foreground escapes for the 10 Ansi8 codepoints we
+/// ever emit (0..=7 = the 8 named colours, 9 = "default fg"). Indexed
+/// directly by [`Palette::Ansi8`]'s carried value; index 8 is unused
+/// and kept as the empty string so the array stays contiguous.
+const ANSI8_FG_TABLE: [&str; 10] = [
+    "\x1b[30m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[37m",
+    "", "\x1b[39m",
+];
+
+/// Background counterpart to [`ANSI8_FG_TABLE`].
+const ANSI8_BG_TABLE: [&str; 10] = [
+    "\x1b[40m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m", "\x1b[45m", "\x1b[46m", "\x1b[47m",
+    "", "\x1b[49m",
+];
+
 /// Emit a foreground SGR escape for `color` under `mode`.
 ///
 /// Public so segments that need to compose styles themselves (e.g.
 /// the prompt arrow that flips by `last_status`) can call it directly.
+///
+/// Returns `Cow<'static, str>`: the common Ansi8 path borrows from a
+/// precomputed static table (zero alloc), while Ansi256 / Rgb fall
+/// through to `format!` and yield an owned String. Callers that
+/// `push_str`/`format!` the result see no difference — `Cow<str>`
+/// derefs and `Display`s like a `&str`.
 #[must_use]
-pub fn sgr_fg(color: &Color, mode: ColorMode) -> String {
+pub fn sgr_fg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
     match (resolve_to_palette(color, mode), mode) {
-        (Palette::Ansi8(n), _) => format!("\x1b[{}m", 30 + n),
-        (Palette::Ansi256(n), _) => format!("\x1b[38;5;{n}m"),
-        (Palette::Rgb(r, g, b), _) => format!("\x1b[38;2;{r};{g};{b}m"),
+        (Palette::Ansi8(n), _) => {
+            Cow::Borrowed(ANSI8_FG_TABLE.get(n as usize).copied().unwrap_or(""))
+        }
+        (Palette::Ansi256(n), _) => Cow::Owned(format!("\x1b[38;5;{n}m")),
+        (Palette::Rgb(r, g, b), _) => Cow::Owned(format!("\x1b[38;2;{r};{g};{b}m")),
     }
 }
 
 /// Background counterpart to [`sgr_fg`].
 #[must_use]
-pub fn sgr_bg(color: &Color, mode: ColorMode) -> String {
+pub fn sgr_bg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
     match (resolve_to_palette(color, mode), mode) {
-        (Palette::Ansi8(n), _) => format!("\x1b[{}m", 40 + n),
-        (Palette::Ansi256(n), _) => format!("\x1b[48;5;{n}m"),
-        (Palette::Rgb(r, g, b), _) => format!("\x1b[48;2;{r};{g};{b}m"),
+        (Palette::Ansi8(n), _) => {
+            Cow::Borrowed(ANSI8_BG_TABLE.get(n as usize).copied().unwrap_or(""))
+        }
+        (Palette::Ansi256(n), _) => Cow::Owned(format!("\x1b[48;5;{n}m")),
+        (Palette::Rgb(r, g, b), _) => Cow::Owned(format!("\x1b[48;2;{r};{g};{b}m")),
     }
 }
 

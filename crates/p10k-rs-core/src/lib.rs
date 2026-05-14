@@ -378,7 +378,7 @@ fn append_ruler_and_frame_top(
     left: &mut String,
     ctx: &RenderCtx<'_>,
     mode: style::ColorMode,
-) -> (String, bool) {
+) -> (std::borrow::Cow<'static, str>, bool) {
     if let Some(ruler) = ctx.config.layout.ruler.as_ref() {
         if let Some(glyph) = ruler.glyph.as_deref().filter(|g| !g.is_empty()) {
             let fg_color = ruler
