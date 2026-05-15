@@ -8,7 +8,22 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Post-v0.1.1 fixes + retroactive review-swarm hardening.
+(empty)
+
+## [0.1.2] - 2026-05-15
+
+Review-swarm-driven hardening release. The v0.1.1 → v0.1.2 cycle
+closed 4 of 5 actionable HIGHs and ~25 MEDIUMs from the
+20260514T023753Z review swarm, plus three trailing v0.1.1 fixes.
+
+CI had been silently failing the `rustdoc` and `cargo-deny` jobs
+since the v0.1.1 release-notes commit (`552a83d`); slice A
+restored every gate to honest-green. From this tag forward all six
+CI jobs (ubuntu clippy/test, macOS clippy/test, rustdoc, rustfmt,
+cargo-deny, cargo-machete) plus `cargo machete` locally must stay
+green on every push.
+
+See `.github/release-notes/v0.1.2.md` for the user-facing write-up.
 
 ### Fixes (HEAD-trailing the v0.1.1 tag)
 
@@ -40,12 +55,11 @@ Closes 3 MEDIUM findings from the 20260514T023753Z review swarm.
   before rename. Defeats pre-planted-symlink attacks on the
   `.tmp` path and survives power loss between rename and
   writeback.
+- 6 new tests cover the IPC and dump paths (real FIFO accept /
+  symlink-to-FIFO reject / regular-file reject / 1 MiB cap / dump
+  mode `0o600` / pre-planted-symlink target preserved).
 
 ### Slice A (`bfcc2f2`) — deterministic gate hygiene
-
-CI had been silently failing the `rustdoc` and `cargo-deny` jobs
-since the v0.1.1 release-notes commit (`552a83d`). This slice gets
-all five workspace gates honestly green and prevents the recurrence.
 
 - `cargo deny`: resolved the `lazy_static` ban (transitively via
   `tracing-subscriber → sharded-slab`) with a documented
@@ -55,10 +69,104 @@ all five workspace gates honestly green and prevents the recurrence.
   `TOTAL_BUDGET`, `MAX_WALKUP`) and dropped two redundant explicit
   link targets.
 - `cargo machete`: trimmed 16 unused `dep.workspace = true`
-  declarations across 7 crates. Retired the vestigial
-  `serde` feature on `p10k-rs-core` (no enabler).
+  declarations across 7 crates. Retired the vestigial `serde`
+  feature on `p10k-rs-core` (no enabler).
 - CI: new `machete` job; `RUSTDOCFLAGS="-D warnings"` and
   `cargo deny check` already in CI now actually pass.
+
+### Slice B (`70c84ce`) — doc-bundle reset
+
+- README: feature table refreshed (31 segments, multi-arch
+  distribution, mdBook docs). Test count corrected (53 → 368).
+  Workspace-layout block adds `p10k-rs-jj` and `p10k-rs-ipc`.
+  Hacking section lists the two newly-CI'd gates.
+- `docs/src/segments/index.md` adds the `jj` segment row (shipped
+  since slice 52; chapter just never picked it up).
+- `.github/pull_request_template.md`: new — CHANGELOG-update
+  checkbox enforces the discipline that three review cycles had
+  flagged as a recurring drift.
+
+### Slice C — hot-path allocation reduction
+
+Closes the allocator theme that agent 01 (rust principles) and
+agent 03 (perf) raised. Six commits:
+
+- `142dec8` C.1: `Color::Named(String)` → `Color::Named(Cow<'static, str>)`.
+  Every `Color::Named("blue".into())` call site is now zero-alloc
+  via the `&'static str → Cow::Borrowed` `From` impl. `render_prompt`
+  line partition consumes the `Vec` via `into_iter` /
+  `split_off` instead of deep-cloning every `SegmentOutput`.
+  `EnvSnapshot.home` populated once at construction so `Dir::render`
+  stops `getenv`ing `HOME` per prompt.
+- `69b2c23` C.2: `sgr_fg` / `sgr_bg` return `Cow<'static, str>`
+  with a 10-entry static lookup table for the Ansi8 fast path —
+  zero allocation on the common-colour render path.
+- `1b9b3d1` C.3: thread-local cache for compiled `globset::Glob`
+  matchers; each unique `show_in_dir` / `disabled_dir_pattern`
+  pattern compiles exactly once per process. Bad patterns cache
+  as `None` so the `tracing::warn!` fires once per pattern, not
+  once per call.
+- `7c4c0c8` C.4: deduplicated `osc7_for_cwd` (was implemented in
+  both core and the AI crate). Single canonical impl in
+  `p10k-rs-core::osc7_emit`; `p10k-rs-ai` re-exports.
+  Verified the two implementations were byte-identical before merge.
+- `651f700` C.5: `sanitize_for_terminal` returns `Cow<'_, str>`
+  with a borrow-on-clean-input fast path. Mirror copy in
+  `p10k-rs-config` updated in lockstep (the doc promise is now
+  honest).
+
+Bench delta (hyperfine, 50-warmup × 500-runs, stripped release,
+WSL2): warm-path prompt 1.5 ms ± 0.1 ms → 1.4 ms ± 0.1 ms; trend
+consistent across three back-to-back runs but the per-commit
+deltas sit inside hyperfine's variance band on the spawn-once
+workload.
+
+### Slice D (`6c51c23`) — finish SafeText migration
+
+Closes the architecture-review MEDIUM "SafeText migration is half
+done" — a third-consecutive-cycle carry-forward. `RenderCtx`
+gains a `cwd_display: SafeText` field, produced once by the binary
+at prompt-construction time via
+`SafeText::from_untrusted(&cwd.display().to_string())`. `Dir::render`
+consumes `ctx.cwd_display.as_str()` directly and the type system
+now enforces "control bytes already stripped at producer boundary."
+23 `RenderCtx` construction sites updated to provide the new field.
+
+### Slice F (`69c103f` + `4141132`) — readability
+
+Closes agent 04's HIGH "lying comment": the doc comment for
+`render_transient` lived 170 lines from the function it described
+and rustdoc attached it to `append_ruler_and_frame_top`. Reattached
+to the real function. Added cross-reference doc between
+`append_ribbon` (left) and `render_right` (right) documenting why
+they remain two purpose-named functions rather than one parametric
+helper (four structural differences listed).
+
+### Slice G (`af42415`) — fork+exec ceiling, first pass
+
+- `lto = "fat"` on the release + bench profiles. Stripped release
+  binary 3,217,704 → 3,049,752 bytes (-167,952, -5.2 %). The ELF
+  page-mapping + dynamic-linker work that dominates the 605 µs
+  fork+exec floor scales linearly with size; smaller binary is the
+  cheapest available lever.
+- Trade-off: link time grows ~3-5×. Acceptable for a once-per-
+  release artifact. CI's cache keeps iteration reasonable.
+
+A v0.1.3-or-v0.2 conversation: the full close of the fork+exec
+floor needs the daemon-mode architecture (one long-lived process
+answers many prompt requests over a socket; spawn-per-prompt
+collapses to a few-µs IPC ping).
+
+### CI portability fixups
+
+Six commits flagged by the macOS leg of CI during the slice E/A/B
+cycle: `mkfifo` shellout for rustix-feature portability,
+`expect_used` → `unwrap_used` (workspace lint policy),
+`u32::from(st_mode)` for `cast_lossless`,
+`#[allow(clippy::useless_conversion)]` for the Linux/macOS lint
+clash, and `scratch_dir` canonicalisation for the macOS
+`/var/folders/…/T/` → `/private/var/folders/…/T/` symlink chain
+that broke `*_dir_pattern` glob tests.
 
 ## [0.1.1] - 2026-05-12
 
