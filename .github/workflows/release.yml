@@ -44,7 +44,7 @@ jobs:
             os: macos-14
             cross: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # The repo's `rust-toolchain.toml` pins 1.88. The action installs
       # the `stable` toolchain by default; without the explicit `target`
