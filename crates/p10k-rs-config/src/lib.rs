@@ -38,19 +38,34 @@ mod safety {
     //! upstream copy byte-for-byte; a cross-crate diff test could be
     //! added later if drift becomes a real concern.
 
+    use std::borrow::Cow;
+
+    fn is_unsafe(c: char) -> bool {
+        if c == '\t' {
+            return false;
+        }
+        c.is_control() || c == '\u{007F}'
+    }
+
     /// Strip every Unicode control codepoint from `s`, except horizontal
     /// tab (`\t`); also strips DEL (`U+007F`).
     ///
     /// Mirror of [`p10k_rs_core::safety::sanitize_for_terminal`]. Keep in
-    /// sync.
-    pub(super) fn sanitize_for_terminal(s: &str) -> String {
+    /// sync — returns `Cow::Borrowed` on the no-strip fast path so the
+    /// allocation only fires when at least one byte actually needs to be
+    /// removed.
+    pub(super) fn sanitize_for_terminal(s: &str) -> Cow<'_, str> {
+        let Some((split, _)) = s.char_indices().find(|&(_, c)| is_unsafe(c)) else {
+            return Cow::Borrowed(s);
+        };
         let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            if c == '\t' || (!c.is_control() && c != '\u{007F}') {
+        out.push_str(&s[..split]);
+        for c in s[split..].chars() {
+            if !is_unsafe(c) {
                 out.push(c);
             }
         }
-        out
+        Cow::Owned(out)
     }
 
     #[cfg(test)]
@@ -60,10 +75,10 @@ mod safety {
         #[test]
         fn strips_cr_keeps_tab_and_unicode() {
             // Same invariants as the canonical copy in p10k-rs-core.
-            assert_eq!(sanitize_for_terminal("a\rb"), "ab");
-            assert_eq!(sanitize_for_terminal("a\tb"), "a\tb");
-            assert_eq!(sanitize_for_terminal("café"), "café");
-            assert_eq!(sanitize_for_terminal("a\x1b]0;EVIL\x07b"), "a]0;EVILb");
+            assert_eq!(&*sanitize_for_terminal("a\rb"), "ab");
+            assert_eq!(&*sanitize_for_terminal("a\tb"), "a\tb");
+            assert_eq!(&*sanitize_for_terminal("café"), "café");
+            assert_eq!(&*sanitize_for_terminal("a\x1b]0;EVIL\x07b"), "a]0;EVILb");
         }
     }
 }
@@ -626,7 +641,7 @@ impl Config {
 fn sanitize_opt(field: &mut Option<String>) {
     if let Some(s) = field.as_ref() {
         if !s.is_empty() {
-            *field = Some(sanitize_for_terminal(s));
+            *field = Some(sanitize_for_terminal(s).into_owned());
         }
     }
 }

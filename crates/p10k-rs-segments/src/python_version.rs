@@ -132,7 +132,7 @@ fn parse_python_version(raw: &str) -> Option<String> {
     if version.is_empty() {
         return None;
     }
-    Some(sanitize_for_terminal(version))
+    Some(sanitize_for_terminal(version).into_owned())
 }
 
 /// Spawn `python --version` and parse its output.

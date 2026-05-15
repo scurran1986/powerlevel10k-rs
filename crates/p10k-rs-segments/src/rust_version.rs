@@ -127,7 +127,7 @@ fn parse_rustc_version(raw: &str) -> Option<String> {
     if v.is_empty() {
         return None;
     }
-    Some(sanitize_for_terminal(v))
+    Some(sanitize_for_terminal(v).into_owned())
 }
 
 /// Spawn `rustc --version`, capture stdout, and parse out the version

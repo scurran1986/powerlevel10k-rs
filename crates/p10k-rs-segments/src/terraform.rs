@@ -87,13 +87,13 @@ impl Segment for Terraform {
 /// string is already sanitised for terminal output.
 fn current_terraform_workspace(cwd: &std::path::Path) -> Option<String> {
     if let Ok(ws) = std::env::var("TF_WORKSPACE") {
-        let clean = sanitize_for_terminal(&ws);
+        let clean = sanitize_for_terminal(&ws).into_owned();
         if !clean.is_empty() {
             return Some(clean);
         }
     }
     find_terraform_workspace(cwd)
-        .map(|s| sanitize_for_terminal(&s))
+        .map(|s| sanitize_for_terminal(&s).into_owned())
         .filter(|s| !s.is_empty())
 }
 

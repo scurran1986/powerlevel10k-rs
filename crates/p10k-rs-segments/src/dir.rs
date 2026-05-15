@@ -45,7 +45,11 @@ impl Segment for Dir {
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
         // Sanitise before home-collapse so a malicious cwd containing
         // control bytes can't ride the unfiltered path into PROMPT (C2).
-        let raw = sanitize_for_terminal(&ctx.cwd.display().to_string());
+        // Bind the `display().to_string()` temporary first so the
+        // `Cow<'_, str>` `sanitize_for_terminal` returns borrows from
+        // a value that lives for the rest of this scope.
+        let cwd_str = ctx.cwd.display().to_string();
+        let raw = sanitize_for_terminal(&cwd_str);
         // Read `$HOME` from the per-prompt env snapshot rather than the
         // global env. The snapshot caches the value across this prompt
         // render — avoids one libc-mutex'd `getenv` per call on every

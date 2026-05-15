@@ -111,7 +111,7 @@ fn current_kubecontext() -> Option<String> {
     let path = config_path()?;
     let yaml = std::fs::read_to_string(path).ok()?;
     parse_current_context(&yaml)
-        .map(|s| sanitize_for_terminal(&s))
+        .map(|s| sanitize_for_terminal(&s).into_owned())
         .filter(|s| !s.is_empty())
 }
 

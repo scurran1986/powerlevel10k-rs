@@ -131,7 +131,7 @@ fn fetch_node_version() -> Option<String> {
     let raw = String::from_utf8_lossy(&out.stdout);
     let trimmed = raw.trim();
     let version = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    let clean = sanitize_for_terminal(version);
+    let clean = sanitize_for_terminal(version).into_owned();
     if clean.is_empty() {
         None
     } else {

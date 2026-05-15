@@ -111,7 +111,7 @@ fn extract_env_name(raw: &str) -> String {
     } else {
         raw
     };
-    sanitize_for_terminal(name)
+    sanitize_for_terminal(name).into_owned()
 }
 
 #[cfg(test)]

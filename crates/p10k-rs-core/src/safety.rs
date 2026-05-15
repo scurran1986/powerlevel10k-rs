@@ -13,6 +13,20 @@
 //! [`crate::render_prompt`]'s `wrap_for_shell` pass, after segments have
 //! assembled their output.
 
+use std::borrow::Cow;
+
+/// `true` if `c` is unsafe to emit to a terminal.
+///
+/// Mirrors the predicate inside [`sanitize_for_terminal`] so the borrowed
+/// fast path and the owned slow path stay in lock-step.
+#[inline]
+fn is_unsafe(c: char) -> bool {
+    if c == '\t' {
+        return false;
+    }
+    c.is_control() || c == '\u{007F}'
+}
+
 /// Replace bytes in `s` that are unsafe to emit to a terminal.
 ///
 /// Strips every Unicode control code point (`char::is_control()`) except
@@ -23,35 +37,46 @@
 /// already-rendered prompt content, or mask attacker text behind invisible
 /// regions.
 ///
-/// The function returns a freshly-allocated `String`; the input is consumed
-/// by reference. For inputs that already contain only safe bytes the
-/// returned `String` is byte-equal to the input — no normalisation, no
-/// case-folding, no encoding changes.
+/// Returns `Cow<'_, str>`:
+/// - **Borrowed** when the input is already safe (no allocation, common
+///   case for branch names, cwd components, version strings).
+/// - **Owned** when at least one character needs stripping; matches the
+///   pre-Cow signature's `String` semantics.
+///
+/// The output is byte-equal to the input on the no-change path.
 ///
 /// # Examples
 ///
 /// ```
 /// use p10k_rs_core::safety::sanitize_for_terminal;
 ///
-/// assert_eq!(sanitize_for_terminal("main"), "main");
-/// assert_eq!(sanitize_for_terminal("foo\tbar"), "foo\tbar");
-/// assert_eq!(sanitize_for_terminal("foo\x1b]0;evil\x07bar"), "foo]0;evilbar");
-/// assert_eq!(sanitize_for_terminal("a\rb"), "ab");
+/// assert_eq!(&*sanitize_for_terminal("main"), "main");
+/// assert_eq!(&*sanitize_for_terminal("foo\tbar"), "foo\tbar");
+/// assert_eq!(&*sanitize_for_terminal("foo\x1b]0;evil\x07bar"), "foo]0;evilbar");
+/// assert_eq!(&*sanitize_for_terminal("a\rb"), "ab");
 /// ```
 #[must_use]
-pub fn sanitize_for_terminal(s: &str) -> String {
-    // Keep tab (terminals render it as visible whitespace), strip every
-    // other control codepoint and DEL. `is_control()` covers `\x00..=\x1f`,
-    // `\x7f`, and the Unicode C1 controls `\u{0080}..=\u{009F}`; the
-    // explicit DEL check is belt-and-braces in case a future Rust
-    // definition narrows `is_control()`.
+pub fn sanitize_for_terminal(s: &str) -> Cow<'_, str> {
+    // Fast path: scan for the first character that needs stripping.
+    // If none, return a borrow — zero allocation. Branch names, cwd
+    // components, and version strings hit this in the common case.
+    let first_bad = s.char_indices().find(|&(_, c)| is_unsafe(c));
+    let Some((split, _)) = first_bad else {
+        return Cow::Borrowed(s);
+    };
+    // Slow path: copy the safe prefix, then continue stripping from the
+    // first bad byte. `is_control()` covers `\x00..=\x1f`, `\x7f`, and
+    // the Unicode C1 controls `\u{0080}..=\u{009F}`; the explicit DEL
+    // check is belt-and-braces in case a future Rust definition narrows
+    // `is_control()`.
     let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if c == '\t' || (!c.is_control() && c != '\u{007F}') {
+    out.push_str(&s[..split]);
+    for c in s[split..].chars() {
+        if !is_unsafe(c) {
             out.push(c);
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 /// A string whose every codepoint has passed [`sanitize_for_terminal`].
@@ -81,11 +106,14 @@ pub struct SafeText(String);
 impl SafeText {
     /// Construct a `SafeText` from a `&str`, stripping unsafe bytes.
     ///
-    /// Idempotent on already-safe strings — the no-change path still
-    /// allocates a fresh `String`, since the inner type is owned.
+    /// Idempotent on already-safe strings; uses [`sanitize_for_terminal`]'s
+    /// borrow-when-clean fast path and pays the allocation only when at
+    /// least one character actually needs stripping. Already-clean inputs
+    /// still incur one allocation here because `SafeText`'s inner type
+    /// is owned `String`.
     #[must_use]
     pub fn from_untrusted(s: &str) -> Self {
-        Self(sanitize_for_terminal(s))
+        Self(sanitize_for_terminal(s).into_owned())
     }
 
     /// Construct a `SafeText` from raw bytes that may not be valid UTF-8.
@@ -97,7 +125,7 @@ impl SafeText {
     /// boundary where encoding can't be assumed.
     #[must_use]
     pub fn from_untrusted_bytes(b: &[u8]) -> Self {
-        Self(sanitize_for_terminal(&String::from_utf8_lossy(b)))
+        Self(sanitize_for_terminal(&String::from_utf8_lossy(b)).into_owned())
     }
 
     /// Borrow the inner string. Always-safe `&str` for pushing into

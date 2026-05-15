@@ -97,7 +97,7 @@ fn sanitise_version(raw: &str) -> Option<String> {
     if clean.is_empty() {
         None
     } else {
-        Some(clean)
+        Some(clean.into_owned())
     }
 }
 

@@ -172,7 +172,7 @@ fn user_or_fallback(user: Option<&str>, logname: Option<&str>) -> String {
         .filter(|s| !s.is_empty())
         .or_else(|| logname.filter(|s| !s.is_empty()))
         .unwrap_or("?");
-    sanitize_for_terminal(raw)
+    sanitize_for_terminal(raw).into_owned()
 }
 
 /// Like [`user_or_fallback`] but returns `None` when both env vars are
@@ -182,7 +182,7 @@ fn user_or_fallback_opt(user: Option<&str>, logname: Option<&str>) -> Option<Str
     let raw = user
         .filter(|s| !s.is_empty())
         .or_else(|| logname.filter(|s| !s.is_empty()))?;
-    Some(sanitize_for_terminal(raw))
+    Some(sanitize_for_terminal(raw).into_owned())
 }
 
 /// Hostname picker: `$HOSTNAME` first, then `uname(2).nodename`. Output is
@@ -191,10 +191,10 @@ fn user_or_fallback_opt(user: Option<&str>, logname: Option<&str>) -> Option<Str
 /// rare enough that we leave it as `""` rather than inventing a fallback.
 fn host_or_uname(hostname_env: Option<&str>) -> String {
     if let Some(h) = hostname_env.filter(|s| !s.is_empty()) {
-        return sanitize_for_terminal(h);
+        return sanitize_for_terminal(h).into_owned();
     }
     let uname = rustix::system::uname();
-    sanitize_for_terminal(&uname.nodename().to_string_lossy())
+    sanitize_for_terminal(&uname.nodename().to_string_lossy()).into_owned()
 }
 
 #[cfg(test)]

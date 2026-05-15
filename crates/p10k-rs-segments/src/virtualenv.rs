@@ -104,7 +104,7 @@ fn extract_basename(path: &str) -> String {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    sanitize_for_terminal(name)
+    sanitize_for_terminal(name).into_owned()
 }
 
 #[cfg(test)]

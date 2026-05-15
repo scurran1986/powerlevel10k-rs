@@ -105,7 +105,7 @@ fn sanitize_profile(raw: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
     }
-    let clean = sanitize_for_terminal(raw);
+    let clean = sanitize_for_terminal(raw).into_owned();
     if clean.is_empty() {
         None
     } else {
