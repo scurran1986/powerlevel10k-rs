@@ -18,8 +18,6 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use std::path::Path;
-
 pub use p10k_rs_core::HostKind;
 
 /// Detect which AI host (if any) is wrapping the current shell by probing
@@ -107,41 +105,14 @@ pub fn render_statusline(_host: HostKind, _json_in: &[u8]) -> String {
 
 /// Emit an OSC 7 sequence reporting `cwd` to the host terminal.
 ///
-/// Format: `\x1b]7;file://<host>/<percent-encoded-path>\x1b\\`. The
-/// hostname is left empty (`file:///path`) — Claude Code, `VSCode`, and
-/// Cursor parse the path regardless of the host field, and probing for
-/// a hostname would push us off the I/O-free render path.
+/// Re-exported from [`p10k_rs_core::osc7_emit`] — the canonical
+/// implementation lives in `p10k-rs-core` so the render pipeline can
+/// call it directly without an `ai → core` re-entry. This symbol is
+/// kept here as the stable public entry point for external callers and
+/// the `statusline --host` path.
 ///
-/// Path encoding uses a conservative RFC-3986-style percent-encoder:
-/// the unreserved set (`A-Z a-z 0-9 - _ . ~`) plus `/` (path separator)
-/// pass through; every other byte is encoded as `%XX`. Spaces become
-/// `%20`. Non-UTF-8 paths are encoded byte-by-byte via the lossy UTF-8
-/// representation — `Path::to_string_lossy` already replaces invalid
-/// sequences with U+FFFD, which then percent-encodes cleanly.
-///
-/// Control bytes don't appear here in practice: `RenderCtx::cwd` is
-/// the process cwd, which the kernel guarantees is free of `\0`; any
-/// other control byte the renderer eventually surfaces has already been
-/// stripped by `sanitize_for_terminal`. The encoder still escapes them
-/// defensively as `%XX`.
-#[must_use]
-pub fn osc7_emit(cwd: &Path) -> String {
-    let raw = cwd.to_string_lossy();
-    let mut encoded = String::with_capacity(raw.len() + 16);
-    for b in raw.as_bytes() {
-        let c = *b;
-        let unreserved = c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b'~' | b'/');
-        if unreserved {
-            encoded.push(c as char);
-        } else {
-            use std::fmt::Write;
-            // `write!` into a String only fails on allocator failure,
-            // which would already have aborted before now.
-            let _ = write!(encoded, "%{c:02X}");
-        }
-    }
-    format!("\x1b]7;file://{encoded}\x1b\\")
-}
+/// See [`p10k_rs_core::osc7_emit`] for the full encoding contract.
+pub use p10k_rs_core::osc7_emit;
 
 /// OSC 133 prompt-start marker (`A` — semantic prompt boundary).
 ///

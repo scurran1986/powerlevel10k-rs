@@ -179,19 +179,28 @@ pub struct Prompt {
 
 /// Build an OSC 7 sequence reporting `cwd` to the host terminal.
 ///
-/// Inlined copy of `p10k_rs_ai::osc7_emit` — the dependency direction
-/// is `ai → core`, so this crate can't reach into the AI crate for
-/// the helper. Both implementations share the same encoder shape; the
-/// `p10k-rs-ai` version is the canonical public entry point and what
-/// statusline / external callers reach for.
+/// Format: `\x1b]7;file://<host>/<percent-encoded-path>\x1b\\`. The
+/// hostname is left empty (`file:///path`) — Claude Code, `VSCode`, and
+/// Cursor parse the path regardless of the host field, and probing for
+/// a hostname would push us off the I/O-free render path.
 ///
-/// Encoding: RFC-3986-style percent-encoder over the path's lossy UTF-8
-/// representation. The unreserved set (`A-Z a-z 0-9 - _ . ~`) and `/`
-/// pass through; every other byte becomes `%XX`. Empty hostname
-/// (`file:///path`) — Claude Code, `VSCode`, and `Cursor` accept that
-/// form, and probing a hostname would push us off the I/O-free render
-/// path.
-fn osc7_for_cwd(cwd: &Path) -> String {
+/// Path encoding uses a conservative RFC-3986-style percent-encoder:
+/// the unreserved set (`A-Z a-z 0-9 - _ . ~`) plus `/` (path separator)
+/// pass through; every other byte is encoded as `%XX`. Spaces become
+/// `%20`. Non-UTF-8 paths are encoded byte-by-byte via the lossy UTF-8
+/// representation — `Path::to_string_lossy` already replaces invalid
+/// sequences with U+FFFD, which then percent-encodes cleanly.
+///
+/// Control bytes don't appear here in practice: `RenderCtx::cwd` is
+/// the process cwd, which the kernel guarantees is free of `\0`; any
+/// other control byte the renderer eventually surfaces has already been
+/// stripped by `sanitize_for_terminal`. The encoder still escapes them
+/// defensively as `%XX`.
+///
+/// `p10k-rs-ai` re-exports this symbol as `osc7_emit` for external
+/// callers; the render pipeline calls it directly here.
+#[must_use]
+pub fn osc7_emit(cwd: &Path) -> String {
     let raw = cwd.to_string_lossy();
     let mut encoded = String::with_capacity(raw.len() + 16);
     for b in raw.as_bytes() {
@@ -273,7 +282,7 @@ pub fn render_prompt(
     // change?" support questions. Hosts that benefit (Claude Code,
     // Cursor, VSCode agent terminals) opt in via their env var.
     if ctx.host != HostKind::None {
-        left.push_str(&osc7_for_cwd(ctx.cwd));
+        left.push_str(&osc7_emit(ctx.cwd));
         left.push_str(OSC133_A);
     }
 
@@ -902,15 +911,23 @@ mod tests {
     }
 
     #[test]
-    fn osc7_for_cwd_encodes_simple_path() {
-        let s = osc7_for_cwd(Path::new("/home/seaburdz"));
+    fn osc7_encodes_simple_path() {
+        let s = osc7_emit(Path::new("/home/seaburdz"));
         assert_eq!(s, "\x1b]7;file:///home/seaburdz\x1b\\");
     }
 
     #[test]
-    fn osc7_for_cwd_percent_encodes_spaces() {
-        let s = osc7_for_cwd(Path::new("/tmp/foo bar"));
+    fn osc7_percent_encodes_spaces() {
+        let s = osc7_emit(Path::new("/tmp/foo bar"));
         assert_eq!(s, "\x1b]7;file:///tmp/foo%20bar\x1b\\");
+    }
+
+    #[test]
+    fn osc7_preserves_unreserved_set() {
+        // The unreserved set (`A-Z a-z 0-9 - _ . ~`) must not be
+        // encoded — a `~` in a path stays a `~`, not `%7E`.
+        let s = osc7_emit(Path::new("/home/~user/a.b-c_d"));
+        assert_eq!(s, "\x1b]7;file:///home/~user/a.b-c_d\x1b\\");
     }
 
     #[test]
