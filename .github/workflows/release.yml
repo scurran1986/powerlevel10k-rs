@@ -46,9 +46,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The repo's `rust-toolchain.toml` pins 1.88. The action installs
+      # the `stable` toolchain by default; without the explicit `target`
+      # on *that* channel cargo would still then read `rust-toolchain.toml`
+      # and try to use 1.88 — which doesn't have the cross-compile target
+      # registered. Installing the target on the pinned toolchain
+      # explicitly fixes the v0.1.1 release-workflow failure
+      # ("can't find crate for `std`" + "target may not be installed").
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: install pinned toolchain + cross target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
