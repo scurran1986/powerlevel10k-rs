@@ -160,6 +160,7 @@ fn fetch_python_version() -> Option<String> {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
+    use p10k_rs_core::safety::SafeText;
     use std::time::{Duration, SystemTime};
 
     use p10k_rs_core::style::Color;
@@ -264,6 +265,7 @@ mod tests {
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd: &dir,
+            cwd_display: SafeText::default(),
             git: None,
             jj: None,
             last_status: 0,

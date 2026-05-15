@@ -105,8 +105,20 @@ pub struct RenderCtx<'a> {
     pub shell: Shell,
     /// Detected AI host environment, if any. See `p10k-rs-ai`.
     pub host: HostKind,
-    /// Current working directory.
+    /// Current working directory, in its raw filesystem form. Segments
+    /// that perform filesystem probes (`has_cargo_toml`, walk-up
+    /// scanning, etc.) read this. Segments that display the path to the
+    /// user should consume [`cwd_display`](Self::cwd_display) instead,
+    /// which carries a `SafeText`-typed proof that control bytes have
+    /// been stripped at the producer boundary.
     pub cwd: &'a Path,
+    /// `cwd` after `safety::sanitize_for_terminal`, owned. Produced
+    /// once by the binary at prompt-construction time so segments that
+    /// render the path (`dir`) don't each sanitise per render. The
+    /// `SafeText` type encodes the "control bytes already stripped"
+    /// invariant in the type system — a segment that accepts a
+    /// `&SafeText` cannot accidentally receive an unsanitised string.
+    pub cwd_display: SafeText,
     /// Pre-computed git state, or `None` if outside a repository.
     pub git: Option<&'a GitState>,
     /// Pre-computed Jujutsu (`jj`) state, or `None` if outside a jj repo
@@ -791,6 +803,7 @@ fn next_char_boundary(s: &str, i: usize) -> usize {
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::safety::SafeText;
 
     #[test]
     fn wrap_for_zsh_brackets_each_sgr() {
@@ -960,6 +973,7 @@ mod tests {
             shell: Shell::Bash, // bypass `wrap_for_shell` so we can grep raw bytes
             host,
             cwd,
+            cwd_display: SafeText::default(),
             git: None,
             jj: None,
             last_status: 0,

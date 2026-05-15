@@ -106,6 +106,7 @@ fn sanitise_version(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::sanitise_version;
+    use p10k_rs_core::safety::SafeText;
 
     #[test]
     fn sanitise_version_strips_control_chars() {
@@ -158,6 +159,7 @@ mod tests {
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd,
+            cwd_display: SafeText::default(),
             git: None,
             jj: None,
             last_status: 0,

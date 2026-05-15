@@ -9,7 +9,6 @@
 use std::path::Path;
 
 use p10k_rs_config::{DirTruncate, DirTruncateStrategy};
-use p10k_rs_core::safety::sanitize_for_terminal;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -43,18 +42,16 @@ impl Segment for Dir {
     }
 
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {
-        // Sanitise before home-collapse so a malicious cwd containing
-        // control bytes can't ride the unfiltered path into PROMPT (C2).
-        // Bind the `display().to_string()` temporary first so the
-        // `Cow<'_, str>` `sanitize_for_terminal` returns borrows from
-        // a value that lives for the rest of this scope.
-        let cwd_str = ctx.cwd.display().to_string();
-        let raw = sanitize_for_terminal(&cwd_str);
+        // The cwd's sanitised display string is now produced once by
+        // the binary at `RenderCtx` construction; reading it here is
+        // zero-copy and the `SafeText` type proves control bytes were
+        // stripped at the producer boundary (C2 defence).
+        let raw = ctx.cwd_display.as_str();
         // Read `$HOME` from the per-prompt env snapshot rather than the
         // global env. The snapshot caches the value across this prompt
         // render — avoids one libc-mutex'd `getenv` per call on every
         // shell precmd hook.
-        let collapsed = home_collapse(&raw, ctx.env.home.as_deref());
+        let collapsed = home_collapse(raw, ctx.env.home.as_deref());
         let truncate = ctx
             .config
             .segments
@@ -343,6 +340,7 @@ fn home_collapse(path: &str, home: Option<&str>) -> String {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
+    use p10k_rs_core::safety::SafeText;
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
@@ -516,11 +514,19 @@ mod tests {
     }
 
     fn ctx<'a>(cfg: &'a Config, env: &'a EnvSnapshot, cwd: &'a Path) -> RenderCtx<'a> {
+        // Mirror the binary's `cwd_display` construction so dir tests
+        // exercise the same end-to-end sanitisation pipeline production
+        // ships with. Tests that pass a `Path` containing control bytes
+        // expect those bytes stripped here, exactly as
+        // `SafeText::from_untrusted` does at the binary's prompt
+        // boundary.
+        let cwd_display = SafeText::from_untrusted(&cwd.display().to_string());
         RenderCtx {
             config: cfg,
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd,
+            cwd_display,
             git: None,
             jj: None,
             last_status: 0,

@@ -117,6 +117,7 @@ fn extract_env_name(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::extract_env_name;
+    use p10k_rs_core::safety::SafeText;
 
     #[test]
     fn extract_bare_name() {
@@ -183,6 +184,7 @@ mod tests {
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd,
+            cwd_display: SafeText::default(),
             git: None,
             jj: None,
             last_status: 0,

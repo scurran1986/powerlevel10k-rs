@@ -237,11 +237,18 @@ fn cmd_prompt(
     // `RenderCtx.host` so segments like `ai_host` can react. Detection
     // is a handful of env-var lookups — negligible against gitstatusd.
     let host = p10k_rs_ai::detect_host_kind();
+    // Sanitise the cwd display string once at the producer boundary.
+    // Segments that render the path (`dir`) consume `ctx.cwd_display`
+    // and skip re-sanitising; the `SafeText` type proves the work is
+    // done.
+    let cwd_display =
+        p10k_rs_core::safety::SafeText::from_untrusted(&cwd.as_path().display().to_string());
     let ctx = RenderCtx {
         config: &cfg,
         shell: core_shell,
         host,
         cwd: cwd.as_path(),
+        cwd_display,
         git: git.as_ref(),
         jj: jj.as_ref(),
         last_status,

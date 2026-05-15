@@ -142,6 +142,7 @@ impl Segment for Jj {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
+    use p10k_rs_core::safety::SafeText;
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
@@ -160,6 +161,7 @@ mod tests {
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd,
+            cwd_display: SafeText::default(),
             git: None,
             jj,
             last_status: 0,

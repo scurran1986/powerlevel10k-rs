@@ -70,6 +70,7 @@ impl Segment for Status {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
+    use p10k_rs_core::safety::SafeText;
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
@@ -83,6 +84,7 @@ mod tests {
             shell: Shell::Zsh,
             host: HostKind::None,
             cwd: Path::new("/"),
+            cwd_display: SafeText::default(),
             git: None,
             jj: None,
             last_status,
