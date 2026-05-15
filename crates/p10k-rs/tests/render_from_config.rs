@@ -94,7 +94,15 @@ fn scratch_dir(label: &str) -> std::path::PathBuf {
         nanos,
     ));
     std::fs::create_dir_all(&p).expect("mkdir scratch");
-    p
+    // Canonicalise: on macOS `std::env::temp_dir()` typically returns
+    // `/var/folders/<…>/T/…` which is itself reached through a symlink
+    // chain (`/tmp -> /private/tmp`, `/var -> /private/var`). When the
+    // subprocess we spawn with `current_dir(scratch)` chdir's through
+    // that symlink and then reports its cwd, the canonical path comes
+    // back — which then fails to match a `*_dir_pattern` glob built
+    // from the un-canonical scratch root. Resolving once here pins
+    // both sides to the real path.
+    p.canonicalize().unwrap_or(p)
 }
 
 #[test]
