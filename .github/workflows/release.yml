@@ -97,7 +97,14 @@ jobs:
           cp "target/${{ matrix.target }}/release/p10k-rs" "$stage/"
           cp LICENSE-MIT LICENSE-APACHE README.md THIRD-PARTY-LICENSES.md "$stage/" 2>/dev/null || true
           tar czf "${stage}.tar.gz" "$stage"
-          sha256sum "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+          # `sha256sum` is GNU coreutils only — macOS ships BSD `shasum`
+          # under a different name. Branch on availability so the same
+          # release.yml works on both runner families.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+          else
+            shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+          fi
           echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "shasum=${stage}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
