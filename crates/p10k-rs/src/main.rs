@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -427,6 +429,20 @@ fn command_first_word(buffer: &str) -> Option<&str> {
     Some(trimmed.split_whitespace().next().unwrap_or(trimmed))
 }
 
+// Per-process cache of compiled glob matchers.
+//
+// Keyed by the raw pattern string. `Some(matcher)` means the pattern compiled
+// successfully. `None` means compilation failed and we have already emitted a
+// `tracing::warn!` for it — subsequent calls skip recompilation *and* suppress
+// duplicate warnings.
+//
+// `thread_local!` avoids any synchronisation cost; the binary is
+// single-threaded on the render path (spawn-per-prompt architecture, ADR-0001).
+thread_local! {
+    static GLOB_CACHE: RefCell<HashMap<String, Option<globset::GlobMatcher>>> =
+        RefCell::new(HashMap::new());
+}
+
 /// Compile `glob` and check whether it matches the cwd as a literal path
 /// string.
 ///
@@ -437,18 +453,24 @@ fn command_first_word(buffer: &str) -> Option<&str> {
 ///
 /// A glob that fails to compile is treated as "no match" and warned
 /// about — a typo is a non-fatal config error; the segment just doesn't
-/// gate as the user expected. We emit one `tracing::warn!` per call so
-/// the user has a breadcrumb in `RUST_LOG=warn` output without spamming
-/// every prompt with a stack trace.
+/// gate as the user expected. The `tracing::warn!` fires exactly once
+/// per unique bad pattern per process (subsequent calls hit the cache
+/// and are silent), so a user with `RUST_LOG=warn` sees one breadcrumb
+/// rather than one per segment per prompt render.
 fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
-    let compiled = match globset::Glob::new(&glob.0) {
-        Ok(g) => g.compile_matcher(),
-        Err(e) => {
-            tracing::warn!("invalid glob {:?}: {e}; treating as no-match", glob.0);
-            return false;
-        }
-    };
-    compiled.is_match(cwd)
+    GLOB_CACHE.with(|cache| {
+        let mut map = cache.borrow_mut();
+        let matcher =
+            map.entry(glob.0.clone())
+                .or_insert_with(|| match globset::Glob::new(&glob.0) {
+                    Ok(g) => Some(g.compile_matcher()),
+                    Err(e) => {
+                        tracing::warn!("invalid glob {:?}: {e}; treating as no-match", glob.0);
+                        None
+                    }
+                });
+        matcher.as_ref().is_some_and(|m| m.is_match(cwd))
+    })
 }
 
 /// Serialise the rendered PROMPT to a sourceable shell snippet at `path`,
