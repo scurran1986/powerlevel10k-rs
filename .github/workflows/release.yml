@@ -37,8 +37,16 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
+          # Both darwin arches build on the macos-14 (Apple Silicon)
+          # runner. The macos-13 (Intel) runner pool is so backlogged
+          # in 2026 that the previous configuration hit GitHub's 24h
+          # queue timeout on the x86_64-darwin job every release. The
+          # Apple Silicon runner ships the Xcode SDK plus rustc's
+          # x86_64-apple-darwin target, so a normal cross-compile
+          # works — `cross: false` because rustc + the macOS linker
+          # handle x86_64 emission without an external toolchain.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
             cross: false
           - target: aarch64-apple-darwin
             os: macos-14
