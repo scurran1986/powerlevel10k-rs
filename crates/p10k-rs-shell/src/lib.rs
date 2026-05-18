@@ -149,6 +149,84 @@ mod tests {
     }
 
     #[test]
+    fn zsh_transient_clears_rprompt_before_redraw() {
+        // T1.1 — the transient widget must blank RPROMPT before
+        // `zle reset-prompt` so the right-side ribbon doesn't linger
+        // in scrollback next to the collapsed `❯`. Pin both the
+        // assignment and the ordering.
+        let zsh = init_script(Shell::Zsh);
+        // Locate the assignment and the reset; assert RPROMPT="" comes
+        // first (lower byte offset).
+        let rprompt_clear = zsh
+            .find(r#"RPROMPT="""#)
+            .expect("zsh init must clear RPROMPT for the transient swap");
+        let reset_prompt = zsh
+            .find("zle reset-prompt 2>/dev/null")
+            .expect("zsh init must call zle reset-prompt in the transient widget");
+        assert!(
+            rprompt_clear < reset_prompt,
+            "RPROMPT clear must precede reset-prompt: clear@{rprompt_clear} reset@{reset_prompt}"
+        );
+    }
+
+    #[test]
+    fn zsh_precmd_rearms_bracketed_paste() {
+        // T1.2 — every precmd must re-arm bracketed paste (DECSET 2004)
+        // so a `\e[?2004l` left behind by command output doesn't blind
+        // zsh's ZLE to paste markers on the next line.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains(r"printf '\033[?2004h'"),
+            "zsh init must emit DECSET 2004 in precmd"
+        );
+    }
+
+    #[test]
+    fn zsh_gitstatusd_spawn_uses_rlimits() {
+        // T1.15 — daemon spawn must be wrapped in a subshell that
+        // applies ulimits before `exec`ing the binary, so a runaway
+        // gitstatusd can't peg the box.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains("ulimit -v 524288"),
+            "zsh init must cap gitstatusd virtual memory at 512 MiB (Linux)"
+        );
+        assert!(
+            zsh.contains("ulimit -t 30"),
+            "zsh init must cap gitstatusd CPU time at 30 s"
+        );
+        // Spawn happens via `exec` inside the rlimit subshell so the
+        // pid we capture is the daemon itself, not a wrapping shell.
+        assert!(
+            zsh.contains(r#"exec "$_P10K_RS_GITSTATUSD_BIN""#),
+            "zsh init must exec gitstatusd inside the rlimit subshell"
+        );
+    }
+
+    #[test]
+    fn zsh_dump_source_checks_mode_and_owner() {
+        // T1.18 — refusing to source a dump unless it's a regular file
+        // with mode 0600 owned by the current user. Pin the load-bearing
+        // bits of the gate so a refactor doesn't quietly remove them.
+        let zsh = init_script(Shell::Zsh);
+        // Refuse symlinks.
+        assert!(
+            zsh.contains("! -L $_p10k_rs_dump"),
+            "zsh init must refuse to source a symlinked dump"
+        );
+        // Mode check (0600).
+        assert!(
+            zsh.contains("0600"),
+            "zsh init must enforce 0600 mode on the instant-prompt dump"
+        );
+        // Owner check via EUID.
+        assert!(
+            zsh.contains("uid] == EUID"),
+            "zsh init must enforce dump ownership matches the running user"
+        );
+    }
+
+    #[test]
     fn zsh_init_auto_detect_probes_modern_terminals() {
         // The auto-detect path must check the canonical fingerprints
         // for modern terminals (Ghostty, Kitty, Windows Terminal, plus

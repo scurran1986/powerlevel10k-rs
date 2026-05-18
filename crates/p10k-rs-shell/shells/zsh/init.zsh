@@ -61,7 +61,27 @@ typeset -g _P10K_RS_GITSTATUSD_BIN='__P10K_RS_GITSTATUSD_BIN__'
 # first precmd fires — acceptable trade for masking gitstatusd's
 # ~2 s first-call cost on kernel-class repos.
 typeset -g _p10k_rs_dump="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-${USER:-${USERNAME:-default}}.zsh"
-[[ -r $_p10k_rs_dump ]] && source $_p10k_rs_dump 2>/dev/null
+# T1.18 — refuse to source the instant-prompt dump unless it's a regular
+# file, owner-matches this UID, and mode is exactly 0600. The dump is
+# `source`d as code at every shell startup; defends against an attacker
+# (or a careless tool) overwriting the dump with a hostile payload while
+# the shell is paused / long-running, or a co-tenant pre-planting a
+# symlink at the dump path on a multi-user host.
+#
+# Uses zstat where available (zsh/stat module). On exotic platforms
+# where the module isn't loadable we fail closed — skip the source,
+# accept a slightly slower first prompt next shell.
+if [[ -f $_p10k_rs_dump && ! -L $_p10k_rs_dump ]]; then
+  zmodload -F zsh/stat b:zstat 2>/dev/null && {
+    typeset -A _p10k_rs_dump_st
+    if zstat -A _p10k_rs_dump_st +mode +uid -- $_p10k_rs_dump 2>/dev/null \
+       && (( _p10k_rs_dump_st[uid] == EUID )) \
+       && (( (_p10k_rs_dump_st[mode] & 0777) == 0600 )); then
+      source $_p10k_rs_dump 2>/dev/null
+    fi
+    unset _p10k_rs_dump_st
+  }
+fi
 
 # `zsh/datetime` exposes `$EPOCHSECONDS` for command-time tracking. The
 # bare `zmodload zsh/datetime` form is the one that actually populates the
@@ -104,10 +124,26 @@ _p10k_rs_start_daemon() {
   exec {_P10K_RS_FIFO_REQ_FD}<>"$req"
   exec {_P10K_RS_FIFO_RESP_FD}<>"$resp"
 
-  # Launch daemon in the background. `-t 4` gives it 4 worker threads
-  # (matches upstream p10k's default for non-monorepo workloads). stderr
-  # to /dev/null because the daemon is chatty on info-level logs.
-  "$_P10K_RS_GITSTATUSD_BIN" -t 4 < "$req" > "$resp" 2>/dev/null &!
+  # Launch daemon in the background under resource caps (T1.15).
+  # `-t 4` gives it 4 worker threads (matches upstream p10k's default
+  # for non-monorepo workloads). stderr to /dev/null because the daemon
+  # is chatty on info-level logs.
+  #
+  # Resource caps:
+  #   ulimit -v 524288   # 512 MiB virtual memory ceiling (Linux only).
+  #   ulimit -t 30       # 30 s cumulative CPU per process.
+  # Defends against a runaway daemon on a pathological repo / corrupted
+  # index / fork-bomb path pegging the box. The cap fires inside a
+  # subshell so it doesn't leak into the user's interactive shell.
+  #
+  # Portability note: `ulimit -v` is a Linux/glibc extension; macOS
+  # (Darwin) silently ignores it because RLIMIT_AS isn't enforced
+  # there. The CPU cap (`-t`) is POSIX and works on both. macOS users
+  # are documented to rely on `-t` alone — the RSS ceiling is a
+  # Linux-only belt-and-braces.
+  ( ulimit -v 524288 2>/dev/null; ulimit -t 30 2>/dev/null
+    exec "$_P10K_RS_GITSTATUSD_BIN" -t 4 < "$req" > "$resp" 2>/dev/null
+  ) &!
   _P10K_RS_DAEMON_PID=$!
 
   _P10K_RS_FIFO_DIR="$dir"
@@ -228,6 +264,16 @@ _p10k_rs_precmd() {
   if [[ -n "$_P10K_RS_SHELL_INTEGRATION" ]]; then
     printf '\033]133;D;%d\007' "$rs"
   fi
+  # T1.2 — re-arm bracketed-paste mode (`DECSET 2004`). zsh >= 5.1
+  # enables this itself, but command output is allowed to disable it
+  # (any program emitting `\e[?2004l` permanently blinds the shell to
+  # pasted-input markers until something turns it back on). Belt and
+  # braces: emit the enable sequence every precmd so a stray reset
+  # from `less`, `vim`, `ssh`, etc. doesn't leave the user without
+  # paste protection on the *next* command line. Write directly to
+  # /dev/tty so the sequence reaches the terminal even when stdout
+  # is captured (rare in precmd, but cheap insurance).
+  printf '\033[?2004h' > /dev/tty 2>/dev/null
   local elapsed_ms=0
   if (( _p10k_rs_cmd_start > 0 )); then
     elapsed_ms=$(( (EPOCHSECONDS - _p10k_rs_cmd_start) * 1000 ))
@@ -269,6 +315,13 @@ _p10k_rs_zle_line_finish() {
   local transient
   transient="$("$_P10K_RS_BIN" prompt --shell zsh --render-side transient 2>/dev/null)"
   PROMPT="$transient"
+  # T1.1 — clear RPROMPT before redraw. Without this the right-side
+  # ribbon lingers in the scrollback next to the collapsed transient
+  # `❯`, which is both ugly and confusing (the rest of the prompt
+  # collapsed, but RPROMPT is still painting its full ribbon). zsh's
+  # `reset-prompt` reads the current values of both PROMPT and RPROMPT,
+  # so we have to blank RPROMPT first.
+  RPROMPT=""
   zle reset-prompt 2>/dev/null
 }
 zle -N zle-line-finish _p10k_rs_zle_line_finish
