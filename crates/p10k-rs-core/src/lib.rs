@@ -752,21 +752,41 @@ fn tty_winsize_cols() -> Option<usize> {
 ///   `\x1b]…\x1b\\`) are also bracketed — zsh's prompt-width tracker
 ///   doesn't know they're zero-width without the `%{…%}` markers, and
 ///   slice 55 started emitting OSC 7 / OSC 133 inside the prompt for
-///   shell-integration. Outside of those wrapped escapes, every
-///   literal `%` is doubled to `%%` because zsh treats `%` in PROMPT as the
-///   start of a prompt-expansion escape (`%n` → username, `%/` → cwd, …),
-///   and that is how an attacker who controls a branch name or directory
-///   name can leak information through the prompt — or, with `PROMPT_SUBST`
-///   set, execute commands. SGR escape bodies emitted by segments contain
-///   no literal `%`, so the doubling pass only ever fires on text content.
+///   shell-integration. Outside of those wrapped escapes, the text-content
+///   pass performs four substitutions on attacker-controlled bytes:
+///   `%` → `%%`, `$` → `\$`, `` ` `` → `` \` ``, and `\` → `\\`.
+///   The first substitution is the long-standing C1 fix: zsh treats `%`
+///   in `PROMPT` as the start of a prompt-expansion escape (`%n` →
+///   username, `%/` → cwd, …), so an unescaped `%` in a branch / cwd
+///   name can leak information through the prompt or, with
+///   `PROMPT_SUBST` set, drive arbitrary expansion. The last three
+///   substitutions are the T1.12 / slice-γ `PROMPT_SUBST` hardening:
+///   on unpatched zsh (pre-5.8.1, `CVE-2021-45444`) a branch name like
+///   `$(rm -rf ~)` reaching the prompt would execute under
+///   `PROMPT_SUBST`. We escape unconditionally — `PROMPT_SUBST` may be
+///   set by user config we don't control, and on the patched fast path
+///   the extra backslash is a no-op the user never sees. Substitution
+///   order doesn't matter: each one is a single-byte read advancing `i`
+///   by one, so the inserted backslash is never re-scanned. SGR / OSC
+///   bytes emitted by `wrap_for_shell` itself never see this pass
+///   because the CSI and OSC arms `continue` after their `%{…%}` wrap,
+///   skipping the text substitutions entirely. That is the load-bearing
+///   skip pattern: a `$` inside an OSC 7 URI (e.g. `file:///$HOME/proj`)
+///   stays literal so host terminals parse the URI correctly.
 /// - **fish / bash**: pass-through. Bash uses `\[…\]` which we'll add when
 ///   bash support lands; fish handles ANSI natively in its prompt fns.
-///   Neither shell interprets `%` in its prompt, so no doubling is needed.
+///   Neither shell interprets `%` / `$` / `` ` `` / `\` in its prompt the
+///   same way, so no substitution is needed today.
 fn wrap_for_shell(s: &str, shell: Shell) -> String {
     if shell != Shell::Zsh {
         return s.to_owned();
     }
-    if !s.contains('\x1b') && !s.contains('%') {
+    if !s.contains('\x1b')
+        && !s.contains('%')
+        && !s.contains('$')
+        && !s.contains('`')
+        && !s.contains('\\')
+    {
         return s.to_owned();
     }
     let bytes = s.as_bytes();
@@ -820,6 +840,28 @@ fn wrap_for_shell(s: &str, shell: Shell) -> String {
         }
         if bytes[i] == b'%' {
             out.push_str("%%");
+            i += 1;
+            continue;
+        }
+        // T1.12 / slice γ: PROMPT_SUBST hardening. Any `$`, `` ` ``, or
+        // `\` that survives the CSI / OSC `continue` arms above is by
+        // definition text content (attacker-controlled branch / cwd /
+        // tag bytes), not part of an escape sequence we emit. Backslash
+        // them so unpatched zsh (pre-5.8.1, CVE-2021-45444) cannot
+        // expand `$(...)`, command-substitute `` `...` ``, or chain a
+        // continuation that lets the next iteration's byte escape.
+        if bytes[i] == b'$' {
+            out.push_str("\\$");
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'`' {
+            out.push_str("\\`");
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'\\' {
+            out.push_str("\\\\");
             i += 1;
             continue;
         }
@@ -937,6 +979,99 @@ mod tests {
         let raw = "\x1b[2Khello\x1b[5;10H";
         let wrapped = wrap_for_shell(raw, Shell::Zsh);
         assert_eq!(wrapped, "%{\x1b[2K%}hello%{\x1b[5;10H%}");
+    }
+
+    #[test]
+    fn wrap_for_zsh_escapes_dollar_in_text() {
+        // T1.12 / slice γ: a branch name like `$(rm -rf ~)` riding into
+        // text content must come out as `\$(rm -rf ~)` so unpatched zsh
+        // (pre-5.8.1, CVE-2021-45444) with `PROMPT_SUBST` cannot run
+        // command-substitution on it.
+        let raw = "\x1b[33m$(rm -rf ~)\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(
+            wrapped, "%{\x1b[33m%}\\$(rm -rf ~)%{\x1b[39m%}",
+            "$ must be backslash-escaped in zsh prompt text",
+        );
+    }
+
+    #[test]
+    fn wrap_for_zsh_escapes_backtick_in_text() {
+        // Backtick command-substitution is the same threat class as
+        // `$(...)` on unpatched zsh under `PROMPT_SUBST`. Escape it.
+        let raw = "\x1b[33m`id`\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(
+            wrapped, "%{\x1b[33m%}\\`id\\`%{\x1b[39m%}",
+            "backtick must be backslash-escaped in zsh prompt text",
+        );
+    }
+
+    #[test]
+    fn wrap_for_zsh_escapes_backslash_in_text() {
+        // A bare `\` in attacker text could chain into the next byte
+        // (e.g. `\$` would un-escape a following dollar we just added).
+        // Doubling it to `\\` makes it a literal backslash.
+        let raw = "\x1b[33ma\\b\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(
+            wrapped, "%{\x1b[33m%}a\\\\b%{\x1b[39m%}",
+            "backslash must be doubled in zsh prompt text",
+        );
+    }
+
+    #[test]
+    fn wrap_for_zsh_does_not_escape_dollar_inside_osc_brackets() {
+        // Mirror of `wrap_for_zsh_does_not_double_percent_inside_osc_brackets`
+        // for the slice-γ substitutions: a `$` inside an OSC body (e.g.
+        // an OSC 7 URI naming a path with `$HOME`) must NOT be
+        // backslash-escaped — the OSC arm `continue`s past it, so the
+        // text-content pass never sees those bytes. Host terminals
+        // parsing OSC 7 would otherwise see a corrupted URI.
+        let raw = "\x1b]7;file:///tmp/$HOME/proj\x1b\\";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert_eq!(
+            wrapped, "%{\x1b]7;file:///tmp/$HOME/proj\x1b\\%}",
+            "$ inside OSC brackets must stay literal",
+        );
+        // Guard: exactly one literal `$`, no `\$` introduced.
+        assert_eq!(wrapped.matches('$').count(), 1);
+        assert!(
+            !wrapped.contains("\\$"),
+            "no \\$ inside OSC body: {wrapped:?}"
+        );
+    }
+
+    #[test]
+    fn wrap_for_zsh_malicious_branch_name_is_neutralised_end_to_end() {
+        // End-to-end pin: the canonical attack from the slice-γ design
+        // doc. A branch named `$(rm -rf ~)` arrives in segment text
+        // wrapped in our own SGR. After `wrap_for_shell`, the bytes
+        // assigned to PROMPT must contain `\$(rm -rf ~)` — the literal
+        // dollar that PROMPT_SUBST would otherwise execute is now
+        // backslash-escaped, the parentheses are preserved (they only
+        // gain meaning when paired with an unescaped `$`).
+        let raw = "\x1b[32mon \x1b[39m\x1b[33m$(rm -rf ~)\x1b[39m";
+        let wrapped = wrap_for_shell(raw, Shell::Zsh);
+        assert!(
+            wrapped.contains("\\$(rm -rf ~)"),
+            "malicious branch name must reach PROMPT escaped: {wrapped:?}",
+        );
+        assert!(
+            !wrapped.contains("m$(rm"),
+            "no bare $( may survive into the prompt body: {wrapped:?}",
+        );
+    }
+
+    #[test]
+    fn wrap_for_non_zsh_leaves_dollar_backtick_backslash_alone() {
+        // Mirror of `wrap_for_non_zsh_leaves_percent_alone`: bash and
+        // fish don't interpret these bytes via zsh's PROMPT-expansion
+        // engine, so doubling / backslashing would render literal extra
+        // characters in the user's terminal. Pass-through.
+        let raw = "branch$name`cmd`\\path";
+        assert_eq!(wrap_for_shell(raw, Shell::Bash), raw);
+        assert_eq!(wrap_for_shell(raw, Shell::Fish), raw);
     }
 
     #[test]
