@@ -50,11 +50,12 @@ const RS: u8 = 0x1E;
 /// and the binary falls back to `ShellOut`.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Upper bound on the response buffer. A well-formed gitstatusd record is
-/// well under 1 `KiB`; capping at 1 `MiB` stops a misbehaving (or hostile)
-/// peer from forcing unbounded heap growth before the delimiter byte.
-/// Hitting the cap returns `None` and falls back to `ShellOut`.
-const MAX_RESPONSE_LEN: usize = 1 << 20;
+/// Upper bound on the response buffer. Sized at ~100× the largest legitimate
+/// gitstatusd v1 response — see `research/05-security-fs-ipc/fifo-hardening.md`.
+/// Smaller cap = bounded blast radius if the daemon goes rogue or its output
+/// is corrupted; no impact on real-world git repos (well under 1 `KiB` per
+/// record). Hitting the cap returns `None` and falls back to `ShellOut`.
+const MAX_RESPONSE_LEN: usize = 64 * 1024;
 
 /// POSIX `S_IFMT` — file-type mask within a stat `mode` field.
 #[cfg(unix)]
@@ -737,12 +738,14 @@ mod tests {
 
     #[test]
     fn read_until_caps_at_max_response_len() {
-        // Stream past the 1 MiB cap without ever emitting the delimiter.
+        // Stream past the response cap without ever emitting the delimiter.
         // The reader must return None instead of unbounded heap growth.
         let (rfd, wfd) = rustix::pipe::pipe().unwrap();
         let writer = std::thread::spawn(move || {
-            let chunk = vec![b'X'; 64 * 1024];
-            // ~18 MiB worth of writes; one of them will fail with EPIPE
+            // Small chunk so the loop iterates a few times before tripping
+            // the cap, regardless of how MAX_RESPONSE_LEN is later tuned.
+            let chunk = vec![b'X'; 4 * 1024];
+            // Write well past the cap; one of these will fail with EPIPE
             // once the reader returns and drops `rfd`. That's fine — the
             // thread just exits.
             for _ in 0..(MAX_RESPONSE_LEN / chunk.len() + 16) {
