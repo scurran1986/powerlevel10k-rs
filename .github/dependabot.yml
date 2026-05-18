@@ -18,7 +18,10 @@ updates:
       patch-and-minor:
         update-types: [patch, minor]
 
-  # GitHub Actions used by ci.yml.
+  # GitHub Actions used by ci.yml, release.yml, docs.yml. Pins are
+  # SHA-based (see workflow `uses:` lines); Dependabot reads the
+  # trailing `# vX.Y.Z` comment to know the current release and
+  # auto-PRs the new SHA + updated comment when upstream ships.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -31,3 +34,6 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+    groups:
+      patch-and-minor:
+        update-types: [patch, minor]

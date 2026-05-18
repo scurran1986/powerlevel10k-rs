@@ -12,11 +12,22 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Restrict to semver-shaped tags. "v*" would also match `v-test`,
+    # `vendor-bump`, etc. and accidentally trigger a release upload.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   workflow_dispatch:
 
+# One release per ref. cancel-in-progress is OFF on purpose: a release
+# part-way through publishing assets should finish, not be torn down by
+# a re-trigger.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write # for creating the release + uploading assets
+  contents: write     # creating the release + uploading assets
+  id-token: write     # sigstore OIDC (cosign sign-blob + attest-build-provenance)
+  attestations: write # SLSA build-provenance generation
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,7 +63,7 @@ jobs:
             os: macos-14
             cross: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       # The repo's `rust-toolchain.toml` pins 1.88. The action installs
       # the `stable` toolchain by default; without the explicit `target`
@@ -67,7 +78,7 @@ jobs:
           rustup show active-toolchain || rustup toolchain install
           rustup target add ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           key: ${{ matrix.target }}
 
@@ -116,8 +127,45 @@ jobs:
           echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "shasum=${stage}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
+      # Sigstore keyless signing. The OIDC token GitHub Actions issues
+      # binds to this workflow file + ref, so verifiers can prove the
+      # tarball came from a build of this repo at this tag — not just
+      # that it hashes to a value we also published.
+      # Gated on tag push: workflow_dispatch on a branch would produce
+      # a signature claiming a branch identity, pollute Rekor, and
+      # provide no value.
+      - name: install cosign
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.2
+        with:
+          cosign-release: "v2.5.0"
+
+      - name: sign tarball (sigstore keyless)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          COSIGN_YES: "true" # auto-accept the Rekor transparency-log upload
+        run: |
+          cosign sign-blob \
+            --bundle "${{ steps.package.outputs.asset }}.cosign.bundle" \
+            "${{ steps.package.outputs.asset }}"
+
+      # SLSA-style build-provenance attestation. Attests both the
+      # unpacked binary and the tarball so downstream verifiers can
+      # `gh attestation verify` either artifact directly:
+      #   gh attestation verify p10k-rs-<v>-<triple>.tar.gz \
+      #     --repo seaburdz/powerlevel10k-rs
+      # Once signed tags land (separate slice), this combination
+      # qualifies as SLSA L3 per slsa.dev/spec/v1.0.
+      - name: attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            target/${{ matrix.target }}/release/p10k-rs
+            ${{ steps.package.outputs.asset }}
+
       - name: upload artifacts (workflow run)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.target }}
           path: |
@@ -138,11 +186,12 @@ jobs:
 
       - name: attach to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             ${{ steps.package.outputs.asset }}
             ${{ steps.package.outputs.shasum }}
+            ${{ steps.package.outputs.asset }}.cosign.bundle
           # body_path is optional — empty when no per-version notes file
           # exists. Don't auto-generate from commits: the maintainer's
           # version-pinned notes file is the source of truth.
