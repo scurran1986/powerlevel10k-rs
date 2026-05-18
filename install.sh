@@ -123,7 +123,6 @@ echo "[install] binary at $INSTALLED_BIN"
 # If a known canonical install isn't already on PATH, symlink it next to
 # the p10k-rs binary so the daemon path stays intact for new shells.
 GITSTATUSD_CANDIDATES=(
-  "$HOME/github/powerlevel10k/gitstatus/usrbin/gitstatusd-linux-x86_64"
   "/opt/homebrew/bin/gitstatusd"
   "/usr/local/bin/gitstatusd"
 )
