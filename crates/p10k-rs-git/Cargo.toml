@@ -16,6 +16,7 @@ categories.workspace = true
 [dependencies]
 p10k-rs-core = { workspace = true }
 rustix = { workspace = true } # used by gitstatusd backend for poll-with-timeout
+thiserror = { workspace = true } # typed errors on the ShellOut spawn path (T0.4)
 # `gix`, `rayon` will come back when the `gix-status` fallback lands as a
 # correctness alternative to gitstatusd. Today: not used.
 

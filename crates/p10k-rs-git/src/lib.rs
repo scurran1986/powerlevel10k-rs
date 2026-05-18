@@ -19,14 +19,49 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::GitState;
 
 pub mod gitstatusd;
 pub use gitstatusd::{locate_binary as locate_gitstatusd, Gitstatusd};
+
+/// Wall-clock budget for the [`ShellOut`] `git status` spawn.
+///
+/// Mirrors the [`gitstatusd::DEFAULT_TIMEOUT`] budget. A malicious `.git/`
+/// (fsmonitor exploit, hung helper, slow filesystem) must not stall the
+/// prompt indefinitely — past this deadline we kill the child and return
+/// [`ShellOutError::Timeout`] so the caller can move on. T0.4.
+const SHELLOUT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Poll cadence for [`std::process::Child::try_wait`] while waiting on the
+/// shell-out `git` child. 25 ms keeps wake-ups cheap on the common
+/// sub-100-ms case while still giving us 80 chances to notice completion
+/// inside the 2 s deadline.
+const SHELLOUT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Errors the [`ShellOut`] backend can surface from the spawn path.
+///
+/// `Backend::status` continues to return `Option<GitState>` so the prompt's
+/// fallback chain stays branchless on the happy path; the typed errors are
+/// used by [`ShellOut::status_with_deadline`] and the unit tests so a
+/// timeout is distinguishable from a `not-a-repo` non-zero exit.
+#[derive(Debug, thiserror::Error)]
+pub enum ShellOutError {
+    /// `git` couldn't be spawned, or polling/waiting on the child failed.
+    #[error("git spawn failed: {0}")]
+    Spawn(#[from] io::Error),
+
+    /// The child outran the wall-clock deadline and was killed. The prompt
+    /// falls back to "no git state" rather than blocking the shell.
+    #[error("git status exceeded {0:?} wall-clock deadline; child killed")]
+    Timeout(Duration),
+}
 
 /// A producer of [`GitState`] for a working directory.
 ///
@@ -47,17 +82,11 @@ pub struct ShellOut;
 impl Backend for ShellOut {
     fn status(&self, path: &Path) -> Option<GitState> {
         // One git invocation does both jobs: branch on the first line,
-        // dirty-flag from any subsequent lines.
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(path)
-            .args(["status", "--porcelain=v1", "--branch", "--no-renames"])
-            .env("LC_ALL", "C")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
+        // dirty-flag from any subsequent lines. The deadline-wrapped spawn
+        // (T0.4) returns `Err` on timeout/io failure; we collapse to `None`
+        // here to keep the fallback chain branchless, and a non-zero exit
+        // (e.g. `not a repo`) also collapses to `None`.
+        let out = Self::status_with_deadline(path, SHELLOUT_TIMEOUT).ok()?;
         if !out.status.success() {
             // `not a repo` exits non-zero. Stay silent.
             return None;
@@ -72,6 +101,79 @@ impl Backend for ShellOut {
             state.action = detect_action(&git_dir);
         }
         Some(state)
+    }
+}
+
+impl ShellOut {
+    /// Spawn `git status --porcelain=v1 --branch` against `path` and wait
+    /// up to `deadline` for it to finish.
+    ///
+    /// Implementation note: we poll [`std::process::Child::try_wait`] on a
+    /// 25 ms cadence rather than spending an OS thread on a blocking
+    /// `wait_with_output`, because the slow case we're defending against is
+    /// a wedged child — not a slow one. On timeout, we send `SIGKILL` via
+    /// [`std::process::Child::kill`] and then drain stdout/stderr with a
+    /// blocking `wait_with_output` so the post-kill `read(2)` returns EOF
+    /// promptly rather than leaving zombie pipe fds attached to the
+    /// process. The drained bytes are discarded — the only signal we
+    /// return on timeout is [`ShellOutError::Timeout`].
+    ///
+    /// The non-timeout error path collapses ordinary `io::Error`s
+    /// (spawn-failed, EBADF on the pipe, etc.) into
+    /// [`ShellOutError::Spawn`].
+    pub fn status_with_deadline(path: &Path, deadline: Duration) -> Result<Output, ShellOutError> {
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["status", "--porcelain=v1", "--branch", "--no-renames"])
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        wait_with_deadline(&mut child, deadline)
+    }
+}
+
+/// Poll `child` until exit or `deadline` elapses.
+///
+/// On exit, read stdout (stderr is `Stdio::null` at the spawn site, so
+/// nothing to drain there) and reap the child via [`std::process::Child::wait`].
+/// On deadline, send `SIGKILL`, then `wait()` to reap the zombie before
+/// returning [`ShellOutError::Timeout`]. The kernel side of the stdout
+/// `pipe(2)` is released when `child` is dropped by the caller; we
+/// deliberately do not read post-kill stdout — any bytes the child
+/// emitted before being killed are discarded along with the error.
+fn wait_with_deadline(
+    child: &mut std::process::Child,
+    deadline: Duration,
+) -> Result<Output, ShellOutError> {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            // Child exited under the deadline. Drain stdout (stderr is
+            // null) and return the same shape `Command::output` would.
+            let mut stdout_buf = Vec::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                use std::io::Read;
+                stdout.read_to_end(&mut stdout_buf)?;
+            }
+            return Ok(Output {
+                status,
+                stdout: stdout_buf,
+                stderr: Vec::new(),
+            });
+        }
+        if start.elapsed() >= deadline {
+            // Best-effort kill, then reap. Both ignore-on-error:
+            // `kill` returns `InvalidInput` if the child already
+            // exited in the race window, and `wait` only matters
+            // for zombie reaping — we already know we're timing out.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ShellOutError::Timeout(deadline));
+        }
+        thread::sleep(SHELLOUT_POLL_INTERVAL);
     }
 }
 
@@ -343,5 +445,63 @@ mod tests {
         assert_eq!(parse_branch_header("## \x1b[2Jmain"), "[2Jmain");
         assert_eq!(parse_branch_header("## main\x07evil"), "mainevil");
         assert_eq!(parse_branch_header("## main\rEVIL"), "main");
+    }
+
+    // ---- T0.4: wall-clock timeout on ShellOut spawns -------------------
+
+    /// A child that finishes under the deadline returns its [`Output`]
+    /// normally. Uses `printf` so we also confirm stdout is captured the
+    /// same way `Command::output` would capture it.
+    #[test]
+    fn wait_with_deadline_returns_output_when_child_completes() {
+        let mut child = Command::new("printf")
+            .arg("hello")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn printf");
+
+        let out = wait_with_deadline(&mut child, Duration::from_secs(2))
+            .expect("printf completed under deadline");
+        assert!(out.status.success(), "printf exited non-zero");
+        assert_eq!(out.stdout, b"hello");
+        assert!(out.stderr.is_empty(), "stderr was Stdio::null");
+    }
+
+    /// A child that outruns the deadline is killed and the typed timeout
+    /// error is returned. `sleep 5` against a 100 ms deadline is the
+    /// slow-child fixture; the whole test must complete in well under
+    /// `sleep 5`'s 5 s budget to prove the deadline actually fired.
+    #[test]
+    fn wait_with_deadline_kills_slow_child_and_returns_timeout() {
+        let deadline = Duration::from_millis(100);
+        let mut child = Command::new("sleep")
+            .arg("5")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep 5");
+
+        let started = Instant::now();
+        let err =
+            wait_with_deadline(&mut child, deadline).expect_err("sleep 5 must hit the deadline");
+        let elapsed = started.elapsed();
+
+        match err {
+            ShellOutError::Timeout(d) => assert_eq!(d, deadline),
+            other @ ShellOutError::Spawn(_) => panic!("expected Timeout, got {other:?}"),
+        }
+        // Generous upper bound: 1 s is still ~5x faster than `sleep 5`'s
+        // natural exit, so a pass here proves the kill path ran.
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "deadline didn't fire promptly: elapsed = {elapsed:?}"
+        );
+        // Reap-confirmation: `try_wait` after the timeout path must say
+        // the child is gone (`Some(_)`), proving we actually waited on it.
+        let reaped = child.try_wait().expect("try_wait after timeout").is_some();
+        assert!(reaped, "child wasn't reaped after timeout");
     }
 }
