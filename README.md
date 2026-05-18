@@ -81,6 +81,29 @@ path is a long-lived `gitstatusd` daemon over FIFOs.
 | Multi-arch binary distribution (Linux x86_64/aarch64 GNU, macOS x86_64/aarch64) | release workflow on tag |
 | mdBook documentation (`docs/`) | published via `.github/workflows/docs.yml` |
 
+## Verify a release
+
+Release tarballs are sigstore-signed (keyless OIDC) and carry
+SLSA build-provenance attestations. Two independent checks:
+
+```bash
+# Sigstore signature — bundle is published next to the tarball.
+cosign verify-blob \
+  --bundle p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz.cosign.bundle \
+  --certificate-identity-regexp 'https://github.com/seaburdz/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v.+' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz
+
+# Build provenance — works on the tarball or the unpacked binary.
+gh attestation verify p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz \
+  --repo seaburdz/powerlevel10k-rs
+```
+
+A non-zero exit on either check means the artifact does not chain
+to a release-workflow run of this repo — don't install. Full
+threat model, reporting channel, and signing-identity details
+live in [SECURITY.md](SECURITY.md).
+
 ## Importing an existing Powerlevel10k config
 
 If you already have a `~/.p10k.zsh`, get a head-start:
