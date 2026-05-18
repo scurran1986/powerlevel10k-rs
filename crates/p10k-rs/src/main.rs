@@ -100,6 +100,39 @@ enum Command {
     },
     /// List all segments this build ships, including auto-detect heuristics.
     SegmentList,
+    /// Config-file utilities (validate, …).
+    Config {
+        /// Which `config` action to run.
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+/// Subcommands under `p10k-rs config`.
+///
+/// Today only `check` is wired; future actions (`show`, `format`, …) get
+/// new variants here without churning the top-level `Command` enum.
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    /// Parse and schema-validate the user's TOML config without rendering.
+    ///
+    /// Resolution order matches `Config::load_default`:
+    ///
+    /// 1. `--config <path>` if supplied.
+    /// 2. `$P10K_RS_CONFIG` if set.
+    /// 3. `$XDG_CONFIG_HOME/p10k-rs/config.toml`.
+    /// 4. `$HOME/.config/p10k-rs/config.toml`.
+    ///
+    /// Exits 0 with `OK: <path> parses cleanly` on success; non-zero with
+    /// the parse / I/O error on stderr otherwise. Lets users iterate on a
+    /// config file without restarting their shell.
+    Check {
+        /// Explicit path to the config file. Overrides the env-driven
+        /// discovery so users can validate a candidate file before moving
+        /// it into the active config location.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -161,7 +194,77 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Config { command } => match command {
+            ConfigCommand::Check { config } => {
+                tracing::debug!(?config, "config check invoked");
+                cmd_config_check(config.as_deref())
+            }
+        },
     }
+}
+
+/// `p10k-rs config check [--config <path>]` — parse the TOML config and
+/// report whether it validates against the schema.
+///
+/// Resolution: an explicit `--config` argument wins. Otherwise we walk
+/// the same `$P10K_RS_CONFIG` → `$XDG_CONFIG_HOME/p10k-rs/config.toml`
+/// → `$HOME/.config/p10k-rs/config.toml` search path the render path
+/// uses, so a `check` invocation validates exactly the file the next
+/// `prompt` call would load.
+///
+/// Exits 0 on success after printing `OK: <path> parses cleanly` to
+/// stdout. Any I/O or parse error is returned via `anyhow` and surfaces
+/// as a non-zero exit with the error text on stderr — the binary's
+/// `main` already routes `Err(_)` through anyhow's printer.
+fn cmd_config_check(explicit_path: Option<&std::path::Path>) -> Result<()> {
+    // Two paths to be careful about:
+    //   1. The user passed `--config <path>` — load that file directly so
+    //      the error message names the exact file they pointed at, even
+    //      if it differs from the env-discovered default.
+    //   2. No flag — re-use `Config::load_default` so behaviour matches
+    //      what `prompt` would do. The loader's error already names the
+    //      tried path on Io / Parse, so we don't need to add path context.
+    if let Some(path) = explicit_path {
+        Config::load_from_path(path)
+            .with_context(|| format!("loading config from {}", path.display()))?;
+        println!("OK: {} parses cleanly", path.display());
+    } else {
+        let resolved = resolve_default_config_path();
+        Config::load_default().context("loading config from default search path")?;
+        match resolved {
+            Some(p) => println!("OK: {} parses cleanly", p.display()),
+            None => println!("OK: <default search path> parses cleanly"),
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort: name the file `Config::load_default` would resolve to, so
+/// the `OK:` line on success names the actual file the user validated.
+///
+/// Mirrors `discover_config_path` in `p10k-rs-config` (kept local because
+/// that helper is private). Returns `None` if no candidate exists — the
+/// caller falls back to a generic message rather than fabricating a path.
+fn resolve_default_config_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("P10K_RS_CONFIG") {
+        return Some(PathBuf::from(p));
+    }
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        let candidate = PathBuf::from(xdg).join("p10k-rs").join("config.toml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let candidate = PathBuf::from(home)
+            .join(".config")
+            .join("p10k-rs")
+            .join("config.toml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// Which side of the prompt `cmd_prompt` should emit to stdout.
