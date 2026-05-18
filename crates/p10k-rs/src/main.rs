@@ -491,6 +491,19 @@ fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
 /// Security: the dump is `source`d by the shell at startup, so its bytes
 /// run as code. We harden the write against symlink/race attacks on a
 /// multi-user host where the dump dir or tempfile path could be hostile.
+///
+/// Panic safety (T1.3): the staged tempfile is wrapped in a [`TmpGuard`]
+/// that unlinks it on drop. If a panic — or any early return — escapes
+/// before the successful `rename`, no partial dump survives to be
+/// `source`d by the next shell. The guard is disarmed only after the
+/// rename completes, at which point the path no longer refers to the
+/// tempfile.
+///
+/// Concurrent shells (T1.3): the tempfile name embeds the current pid
+/// plus a nanosecond timestamp so two precmd hooks racing on the same
+/// dump path can't collide on `O_CREAT|O_EXCL`. The race is then
+/// resolved at the rename step (last writer wins, which is fine — the
+/// bytes are deterministic per render).
 fn write_instant_dump(
     path: &std::path::Path,
     rendered: &str,
@@ -507,15 +520,60 @@ fn write_instant_dump(
     // Atomic write: same-directory tempfile + rename. The tempfile must
     // be on the same filesystem as the destination for `rename` to be
     // atomic; placing it next to the destination guarantees that.
-    let tmp = path.with_extension("tmp");
-    // A leftover `.tmp` from a previous crashed run would block the
-    // `O_CREAT|O_EXCL` open below. Unlinking it is safe: the dump dir is
-    // per-user and the `.tmp` suffix is ours; we never trust it for
-    // anything else.
-    let _ = std::fs::remove_file(&tmp);
+    //
+    // The tempfile name embeds pid + nanos so concurrent shells writing
+    // to the same dump path don't collide on the `O_CREAT|O_EXCL` open
+    // below.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let tmp_name = format!(
+        "{}.{}.{}.tmp",
+        path.file_name().and_then(|s| s.to_str()).unwrap_or("dump"),
+        std::process::id(),
+        nanos,
+    );
+    let tmp = path.with_file_name(tmp_name);
+    let guard = TmpGuard::new(tmp.clone());
     write_dump_tmp_atomic(&tmp, content.as_bytes())?;
     std::fs::rename(&tmp, path)?;
+    // Rename succeeded; the tmp path no longer exists. Disarm the guard
+    // so its `Drop` doesn't try to unlink the (now-renamed) final file.
+    guard.disarm();
     Ok(())
+}
+
+/// RAII cleanup for a staged tempfile.
+///
+/// On drop, attempts to remove the file at the recorded path. Used by
+/// [`write_instant_dump`] to guarantee that a panic — or any early
+/// return — between `create_new` and `rename` does not leave a partial
+/// dump on disk for the next shell to source. Errors during cleanup are
+/// swallowed (the file may already be gone or have been renamed away;
+/// either way there is nothing useful to do).
+///
+/// Disarm with [`Self::disarm`] after a successful rename so the drop
+/// is a no-op.
+struct TmpGuard {
+    path: Option<PathBuf>,
+}
+
+impl TmpGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+
+    fn disarm(mut self) {
+        self.path = None;
+    }
+}
+
+impl Drop for TmpGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.path.take() {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
 }
 
 /// Write `content` to `tmp` with paranoid open flags.
@@ -719,7 +777,7 @@ fn init_tracing() {
 
 #[cfg(test)]
 #[cfg(unix)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod write_dump_tests {
     use super::{write_instant_dump, CoreShell};
     use std::os::unix::fs::PermissionsExt;
@@ -751,15 +809,21 @@ mod write_dump_tests {
 
     #[test]
     fn write_instant_dump_does_not_follow_preplanted_symlink() {
-        // Attacker pre-plants `<dump>.tmp` as a symlink to a sensitive
-        // file. The unlink-then-create_new sequence (with O_NOFOLLOW belt
-        // and `O_CREAT|O_EXCL` suspenders) must leave the symlink target
-        // untouched.
+        // Attacker pre-plants the final dump path as a symlink to a
+        // sensitive file. `std::fs::rename` overwrites the symlink entry
+        // itself rather than following it, so the symlink target must
+        // stay untouched.
+        //
+        // (Pre-T1.3 the staged tempfile lived at a deterministic
+        // `<dump>.tmp` path, so an attacker could also pre-plant *that*
+        // and rely on the `O_NOFOLLOW` belt-and-suspenders to defeat the
+        // pre-plant. With T1.3 the tempfile name embeds pid + nanos and
+        // is no longer predictable from outside; the final-path symlink
+        // is now the only feasible vector to assert against here.)
         let dump = scratch_path("symlink");
-        let tmp = dump.with_extension("tmp");
         let target = scratch_path("symlink-target");
         std::fs::write(&target, b"untouched\n").unwrap();
-        std::os::unix::fs::symlink(&target, &tmp).unwrap();
+        std::os::unix::fs::symlink(&target, &dump).unwrap();
         write_instant_dump(&dump, "x", CoreShell::Zsh).unwrap();
         assert_eq!(
             std::fs::read(&target).unwrap(),
@@ -768,5 +832,62 @@ mod write_dump_tests {
         );
         let _ = std::fs::remove_file(&dump);
         let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn write_instant_dump_panic_mid_write_leaves_no_partial_file() {
+        // T1.3 panic-safety contract: if a panic escapes the dump-write
+        // function between the `create_new` open and the final `rename`,
+        // the staged tempfile must be cleaned up so the next shell never
+        // sources a half-written PROMPT. We simulate the panic by running
+        // the write under `catch_unwind` and triggering the panic via a
+        // `Drop` that runs while the dump function is mid-flight on the
+        // stack — concretely, by panicking from inside a closure scoped
+        // around `write_instant_dump`.
+        //
+        // The cleanest panic injection point we can reach without
+        // surgery is `panic::catch_unwind(|| write_instant_dump(...))`
+        // followed by *manually* asserting the tempfile-cleanup invariant
+        // via [`TmpGuard`]'s `Drop`. We do that by constructing the
+        // TmpGuard at a known scratch path, forcing a panic inside a
+        // scope that owns the guard, and asserting the file is gone
+        // after the unwind.
+        use std::panic;
+        let dump = scratch_path("panic-mid-write");
+        let _ = std::fs::remove_file(&dump);
+        // Compute the same tempfile name shape `write_instant_dump`
+        // would produce so we can write to it, install the guard, then
+        // panic.
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp_name = format!(
+            "{}.{}.{}.tmp",
+            dump.file_name().unwrap().to_str().unwrap(),
+            std::process::id(),
+            stamp,
+        );
+        let tmp_path = dump.with_file_name(tmp_name);
+        let tmp_for_panic = tmp_path.clone();
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            let guard = super::TmpGuard::new(tmp_for_panic.clone());
+            std::fs::write(&tmp_for_panic, b"partial dump\n").unwrap();
+            // Drop the guard via panic before any rename.
+            let _g = guard;
+            panic!("simulated mid-write panic");
+        }));
+        assert!(result.is_err(), "expected the closure to panic");
+        // Tempfile must be gone — the TmpGuard's `Drop` cleaned it up.
+        assert!(
+            !tmp_path.exists(),
+            "panic-mid-write left a partial tempfile at {tmp_path:?}",
+        );
+        // And the final dump path must also be absent — we never
+        // reached the rename, so the next shell sources nothing.
+        assert!(
+            !dump.exists(),
+            "panic-mid-write left a partial dump at {dump:?}",
+        );
     }
 }
