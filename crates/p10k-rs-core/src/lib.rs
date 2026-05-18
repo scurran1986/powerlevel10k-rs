@@ -144,6 +144,22 @@ pub struct RenderCtx<'a> {
     /// approximation of the upstream "upcoming command" notion; see
     /// the init script comment for the trade-off).
     pub upcoming_command: &'a str,
+    /// Whether to emit OSC 7 + OSC 133 shell-integration sequences
+    /// around the prompt.
+    ///
+    /// Resolved by the binary (see `resolve_shell_integration` in
+    /// `crates/p10k-rs/src/main.rs`) from
+    /// [`Config::shell_integration`] crossed with environment
+    /// auto-detection (`$TERM_PROGRAM`, `$WT_SESSION`,
+    /// `$GHOSTTY_RESOURCES_DIR`, `$KITTY_WINDOW_ID`, AI-host vars).
+    /// Warp (`TERM_PROGRAM=WarpTerminal`) is always `false` — Warp's
+    /// block model breaks on OSC 133 A (warp#6718).
+    ///
+    /// Lives on `RenderCtx` rather than re-computed inside
+    /// [`render_prompt`] so the gate stays I/O-free per the core
+    /// crate's invariant — env probes happen at the producer
+    /// boundary, the renderer just consumes the decision.
+    pub shell_integration_active: bool,
 }
 
 /// Result of [`Segment::render`].
@@ -231,6 +247,13 @@ pub fn osc7_emit(cwd: &Path) -> String {
 /// OSC 133 prompt-start marker (`A`).
 const OSC133_A: &str = "\x1b]133;A\x07";
 
+/// OSC 133 prompt-start marker for the right prompt (`A;k=r`).
+///
+/// iTerm2 / VS Code extension that lets a host distinguish the right
+/// prompt's boundary from a left/continuation prompt. Terminals that
+/// ignore the `k=` attribute fall back to treating it as a plain `A`.
+const OSC133_A_RIGHT: &str = "\x1b]133;A;k=r\x07";
+
 /// OSC 133 command-line-start marker (`B`).
 const OSC133_B: &str = "\x1b]133;B\x07";
 
@@ -281,19 +304,24 @@ pub fn render_prompt(
     let mode = ctx.config.colors;
     let mut left = String::new();
 
-    // Slice 55 — shell-integration sequences for AI / IDE hosts.
+    // Shell-integration sequences (T1.5 / T1.9 bundle).
     //
     // OSC 7 reports the cwd so the host can update its embedded shell
     // navigator. OSC 133 `A` marks the semantic prompt boundary; the
     // matching `B` is appended at the very end of `left` below.
     //
-    // Gate on `HostKind::None`: vanilla terminals don't parse these
-    // sequences and would render nothing visible either way, but
-    // keeping the prompt byte-identical to the historical output when
-    // no host is detected eliminates a class of "did the prompt
-    // change?" support questions. Hosts that benefit (Claude Code,
-    // Cursor, VSCode agent terminals) opt in via their env var.
-    if ctx.host != HostKind::None {
+    // Gate on `ctx.shell_integration_active`, resolved by the binary
+    // from `Config::shell_integration` crossed with env auto-detect
+    // (`TERM_PROGRAM`, `WT_SESSION`, `GHOSTTY_RESOURCES_DIR`,
+    // `KITTY_WINDOW_ID`, plus the AI-host env vars). Warp is always
+    // suppressed (`TERM_PROGRAM=WarpTerminal`) — its block model
+    // breaks on OSC 133 A. See warp#6718.
+    //
+    // The historical "host != None" gate is now a strict subset of
+    // the auto-detect set; users running outside an AI host still
+    // get the prompt byte-identical when integration mode is `off`,
+    // and gain the markers under modern terminals when on `auto`.
+    if ctx.shell_integration_active {
         left.push_str(&osc7_emit(ctx.cwd));
         left.push_str(OSC133_A);
     }
@@ -354,12 +382,25 @@ pub fn render_prompt(
 
     // Closing OSC 133 `B`: end of PS1, start of the editable command
     // line. Paired with the `A` emitted at the top of `left` above.
-    if ctx.host != HostKind::None {
+    if ctx.shell_integration_active {
         left.push_str(OSC133_B);
     }
 
     let left = wrap_for_shell(&left, ctx.shell);
     let right = render_right(right_segments, ctx);
+    // Wrap the right prompt in OSC 133 `A;k=r` … `B` for hosts that
+    // mark right-prompt boundaries (iTerm2, VS Code extension dialect).
+    // Emit only when there's actually a right prompt — an empty wrap
+    // would push two non-zero-width sequences out for no payload.
+    let right = if ctx.shell_integration_active && !right.is_empty() {
+        let mut out = String::with_capacity(right.len() + OSC133_A_RIGHT.len() + OSC133_B.len());
+        out.push_str(OSC133_A_RIGHT);
+        out.push_str(&right);
+        out.push_str(OSC133_B);
+        out
+    } else {
+        right
+    };
     let right = wrap_for_shell(&right, ctx.shell);
     let transient = Some(render_transient(segments, ctx));
     Prompt {
@@ -968,6 +1009,21 @@ mod tests {
         cwd: &'a Path,
         host: HostKind,
     ) -> RenderCtx<'a> {
+        // The old `host != None` gate is now subsumed by
+        // `shell_integration_active`. Mirror the legacy semantics for
+        // the existing tests by setting integration active whenever a
+        // host is supplied — new tests pass the flag explicitly.
+        let active = host != HostKind::None;
+        render_ctx_for_host_and_integration(cfg, env, cwd, host, active)
+    }
+
+    fn render_ctx_for_host_and_integration<'a>(
+        cfg: &'a Config,
+        env: &'a EnvSnapshot,
+        cwd: &'a Path,
+        host: HostKind,
+        shell_integration_active: bool,
+    ) -> RenderCtx<'a> {
         RenderCtx {
             config: cfg,
             shell: Shell::Bash, // bypass `wrap_for_shell` so we can grep raw bytes
@@ -982,6 +1038,7 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env,
             upcoming_command: "",
+            shell_integration_active,
         }
     }
 
@@ -1101,7 +1158,8 @@ mod tests {
 
     #[test]
     fn render_prompt_omits_osc_when_host_is_none() {
-        // Vanilla terminals get the byte-identical historical output.
+        // Vanilla terminals get the byte-identical historical output
+        // when no host is detected AND integration is inactive.
         let cfg = Config::default();
         let env = EnvSnapshot::default();
         let cwd = Path::new("/tmp/work");
@@ -1109,13 +1167,134 @@ mod tests {
         let prompt = render_prompt(&[], &[], &ctx);
         assert!(
             !prompt.left.contains("\x1b]7;"),
-            "OSC 7 must not appear without a host: {:?}",
+            "OSC 7 must not appear without integration: {:?}",
             prompt.left
         );
         assert!(
             !prompt.left.contains("\x1b]133;"),
-            "OSC 133 must not appear without a host: {:?}",
+            "OSC 133 must not appear without integration: {:?}",
             prompt.left
+        );
+    }
+
+    #[test]
+    fn render_prompt_emits_osc_when_integration_active_without_host() {
+        // T1.5/T1.9: shell integration is *no longer* gated solely on
+        // an AI host. When `shell_integration_active = true` (set by
+        // the binary after env probes find e.g. Ghostty), OSC 7 + OSC
+        // 133 A/B still surround the prompt, with `host = None`.
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ true,
+        );
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            prompt.left.contains("\x1b]7;file:///tmp/work\x1b\\"),
+            "expected OSC 7 cwd report in left: {:?}",
+            prompt.left
+        );
+        assert!(
+            prompt.left.contains("\x1b]133;A\x07"),
+            "expected OSC 133 A in left: {:?}",
+            prompt.left
+        );
+        assert!(
+            prompt.left.contains("\x1b]133;B\x07"),
+            "expected OSC 133 B in left: {:?}",
+            prompt.left
+        );
+    }
+
+    #[test]
+    fn render_prompt_pins_exact_bytes_around_left_prompt() {
+        // Pin the byte sequence around an empty-segment-list prompt so
+        // a future renderer that splits A/B placement gets caught.
+        // `A` must lead, `B` must trail; the cwd's OSC 7 sits between
+        // `A` and the segments (none here).
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ true,
+        );
+        let prompt = render_prompt(&[], &[], &ctx);
+        let osc7 = "\x1b]7;file:///tmp/work\x1b\\";
+        let expected_left = format!("{osc7}\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(
+            prompt.left, expected_left,
+            "byte-exact left prompt mismatch"
+        );
+    }
+
+    #[test]
+    fn render_prompt_wraps_right_prompt_with_a_kr_and_b() {
+        // T1.5: right prompt gets `OSC 133;A;k=r` at head, `B` at tail.
+        // We don't ship a right-side segment that takes no `RenderCtx`
+        // configuration; the existing NoBgText fixture suits.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             right = \" \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ true,
+        );
+        let right: Vec<Box<dyn Segment>> = vec![Box::new(NoBgText("R"))];
+        let prompt = render_prompt(&[], &right, &ctx);
+        assert!(
+            prompt.right.starts_with("\x1b]133;A;k=r\x07"),
+            "right prompt must lead with OSC 133 A k=r: {:?}",
+            prompt.right
+        );
+        assert!(
+            prompt.right.ends_with("\x1b]133;B\x07"),
+            "right prompt must end with OSC 133 B: {:?}",
+            prompt.right
+        );
+        assert!(
+            prompt.right.contains('R'),
+            "right prompt must still carry the segment text: {:?}",
+            prompt.right
+        );
+    }
+
+    #[test]
+    fn render_prompt_skips_right_wrapping_when_right_is_empty() {
+        // Empty right prompt: no useful payload to bracket, and
+        // emitting bare A;k=r → B for nothing would waste bytes on
+        // every render.
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ true,
+        );
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            prompt.right.is_empty(),
+            "right prompt must stay empty when no right segments and no integration wrap: {:?}",
+            prompt.right
         );
     }
 }

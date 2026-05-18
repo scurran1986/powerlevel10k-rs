@@ -117,4 +117,54 @@ mod tests {
         let err = "ksh".parse::<Shell>().unwrap_err();
         assert!(err.0 == "ksh");
     }
+
+    #[test]
+    fn zsh_init_emits_osc133_c_and_d_byte_exact() {
+        // T1.5/T1.9: pin the OSC 133 C/D emission byte sequences so a
+        // refactor that drops or breaks them is caught by the suite.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains(r"printf '\033]133;C\007'"),
+            "zsh init must emit OSC 133 C at preexec"
+        );
+        assert!(
+            zsh.contains(r#"printf '\033]133;D;%d\007' "$rs""#),
+            "zsh init must emit OSC 133 D;<exit> at precmd"
+        );
+    }
+
+    #[test]
+    fn zsh_init_gates_osc133_on_warp_suppression() {
+        // T1.5/T1.9: Warp's block model breaks on OSC 133 A — verify
+        // the script suppresses emission when TERM_PROGRAM=WarpTerminal.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains("\"${TERM_PROGRAM:-}\" == \"WarpTerminal\""),
+            "zsh init must check for and suppress Warp Terminal"
+        );
+        assert!(
+            zsh.contains("_P10K_RS_SHELL_INTEGRATION"),
+            "zsh init must compute a resolved shell-integration flag"
+        );
+    }
+
+    #[test]
+    fn zsh_init_auto_detect_probes_modern_terminals() {
+        // The auto-detect path must check the canonical fingerprints
+        // for modern terminals (Ghostty, Kitty, Windows Terminal, plus
+        // TERM_PROGRAM as the umbrella probe for iTerm2 / WezTerm /
+        // VSCode / Apple Terminal).
+        let zsh = init_script(Shell::Zsh);
+        for marker in [
+            "TERM_PROGRAM",
+            "WT_SESSION",
+            "GHOSTTY_RESOURCES_DIR",
+            "KITTY_WINDOW_ID",
+        ] {
+            assert!(
+                zsh.contains(marker),
+                "zsh init must probe ${marker} for shell-integration auto-detect"
+            );
+        }
+    }
 }

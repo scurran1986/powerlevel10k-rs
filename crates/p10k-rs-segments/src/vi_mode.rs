@@ -176,6 +176,7 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env: &env,
             upcoming_command: "",
+            shell_integration_active: false,
         };
         let out = ViMode.render(&ctx);
         // Green bg (`48;5;2`) + black fg (`38;5;0`) — slice 34 restored
@@ -253,6 +254,7 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env: &env,
             upcoming_command: "",
+            shell_integration_active: false,
         };
         let out = ViMode.render(&ctx);
         // magenta bg (`48;5;5`) — TOML override beat the green default.
@@ -289,6 +291,7 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env: &env,
             upcoming_command: "",
+            shell_integration_active: false,
         };
         let out = ViMode.render(&ctx);
         assert!(

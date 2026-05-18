@@ -159,20 +159,30 @@ typeset -gi _p10k_rs_cmd_start=0
 # slice.
 typeset -g _P10K_RS_UPCOMING_CMD=""
 
-# Slice 55 — OSC 133 shell-integration markers for AI / IDE hosts.
+# OSC 133 shell-integration markers (T1.5 / T1.9 bundle).
 #
-# Gate the emissions on a detected AI host. The binary's `render_prompt`
-# emits OSC 7 + OSC 133 A/B around PS1 when `ctx.host != None`; the
-# shell pairs that with `C` (start of output) at preexec and `D;<exit>`
-# (end of output) at precmd. Hosts (Claude Code, Cursor, VSCode agent
-# mode) use the matched A→B→C→D sequence to slice scrollback into
-# semantic command boundaries.
+# The binary's `render_prompt` emits OSC 7 + OSC 133 A/B around PS1
+# when `Config::shell_integration.mode` resolves to "active" (see
+# `resolve_shell_integration` in crates/p10k-rs/src/main.rs). The shell
+# pairs that with `C` (start of output) at preexec and `D;<exit>` (end
+# of output) at precmd. Hosts and modern terminals (Claude Code,
+# Cursor, VSCode, Ghostty, WezTerm, iTerm2, Windows Terminal, Kitty)
+# use the matched A→B→C→D sequence to slice scrollback into semantic
+# command boundaries.
 #
-# Detect once at sourcing time, not per-prompt — `$CLAUDECODE`,
-# `$CURSOR_TRACE_ID`, etc. don't change within a shell session. A miss
-# here costs only the OSC bytes; vanilla terminals would ignore them,
-# but we suppress to keep scrollback clean for users running outside an
-# AI host.
+# Auto-detect mirrors the binary's logic: emit when any AI-host env
+# var OR any of the recognised modern-terminal fingerprints is present.
+# Suppressed under Warp (`TERM_PROGRAM=WarpTerminal`) regardless —
+# Warp's block model breaks on OSC 133 A. See warp#6718.
+#
+# Detect once at sourcing time, not per-prompt — these env vars don't
+# change within a shell session. We can't read the TOML schema's
+# `shell_integration.mode` from zsh without a fork; the binary owns
+# the policy at render time for OSC A/B, and zsh approximates the
+# same default-on-auto policy for C/D. A user who set `mode = "off"`
+# in TOML will get A/B suppressed (no host-side decorations) but C/D
+# will still emit — a follow-up slice can plumb the binary's decision
+# back via a sourced env var if that mismatch matters.
 typeset -g _P10K_RS_AI_HOST=""
 if [[ -n "${CLAUDECODE:-}" ]]; then
   _P10K_RS_AI_HOST="claude-code"
@@ -180,6 +190,20 @@ elif [[ -n "${AIDER_API_KEY:-}${AIDER_MODEL:-}${AIDER_AUTO_COMMITS:-}" ]]; then
   _P10K_RS_AI_HOST="aider"
 elif [[ -n "${CURSOR_TRACE_ID:-}${CURSOR_SESSION_ID:-}" ]]; then
   _P10K_RS_AI_HOST="cursor"
+fi
+
+# Resolved shell-integration flag for OSC 133 C/D emission. Empty
+# means "off"; any non-empty value enables. Warp is hard-suppressed
+# regardless of every other signal.
+typeset -g _P10K_RS_SHELL_INTEGRATION=""
+if [[ "${TERM_PROGRAM:-}" == "WarpTerminal" ]]; then
+  _P10K_RS_SHELL_INTEGRATION=""
+elif [[ -n "$_P10K_RS_AI_HOST" \
+        || -n "${TERM_PROGRAM:-}" \
+        || -n "${WT_SESSION:-}" \
+        || -n "${GHOSTTY_RESOURCES_DIR:-}" \
+        || -n "${KITTY_WINDOW_ID:-}" ]]; then
+  _P10K_RS_SHELL_INTEGRATION=1
 fi
 
 _p10k_rs_preexec() {
@@ -190,7 +214,7 @@ _p10k_rs_preexec() {
   # accepting the line and the command actually running, so the host
   # can mark "everything after this byte and before the next prompt is
   # command output". `printf` is a builtin, no fork.
-  if [[ -n "$_P10K_RS_AI_HOST" ]]; then
+  if [[ -n "$_P10K_RS_SHELL_INTEGRATION" ]]; then
     printf '\033]133;C\007'
   fi
 }
@@ -201,7 +225,7 @@ _p10k_rs_precmd() {
   # before any other precmd work so the marker lands tight against the
   # last byte the command wrote. Mirrors `osc133_command_end(rs)` in
   # `p10k-rs-ai`.
-  if [[ -n "$_P10K_RS_AI_HOST" ]]; then
+  if [[ -n "$_P10K_RS_SHELL_INTEGRATION" ]]; then
     printf '\033]133;D;%d\007' "$rs"
   fi
   local elapsed_ms=0

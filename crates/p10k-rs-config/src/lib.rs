@@ -156,6 +156,14 @@ pub struct Config {
     pub segments: HashMap<String, SegmentConfig>,
     /// AI integration toggles (host detection, OSC, statusline).
     pub ai: AiConfig,
+    /// Terminal shell-integration emission (OSC 133 A/B/C/D and friends).
+    ///
+    /// Default [`ShellIntegrationMode::Auto`] emits when the renderer
+    /// detects a modern terminal or AI host via environment heuristics
+    /// (see binary-side `resolve_shell_integration`). `Always` forces
+    /// emission regardless of environment; `Off` suppresses entirely.
+    /// Warp is always suppressed even under `Always` — see warp#6718.
+    pub shell_integration: ShellIntegration,
 }
 
 /// Glyph mode for the prompt.
@@ -489,6 +497,48 @@ pub enum TransientPromptMode {
     UniqueDir,
 }
 
+/// Terminal shell-integration emission policy.
+///
+/// Controls whether the renderer emits OSC 133 A/B (prompt boundaries)
+/// and OSC 7 (cwd) around the prompt, and whether the zsh init hooks
+/// emit OSC 133 C/D around command execution. The decision is binary
+/// (emit or don't); the *what* is fixed at the protocol layer.
+///
+/// Routes through [`Config::shell_integration`]. Default `auto`: the
+/// binary inspects `$TERM_PROGRAM`, `$WT_SESSION`, `$GHOSTTY_RESOURCES_DIR`,
+/// `$KITTY_WINDOW_ID`, and the AI-host env vars `$CLAUDECODE`,
+/// `$AIDER_*`, `$CURSOR_*` — if any are set, integration is on.
+///
+/// Warp (`TERM_PROGRAM=WarpTerminal`) is always suppressed even under
+/// `Always`: Warp's block model breaks on OSC 133 A. See warp#6718.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum ShellIntegrationMode {
+    /// Suppress every OSC 133 / OSC 7 emission. The prompt becomes
+    /// byte-identical to the pre-slice-55 historical output.
+    Off,
+    /// Auto-detect via environment heuristics. The default.
+    #[default]
+    Auto,
+    /// Always emit (still gated off for Warp). Useful when the user
+    /// runs under a terminal we don't have a fingerprint for.
+    Always,
+}
+
+/// Top-level `[shell_integration]` block.
+///
+/// Holds [`Self::mode`] for now. Kept as a struct rather than a bare
+/// enum so future fields (`emit_osc7`, `emit_osc133_c_d`, `vscode_extended`,
+/// …) can land without a schema break.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ShellIntegration {
+    /// How aggressively to emit shell-integration sequences.
+    pub mode: ShellIntegrationMode,
+}
+
 /// AI integration configuration.
 ///
 /// Each host is opt-in (deny-by-default) per the threat model in
@@ -742,6 +792,51 @@ left = ["dir"]
         );
         let reparsed = Config::from_toml(&serialised).expect("reparse");
         assert_eq!(reparsed.colors, ColorMode::FollowTerminal);
+    }
+
+    #[test]
+    fn shell_integration_defaults_to_auto() {
+        // Bundle T1.5/T1.9: schema must default `mode` to `auto` so
+        // existing configs keep working and brand-new installs emit the
+        // shell-integration sequences without an explicit opt-in.
+        let cfg = Config::from_toml("schema_version = 1\n").expect("parse minimal");
+        assert_eq!(cfg.shell_integration.mode, ShellIntegrationMode::Auto);
+    }
+
+    #[test]
+    fn shell_integration_parses_always_off_auto() {
+        // Pin the three accepted spellings — `auto`, `always`, `off`.
+        // Kebab-case via serde rename_all; any other value should fail.
+        for (toml, expected) in [
+            (
+                "schema_version = 1\n[shell_integration]\nmode = \"always\"\n",
+                ShellIntegrationMode::Always,
+            ),
+            (
+                "schema_version = 1\n[shell_integration]\nmode = \"off\"\n",
+                ShellIntegrationMode::Off,
+            ),
+            (
+                "schema_version = 1\n[shell_integration]\nmode = \"auto\"\n",
+                ShellIntegrationMode::Auto,
+            ),
+        ] {
+            let cfg = Config::from_toml(toml).expect("parse shell_integration");
+            assert_eq!(cfg.shell_integration.mode, expected);
+        }
+    }
+
+    #[test]
+    fn shell_integration_rejects_unknown_mode() {
+        // A typo (`"on"`, `"yes"`, …) must surface loud instead of
+        // silently degrading to the default.
+        let src = "schema_version = 1\n[shell_integration]\nmode = \"on\"\n";
+        let err = Config::from_toml(src).expect_err("must reject unknown mode");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("unknown variant") || msg.contains("expected one of"),
+            "got: {msg}"
+        );
     }
 
     #[test]

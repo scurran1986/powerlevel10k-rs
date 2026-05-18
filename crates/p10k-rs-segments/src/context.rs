@@ -364,6 +364,7 @@ mod tests {
             now: SystemTime::UNIX_EPOCH,
             env: &env,
             upcoming_command: "",
+            shell_integration_active: false,
         };
         let out = Context.render(&ctx);
         assert!(

@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use p10k_rs_config::Glob;
-use p10k_rs_core::{Config, EnvSnapshot, RenderCtx, Segment, Shell as CoreShell};
+use p10k_rs_config::{Glob, ShellIntegrationMode};
+use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell as CoreShell};
 use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
@@ -346,6 +346,12 @@ fn cmd_prompt(
     // done.
     let cwd_display =
         p10k_rs_core::safety::SafeText::from_untrusted(&cwd.as_path().display().to_string());
+    // Resolve shell-integration emission once per prompt at the
+    // producer boundary so the renderer stays I/O-free. See
+    // `resolve_shell_integration` for the auto-detect matrix and the
+    // Warp gating decision.
+    let shell_integration_active =
+        resolve_shell_integration(cfg.shell_integration.mode, &host, |k| std::env::var(k).ok());
     let ctx = RenderCtx {
         config: &cfg,
         shell: core_shell,
@@ -360,6 +366,7 @@ fn cmd_prompt(
         now: SystemTime::now(),
         env: &env,
         upcoming_command,
+        shell_integration_active,
     };
 
     let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left, upcoming_command);
@@ -876,6 +883,179 @@ fn init_tracing() {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+/// Decide whether the renderer should emit OSC 7 / OSC 133
+/// shell-integration sequences this prompt.
+///
+/// Pure over the supplied `env` closure for testability — production
+/// callers pass `|k| std::env::var(k).ok()`.
+///
+/// Decision matrix:
+///
+/// - **`ShellIntegrationMode::Off`** → always `false`. Honoured even
+///   when an AI host is present, on the principle that the user's
+///   explicit config wins.
+/// - **`ShellIntegrationMode::Always`** → `true`, *except* when Warp
+///   is detected (`TERM_PROGRAM=WarpTerminal`). Warp's block model
+///   parses `OSC 133;A` and treats it as a new block; the prompt
+///   rendering then breaks. See warp#6718 — the open upstream issue
+///   tracks the conflict. Suppression is unconditional regardless of
+///   user intent.
+/// - **`ShellIntegrationMode::Auto`** (default) → `true` when any of
+///   the following hold, again with the Warp suppression on top:
+///   - `host` is anything other than `HostKind::None` (AI host
+///     present — Claude Code / Aider / Cursor).
+///   - `TERM_PROGRAM` is set to anything other than `WarpTerminal`
+///     (covers `iTerm2`, Apple Terminal, `VS Code`, Ghostty, `WezTerm`,
+///     `foot`, …).
+///   - `WT_SESSION` is set (Windows Terminal).
+///   - `GHOSTTY_RESOURCES_DIR` is set (Ghostty).
+///   - `KITTY_WINDOW_ID` is set (Kitty).
+fn resolve_shell_integration<F: Fn(&str) -> Option<String>>(
+    mode: ShellIntegrationMode,
+    host: &HostKind,
+    env: F,
+) -> bool {
+    // Warp's `OSC 133;A` handling breaks block rendering. Hard
+    // suppression regardless of mode or AI host. See warp#6718.
+    if matches!(env("TERM_PROGRAM").as_deref(), Some("WarpTerminal")) {
+        return false;
+    }
+    // `_` (instead of just `ShellIntegrationMode::Auto`) covers any
+    // future variant added to the non_exhaustive enum — those degrade
+    // to the conservative auto-detect path until the binary learns the
+    // new mode.
+    match mode {
+        ShellIntegrationMode::Off => false,
+        ShellIntegrationMode::Always => true,
+        _ => {
+            if *host != HostKind::None {
+                return true;
+            }
+            env("TERM_PROGRAM").is_some()
+                || env("WT_SESSION").is_some()
+                || env("GHOSTTY_RESOURCES_DIR").is_some()
+                || env("KITTY_WINDOW_ID").is_some()
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod shell_integration_tests {
+    use super::{resolve_shell_integration, HostKind, ShellIntegrationMode};
+
+    /// Build a fake env lookup from a slice of `(key, value)` pairs.
+    fn env_with<'a>(
+        pairs: &'a [(&'static str, &'static str)],
+    ) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_owned())
+        }
+    }
+
+    #[test]
+    fn off_mode_suppresses_even_with_ai_host() {
+        // Explicit user opt-out beats every detection signal.
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Off,
+            &HostKind::ClaudeCode,
+            env_with(&[("TERM_PROGRAM", "iTerm.app")]),
+        );
+        assert!(!active);
+    }
+
+    #[test]
+    fn always_mode_emits_in_vanilla_terminal() {
+        // No host, no detectable terminal — `Always` still emits.
+        let active =
+            resolve_shell_integration(ShellIntegrationMode::Always, &HostKind::None, env_with(&[]));
+        assert!(active);
+    }
+
+    #[test]
+    fn warp_suppressed_under_always() {
+        // warp#6718: Warp's block model breaks on OSC 133;A. Even
+        // when the user asks for `always`, we suppress.
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Always,
+            &HostKind::ClaudeCode,
+            env_with(&[("TERM_PROGRAM", "WarpTerminal")]),
+        );
+        assert!(!active, "Warp must be suppressed regardless of mode");
+    }
+
+    #[test]
+    fn warp_suppressed_under_auto() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::None,
+            env_with(&[("TERM_PROGRAM", "WarpTerminal")]),
+        );
+        assert!(!active);
+    }
+
+    #[test]
+    fn auto_detects_iterm() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::None,
+            env_with(&[("TERM_PROGRAM", "iTerm.app")]),
+        );
+        assert!(active);
+    }
+
+    #[test]
+    fn auto_detects_ghostty() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::None,
+            env_with(&[("GHOSTTY_RESOURCES_DIR", "/usr/share/ghostty")]),
+        );
+        assert!(active);
+    }
+
+    #[test]
+    fn auto_detects_kitty() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::None,
+            env_with(&[("KITTY_WINDOW_ID", "1")]),
+        );
+        assert!(active);
+    }
+
+    #[test]
+    fn auto_detects_windows_terminal() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::None,
+            env_with(&[("WT_SESSION", "abc-123")]),
+        );
+        assert!(active);
+    }
+
+    #[test]
+    fn auto_detects_ai_host_even_without_terminal_env() {
+        let active = resolve_shell_integration(
+            ShellIntegrationMode::Auto,
+            &HostKind::ClaudeCode,
+            env_with(&[]),
+        );
+        assert!(active);
+    }
+
+    #[test]
+    fn auto_is_off_with_no_signal() {
+        // Bare ssh into a host with no TERM_PROGRAM and no AI host.
+        let active =
+            resolve_shell_integration(ShellIntegrationMode::Auto, &HostKind::None, env_with(&[]));
+        assert!(!active);
+    }
 }
 
 #[cfg(test)]
