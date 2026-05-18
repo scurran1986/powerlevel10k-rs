@@ -1335,10 +1335,12 @@ pub enum Shell {
 /// crate stays I/O-free per its `CLAUDE.md` and only owns the enum that
 /// flows through the render pipeline.
 ///
-/// The variants are deliberately unit-only for the MVP — per-host
-/// structured data (model strings, context tokens, etc.) can be added
-/// in a future slice without breaking the segment surface, thanks to
-/// `#[non_exhaustive]`.
+/// Most variants are unit-only — per-host structured data (model strings,
+/// context tokens, etc.) can be added in a future slice without breaking
+/// the segment surface, thanks to `#[non_exhaustive]`. The one exception
+/// is [`HostKind::Generic`], which carries the agent's self-reported name
+/// from the generic `AGENT` / `AI_AGENT` probe so the UI can label
+/// "unknown but declared" agents without us shipping a per-tool variant.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HostKind {
@@ -1347,10 +1349,38 @@ pub enum HostKind {
     None,
     /// Anthropic Claude Code CLI.
     ClaudeCode,
+    /// Block's Goose agent (`GOOSE_TERMINAL=1` or `AGENT=goose`).
+    Goose,
     /// Aider AI pair-programmer.
     Aider,
     /// Cursor editor terminal.
     Cursor,
+    /// Generic agent declared via the `AI_AGENT` or `AGENT` env var.
+    ///
+    /// The inner `String` is the agent's self-reported name, already
+    /// trimmed and lowercased by the detector for display consistency.
+    /// Used as a catch-all so agents that adopt the (informal) `AGENT=`
+    /// convention get a labelled prompt badge without us shipping a
+    /// per-tool variant.
+    Generic(String),
+}
+
+impl core::fmt::Display for HostKind {
+    /// Render the host kind as the short label segments use in prompts:
+    /// `"none"`, `"claude-code"`, `"goose"`, `"aider"`, `"cursor"`, or the
+    /// inner string for [`HostKind::Generic`]. Stable enough to depend on
+    /// for status-line text; not stable enough to parse back into a
+    /// variant.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::None => f.write_str("none"),
+            Self::ClaudeCode => f.write_str("claude-code"),
+            Self::Goose => f.write_str("goose"),
+            Self::Aider => f.write_str("aider"),
+            Self::Cursor => f.write_str("cursor"),
+            Self::Generic(name) => f.write_str(name),
+        }
+    }
 }
 
 /// Pre-computed git state for the current cwd.

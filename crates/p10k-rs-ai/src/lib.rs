@@ -31,9 +31,13 @@ pub use p10k_rs_core::HostKind;
 /// Detection precedence matches the order callers usually care about:
 ///
 /// 1. `$CLAUDECODE` set (any value) → [`HostKind::ClaudeCode`].
-/// 2. Any `$AIDER_*` env var set → [`HostKind::Aider`].
-/// 3. Any `$CURSOR_*` env var set → [`HostKind::Cursor`].
-/// 4. Otherwise → [`HostKind::None`].
+/// 2. `$GOOSE_TERMINAL=1` or `$AGENT=goose` (case-insensitive) →
+///    [`HostKind::Goose`].
+/// 3. Any `$AIDER_*` env var set → [`HostKind::Aider`].
+/// 4. Any `$CURSOR_*` env var set → [`HostKind::Cursor`].
+/// 5. `$AI_AGENT` or `$AGENT` non-empty → [`HostKind::Generic`] carrying
+///    the (trimmed, lowercased) value.
+/// 6. Otherwise → [`HostKind::None`].
 ///
 /// Hosts beyond Claude Code are best-effort stubs for this slice — the
 /// goal is the wiring, not perfect detection. Future slices can refine
@@ -53,9 +57,12 @@ pub fn detect_host_kind() -> HostKind {
 ///
 /// The probe list is intentionally short — one canonical "this host is
 /// running" fingerprint per supported host. Adding more probes per host
-/// is fine, but keep the precedence stable (Claude Code → Aider →
-/// Cursor → None) so a single shell wrapped by multiple integrations
-/// reports the outermost one.
+/// is fine, but keep the precedence stable (Claude Code → Goose → Aider
+/// → Cursor → Generic → None) so a single shell wrapped by multiple
+/// integrations reports the outermost / most-specific one. The generic
+/// `AGENT` / `AI_AGENT` probe runs *after* per-tool exact matches so an
+/// agent that exports both `CLAUDECODE=1` and `AGENT=claude-code` still
+/// reports as `ClaudeCode`, not as a stringly-typed `Generic`.
 #[must_use]
 pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
     // Claude Code exports `$CLAUDECODE` on every spawn — that's the
@@ -63,6 +70,17 @@ pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
     // for this slice.
     if env("CLAUDECODE").is_some() {
         return HostKind::ClaudeCode;
+    }
+
+    // Goose (Block's open-source agent) exports `$GOOSE_TERMINAL=1` from
+    // its built-in shell session and also adopts the `$AGENT=goose`
+    // convention. Either is a strong signal. Comparison on `AGENT` is
+    // case-insensitive because the convention isn't formal and downstream
+    // tooling varies on capitalisation.
+    if env("GOOSE_TERMINAL").is_some_and(|v| v.trim() == "1")
+        || env("AGENT").is_some_and(|v| v.trim().eq_ignore_ascii_case("goose"))
+    {
+        return HostKind::Goose;
     }
 
     // Aider doesn't (today) export a single canonical variable. The
@@ -82,6 +100,25 @@ pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
     for key in ["CURSOR_TRACE_ID", "CURSOR_SESSION_ID"] {
         if env(key).is_some() {
             return HostKind::Cursor;
+        }
+    }
+
+    // Generic agent probe: covers every future agent that adopts the
+    // informal `AGENT=` / `AI_AGENT=` convention without us shipping a
+    // per-tool variant. Runs last so explicit fingerprints above always
+    // win — the generic path is the catch-all, not a competitor.
+    //
+    // `AI_AGENT` is preferred over `AGENT` because the latter collides
+    // with a couple of generic env names in the wild (some CI systems,
+    // older Mac launchctl plists). If both are set, take `AI_AGENT`.
+    // Empty / whitespace-only values are ignored — an agent that exports
+    // `AGENT=""` is not declaring anything useful.
+    for key in ["AI_AGENT", "AGENT"] {
+        if let Some(raw) = env(key) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                return HostKind::Generic(trimmed.to_ascii_lowercase());
+            }
         }
     }
 
@@ -246,6 +283,120 @@ mod tests {
             ("CURSOR_TRACE_ID", "abc"),
         ]));
         assert_eq!(kind, HostKind::Aider);
+    }
+
+    #[test]
+    fn detect_generic_agent_via_ai_agent() {
+        // The dedicated `AI_AGENT` slot is the preferred carrier — the
+        // informal convention is that agents which avoid the `AGENT` name
+        // collision use this one. Trim + lowercase on the way through.
+        let kind = detect_from_env(env_with(&[("AI_AGENT", "  CoolBot  ")]));
+        assert_eq!(kind, HostKind::Generic("coolbot".to_owned()));
+    }
+
+    #[test]
+    fn detect_generic_agent_via_agent_var() {
+        // Fall back to the bare `AGENT` slot when `AI_AGENT` is unset.
+        // Same trim + lowercase pass — the prompt badge stays consistent
+        // regardless of how the upstream tool capitalises its self-id.
+        let kind = detect_from_env(env_with(&[("AGENT", "MyAgent")]));
+        assert_eq!(kind, HostKind::Generic("myagent".to_owned()));
+    }
+
+    #[test]
+    fn generic_agent_ignores_empty_and_whitespace_values() {
+        // An agent that sets `AGENT=""` (or all-whitespace) hasn't
+        // declared anything meaningful — fall through to `None` instead
+        // of painting a blank badge.
+        assert_eq!(
+            detect_from_env(env_with(&[("AI_AGENT", "")])),
+            HostKind::None
+        );
+        assert_eq!(
+            detect_from_env(env_with(&[("AGENT", "   ")])),
+            HostKind::None
+        );
+    }
+
+    #[test]
+    fn ai_agent_wins_over_plain_agent_for_generic() {
+        // When both are set, prefer `AI_AGENT` — it's the namespaced
+        // slot and less likely to be a stale value from launchctl or
+        // an unrelated CI tool.
+        let kind = detect_from_env(env_with(&[("AI_AGENT", "primary"), ("AGENT", "stale")]));
+        assert_eq!(kind, HostKind::Generic("primary".to_owned()));
+    }
+
+    #[test]
+    fn detect_goose_via_terminal_var() {
+        // `$GOOSE_TERMINAL=1` is Goose's documented session marker.
+        let kind = detect_from_env(env_with(&[("GOOSE_TERMINAL", "1")]));
+        assert_eq!(kind, HostKind::Goose);
+    }
+
+    #[test]
+    fn detect_goose_via_agent_var() {
+        // `AGENT=goose` is the informal community convention. Comparison
+        // is case-insensitive so `Goose`, `GOOSE`, and `goose` all match.
+        let kind = detect_from_env(env_with(&[("AGENT", "goose")]));
+        assert_eq!(kind, HostKind::Goose);
+
+        let kind = detect_from_env(env_with(&[("AGENT", "Goose")]));
+        assert_eq!(kind, HostKind::Goose);
+
+        let kind = detect_from_env(env_with(&[("AGENT", "GOOSE")]));
+        assert_eq!(kind, HostKind::Goose);
+    }
+
+    #[test]
+    fn goose_takes_precedence_over_aider() {
+        // Goose slots between Claude Code and Aider in the precedence
+        // chain — if a Goose-wrapped shell also has Aider env vars
+        // exported, Goose wins because it's the outer agent.
+        let kind = detect_from_env(env_with(&[
+            ("GOOSE_TERMINAL", "1"),
+            ("AIDER_MODEL", "gpt-4o"),
+        ]));
+        assert_eq!(kind, HostKind::Goose);
+    }
+
+    #[test]
+    fn claudecode_wins_over_goose() {
+        // Claude Code stays at the top of the precedence chain. A shell
+        // running Goose-inside-Claude reports the outermost host so the
+        // OSC contract stays anchored on Claude's parser.
+        let kind = detect_from_env(env_with(&[("CLAUDECODE", "1"), ("GOOSE_TERMINAL", "1")]));
+        assert_eq!(kind, HostKind::ClaudeCode);
+    }
+
+    #[test]
+    fn explicit_probes_take_precedence_over_generic() {
+        // The `AGENT` / `AI_AGENT` generic probe runs last. If a tool
+        // exports both its canonical fingerprint AND a generic name,
+        // the per-tool variant must win — `Generic("foobar")` for a
+        // Claude Code shell would lose us routing data downstream.
+        let kind = detect_from_env(env_with(&[("CLAUDECODE", "1"), ("AGENT", "foobar")]));
+        assert_eq!(kind, HostKind::ClaudeCode);
+
+        // Same for the dedicated `AI_AGENT` slot — Claude still wins.
+        let kind = detect_from_env(env_with(&[("CLAUDECODE", "1"), ("AI_AGENT", "foobar")]));
+        assert_eq!(kind, HostKind::ClaudeCode);
+    }
+
+    #[test]
+    fn host_kind_display_uses_short_labels() {
+        // The `Display` impl is the segment-layer / status-line carrier.
+        // Pin the short labels so a future rename doesn't silently
+        // re-shape prompt text.
+        assert_eq!(HostKind::None.to_string(), "none");
+        assert_eq!(HostKind::ClaudeCode.to_string(), "claude-code");
+        assert_eq!(HostKind::Goose.to_string(), "goose");
+        assert_eq!(HostKind::Aider.to_string(), "aider");
+        assert_eq!(HostKind::Cursor.to_string(), "cursor");
+        assert_eq!(
+            HostKind::Generic("coolbot".to_owned()).to_string(),
+            "coolbot"
+        );
     }
 
     #[test]
