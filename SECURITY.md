@@ -30,7 +30,7 @@ minors do not — upgrade.
 Use **GitHub Security Advisories** (private vulnerability
 reporting):
 
-<https://github.com/seaburdz/powerlevel10k-rs/security/advisories/new>
+<https://github.com/scurran1986/powerlevel10k-rs/security/advisories/new>
 
 Expect an initial response within 72 hours. If GHSA is unavailable
 and the issue is **not** sensitive (no exploit details, no
@@ -44,7 +44,7 @@ Release tarballs are signed via sigstore keyless OIDC. The Fulcio
 certificate binds to this workflow file and tag ref:
 
 ```
-https://github.com/seaburdz/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v.+
+https://github.com/scurran1986/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v.+
 ```
 
 OIDC issuer: `https://token.actions.githubusercontent.com`.
@@ -63,7 +63,7 @@ the chain.
 ```bash
 cosign verify-blob \
   --bundle p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz.cosign.bundle \
-  --certificate-identity-regexp 'https://github.com/seaburdz/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v.+' \
+  --certificate-identity-regexp 'https://github.com/scurran1986/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v.+' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz
 ```
@@ -75,7 +75,7 @@ release-workflow run of this repo. Do not install.
 
 ```bash
 gh attestation verify p10k-rs-0.1.3-x86_64-unknown-linux-gnu.tar.gz \
-  --repo seaburdz/powerlevel10k-rs
+  --repo scurran1986/powerlevel10k-rs
 ```
 
 The same command also verifies the unpacked binary directly —
