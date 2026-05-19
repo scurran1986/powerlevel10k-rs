@@ -17,6 +17,10 @@ categories.workspace = true
 serde = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
+# `geteuid()` + `OFlags::NOFOLLOW` for the T1.13 TOCTOU-safe config open.
+# Already in `p10k-rs-core` / `p10k-rs-git`; adding it here keeps the inline
+# helper unsafe-free without inverting the `core → config` dep direction.
+rustix = { workspace = true }
 
 [lints]
 workspace = true

@@ -15,7 +15,9 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -116,6 +118,22 @@ pub enum ConfigError {
     /// completeness so consumers can surface a clear error if it does.
     #[error("config serialise error: {0}")]
     Serialize(#[from] toml::ser::Error),
+    /// The config file exists and is readable but fails a load-time
+    /// safety invariant (TOCTOU: symlinked, foreign-owned, or
+    /// world/group-writable). Surfaces from [`Config::load_from_path`].
+    ///
+    /// The binary treats this identically to `Io` / `Parse` — log once
+    /// at warn-level and fall back to `factory_default_config`. The
+    /// distinct variant exists so the operator can see *why* their
+    /// config was ignored (a permissions error reads very differently
+    /// from a parse error in the log).
+    #[error("config security check failed for {path}: {reason}")]
+    Insecure {
+        /// The path the loader refused to read.
+        path: PathBuf,
+        /// Human-readable explanation (foreign-owner / world-writable / symlink / …).
+        reason: String,
+    },
 }
 
 /// Result alias for this crate's fallible API.
@@ -666,11 +684,37 @@ impl Config {
     /// Used by [`Self::load_default`] after the search-path resolves; also
     /// useful in tests that want to point the loader at a fixture without
     /// going through env-var discovery.
+    ///
+    /// # Safety checks (T1.13)
+    ///
+    /// The open is wrapped in a TOCTOU-safe pattern that mirrors the
+    /// `open_owned_mode_safely` helper lifted into
+    /// [`p10k_rs_core::safety`] (this crate cannot depend on `core`
+    /// because the workspace dep direction is `core → config`; see the
+    /// inlined `safety` submodule at the top of this file for the
+    /// established duplication pattern):
+    ///
+    /// - `O_NOFOLLOW` on the open: a symlink (or a mid-flight symlink
+    ///   swap) turns into `ELOOP`, surfaces as [`ConfigError::Io`] and
+    ///   the binary falls back to factory default.
+    /// - `fstat` on the fd: refuse files that aren't regular files, that
+    ///   are owned by a uid other than the current effective uid, or
+    ///   whose permission bits exceed `0o644` (any group- or
+    ///   world-writable bit). Failures surface as
+    ///   [`ConfigError::Insecure`].
+    ///
+    /// The `0o644` cap is the more permissive of the two realistic
+    /// choices (`0o600` vs `0o644`): both `chmod 600` and the default
+    /// `umask 022 → 0o644` install paths are accepted; the gate is
+    /// "no one outside the owner can write the file." A future slice
+    /// can tighten this to `0o600` once we know whether any real
+    /// dotfiles workflow needs the group/world read bits.
+    ///
+    /// Non-unix targets fall back to the historical `read_to_string`
+    /// (no fd-level fstat is available there); the FIFO IPC the gate
+    /// protects in production is also unix-only.
     pub fn load_from_path(path: &Path) -> Result<Self> {
-        let bytes = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
-            path: path.to_owned(),
-            source,
-        })?;
+        let bytes = read_config_bytes(path)?;
         toml::from_str::<Self>(&bytes)
             .map(|mut cfg| {
                 cfg.sanitize_in_place();
@@ -680,6 +724,107 @@ impl Config {
                 path: path.to_owned(),
                 source,
             })
+    }
+}
+
+/// One-shot guard so a hostile config that fires the warn path on every
+/// prompt invocation doesn't spam the user's stderr. The flag flips on
+/// the first refusal and stays flipped for the lifetime of the process.
+static INSECURE_CONFIG_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// TOCTOU-safe wrapper around [`std::fs::read_to_string`] for config files.
+///
+/// On unix: open with `O_NOFOLLOW`, `fstat` the resulting fd, refuse
+/// non-regular / foreign-owner / mode `& !0o644 != 0`, then read from
+/// the fd. On rejection emits a one-time stderr warning so the user
+/// notices their config was ignored, and returns
+/// [`ConfigError::Insecure`].
+///
+/// On non-unix (Windows): falls back to plain `read_to_string`. The
+/// production hot path that this gate protects (`gitstatusd` FIFOs,
+/// shell-init) is unix-only.
+///
+/// This is the inlined twin of [`p10k_rs_core::safety::open_owned_mode_safely`].
+/// We can't reach across — the workspace dep direction is `core → config`
+/// — so the same duplication carve-out the [`safety`] submodule above
+/// uses for `sanitize_for_terminal` applies here. Behaviour must match
+/// the canonical helper bit-for-bit.
+#[cfg(unix)]
+fn read_config_bytes(path: &Path) -> Result<String> {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[allow(clippy::cast_possible_wrap)]
+    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
+    opts.custom_flags(nofollow);
+    let mut f = opts.open(path).map_err(|source| ConfigError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+
+    // `File::metadata` invokes `fstat(2)` on the fd we already hold, so
+    // the type/owner/mode checks below act on the inode behind the fd —
+    // race-free relative to any further path manipulation.
+    let md = f.metadata().map_err(|source| ConfigError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    if !md.file_type().is_file() {
+        let reason = "not a regular file".to_string();
+        warn_once_insecure(path, &reason);
+        return Err(ConfigError::Insecure {
+            path: path.to_owned(),
+            reason,
+        });
+    }
+    let my_uid = rustix::process::geteuid().as_raw();
+    if md.uid() != my_uid {
+        let reason = format!("foreign owner uid {} (we are uid {})", md.uid(), my_uid);
+        warn_once_insecure(path, &reason);
+        return Err(ConfigError::Insecure {
+            path: path.to_owned(),
+            reason,
+        });
+    }
+    let mode = md.mode() & 0o7777;
+    if mode & !0o644 != 0 {
+        let reason = format!("mode {mode:#o} exceeds 0o644 (group- or world-writable)");
+        warn_once_insecure(path, &reason);
+        return Err(ConfigError::Insecure {
+            path: path.to_owned(),
+            reason,
+        });
+    }
+
+    let mut s = String::new();
+    f.read_to_string(&mut s).map_err(|source| ConfigError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(s)
+}
+
+#[cfg(not(unix))]
+fn read_config_bytes(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+/// One-shot stderr warning that we ignored a user's config. Keeps the
+/// prompt loud-once but quiet thereafter; a wedged config would
+/// otherwise spam every prompt invocation.
+#[cfg(unix)]
+fn warn_once_insecure(path: &Path, reason: &str) {
+    if !INSECURE_CONFIG_WARNED.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "p10k-rs: refusing to load config at {}: {reason}. \
+             Using built-in default. Fix permissions with: chmod 0644 {0} && chown $USER {0}",
+            path.display()
+        );
     }
 }
 
@@ -907,6 +1052,128 @@ left = ["dir"]
             }
             Err(other) => panic!("expected Parse error, got {other:?}"),
             Ok(cfg) => panic!("expected error, got Ok({cfg:?})"),
+        }
+    }
+
+    // ---------- T1.13: mode + ownership safety checks ----------
+
+    #[cfg(unix)]
+    fn chmod(p: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode))
+            .unwrap_or_else(|e| panic!("chmod {p:?} {mode:o}: {e}"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_from_path_accepts_owner_only_0o600() {
+        // Happy path: a config we own at mode 0o600 (`chmod 600`) loads
+        // cleanly. The cap is 0o644, so 0o600 is comfortably under it.
+        let path = std::env::temp_dir().join(format!("p10krs-cfg-0600-{}.toml", unique_suffix()));
+        std::fs::write(&path, "schema_version = 1\n").expect("write config");
+        chmod(&path, 0o600);
+        let result = Config::load_from_path(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "0o600 owned config must load, got {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_from_path_accepts_owner_only_0o644() {
+        // 0o644 is the realistic "umask 022" default for files dropped
+        // into ~/.config. Must pass.
+        let path = std::env::temp_dir().join(format!("p10krs-cfg-0644-{}.toml", unique_suffix()));
+        std::fs::write(&path, "schema_version = 1\n").expect("write config");
+        chmod(&path, 0o644);
+        let result = Config::load_from_path(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "0o644 owned config must load, got {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_from_path_refuses_world_writable() {
+        // World-writable (0o666 or 0o646) must trip Insecure. The
+        // attacker would otherwise edit the config and steer the
+        // rendered prompt (which is `eval`'d by zsh through PROMPT).
+        let path =
+            std::env::temp_dir().join(format!("p10krs-cfg-world-write-{}.toml", unique_suffix()));
+        std::fs::write(&path, "schema_version = 1\n").expect("write config");
+        chmod(&path, 0o666);
+        let result = Config::load_from_path(&path);
+        let _ = std::fs::remove_file(&path);
+        match result {
+            Err(ConfigError::Insecure { reason, .. }) => {
+                assert!(
+                    reason.contains("mode") && reason.contains("0o644"),
+                    "expected mode-exceeds-0o644 reason, got: {reason:?}"
+                );
+            }
+            other => panic!("expected Insecure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_from_path_refuses_group_writable() {
+        // 0o664: owner-rw, group-rw, other-r. Group-write is the
+        // realistic co-tenant attack vector (shared group on a server).
+        let path =
+            std::env::temp_dir().join(format!("p10krs-cfg-group-write-{}.toml", unique_suffix()));
+        std::fs::write(&path, "schema_version = 1\n").expect("write config");
+        chmod(&path, 0o664);
+        let result = Config::load_from_path(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            matches!(result, Err(ConfigError::Insecure { .. })),
+            "expected Insecure, got {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_from_path_refuses_symlink() {
+        // A symlink to a perfectly fine file we own must be refused.
+        // O_NOFOLLOW on the open turns it into ELOOP, surfaces as Io.
+        let real =
+            std::env::temp_dir().join(format!("p10krs-cfg-sym-real-{}.toml", unique_suffix()));
+        let link =
+            std::env::temp_dir().join(format!("p10krs-cfg-sym-link-{}.toml", unique_suffix()));
+        std::fs::write(&real, "schema_version = 1\n").expect("write real");
+        chmod(&real, 0o600);
+        std::os::unix::fs::symlink(&real, &link).expect("create symlink");
+        let result = Config::load_from_path(&link);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&real);
+        match result {
+            Err(ConfigError::Io { .. }) => {
+                // ELOOP / ENOTDIR / ENXIO depending on libc; either way
+                // Io is the correct shape — we never opened the target.
+            }
+            other => panic!("expected Io (ELOOP), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_from_path_missing_file_surfaces_io_not_found() {
+        // The missing-file silent fallback contract: `Io { source }`
+        // with `ErrorKind::NotFound`, which the binary's main loop
+        // translates to "use factory default". No Insecure on a
+        // not-yet-created config.
+        let path =
+            std::env::temp_dir().join(format!("p10krs-cfg-missing-{}.toml", unique_suffix()));
+        let result = Config::load_from_path(&path);
+        match result {
+            Err(ConfigError::Io { source, .. }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            }
+            other => panic!("expected Io(NotFound), got {other:?}"),
         }
     }
 }

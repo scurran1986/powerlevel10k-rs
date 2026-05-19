@@ -320,6 +320,7 @@ dependencies = [
 name = "p10k-rs-config"
 version = "0.1.0"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "thiserror",
  "toml",
