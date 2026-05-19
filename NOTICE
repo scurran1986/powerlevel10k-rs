@@ -1,0 +1,33 @@
+p10k-rs
+Copyright 2026 Sean Curran and p10k-rs contributors
+
+Licensed under the Apache License, Version 2.0 (the "License") or
+the MIT License, at your option. You may not use this software
+except in compliance with one of those licenses. See LICENSE-MIT
+and LICENSE-APACHE in this distribution.
+
+This product includes software developed by the p10k-rs
+contributors.
+
+---
+
+THIRD-PARTY SOFTWARE
+
+This project bundles gitstatusd from https://github.com/romkatv/gitstatus
+under GPL-3.0-or-later. The bundling is arms-length aggregation per
+GPL § 0 (subprocess + IPC pipes, not a derivative work); see
+THIRD-PARTY-LICENSES.md for the full compliance details including
+source availability per GPL § 6.
+
+---
+
+NO WARRANTY
+
+This software is provided "AS IS", WITHOUT WARRANTY OF ANY KIND,
+express or implied, including but not limited to the warranties of
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE and NONINFRINGEMENT.
+See the LICENSE files for the complete warranty disclaimer.
+
+This is an experimental, AI-assisted hobby project. Use at your
+own risk. See README.md § "Maintenance and support" and § "Development
+model" for the maintainer's stance on bugs, security, and support.

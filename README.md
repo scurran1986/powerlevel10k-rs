@@ -6,6 +6,17 @@ static binary, declarative TOML config, multi-shell support, with
 
 [p10k]: https://github.com/romkatv/powerlevel10k
 
+> [!WARNING]
+> **No warranty. No support. Use at your own risk.**
+>
+> p10k-rs is an experimental, AI-assisted ("vibe coded") hobby
+> project run by one person. It may have bugs, security issues, or
+> simply stop being maintained. The dual MIT / Apache-2.0 licenses
+> say it explicitly: **no warranty of any kind, express or implied.**
+> If you run this in production or anywhere that matters, you accept
+> all risk. Don't like that? Fork it — that's the point of permissive
+> licensing.
+
 ## Quickstart
 
 One line. Clones the repo to `~/.local/share/powerlevel10k-rs`,
@@ -215,12 +226,59 @@ Full schema lives in `crates/p10k-rs-config/src/lib.rs`.
   drove the pivot away from a pure-Rust scanner.
 - More ADRs land as decisions are made. Index in `docs/adr/README.md`.
 
+## Maintenance and support
+
+This is a personal project, run by one person in spare time.
+Concretely:
+
+- **No SLA.** Issues may sit unanswered indefinitely. PRs may
+  never be reviewed.
+- **No security commitment.** Vulnerabilities will be addressed
+  when and if the maintainer has time and interest. Use the
+  private vulnerability reporting channel (see
+  [SECURITY.md](SECURITY.md)) anyway — but no response time is
+  promised.
+- **No backward-compatibility promise** before v1.0. Schema,
+  CLI, segment names, anything may change.
+- **May be abandoned without notice.** If that happens, fork it.
+  Permissive license, no questions asked.
+
+If you need software with support SLAs and warranty commitments,
+purchase a commercial product. p10k-rs is offered as-is for people
+who want a Rust port of Powerlevel10k and accept it as a hobby
+project.
+
+## Development model
+
+p10k-rs is developed with substantial AI assistance ("vibe coded").
+Most code, tests, and documentation are produced through human +
+AI collaboration. Implications you should know:
+
+- **Bugs may be subtle.** AI-generated code can contain
+  plausible-looking errors that experienced humans wouldn't make.
+  Mitigations: tests, CI gates (`clippy -D warnings`,
+  `cargo deny`, `cargo machete`), type-system enforcement
+  (`SafeText` chokepoint), and human review — but the maintainer
+  cannot promise these catch everything.
+- **Code quality varies.** Different sessions and different agents
+  produce different outcomes. Some modules are battle-tested;
+  others are newer and less proven.
+- **Decisions may not be documented in commits.** When an AI agent
+  makes a design choice, the reasoning may live in chat history,
+  not the commit message or an ADR.
+
+If any of that concerns you, **don't use this for anything
+important.** Fork and audit, or pick a different prompt project.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Conservative dependencies,
 `#![forbid(unsafe_code)]` everywhere except `p10k-rs-git` (where
 the `unsafe` budget is documented per call site), doc comments on
-every public item, typed errors in libraries.
+every public item, typed errors in libraries. Contributions are
+welcome but **may be merged, modified, rejected, or ignored at
+the maintainer's sole discretion** — see "Maintenance and
+support" above.
 
 ## License
 
