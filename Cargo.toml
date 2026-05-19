@@ -54,6 +54,12 @@ thiserror = "2.0"
 anyhow = "1.0" # binary glue only — never in libraries
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Daily-rotating file appender + non-blocking writer for the diagnostics
+# log (T1.21). Companion crate to `tracing-subscriber`, same upstream
+# (tokio-rs/tracing), MSRV-clean at 1.88. Pulls only `time` (already in
+# our tree for the `time` segment) and `crossbeam-channel` for the
+# background writer thread — no surprise transitives.
+tracing-appender = "0.2"
 
 # --- CLI / styling ---
 clap = { version = "4.5", features = ["derive", "cargo", "env", "wrap_help"] }

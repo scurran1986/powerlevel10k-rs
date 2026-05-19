@@ -136,7 +136,13 @@ enum ConfigCommand {
 }
 
 fn main() -> Result<()> {
-    init_tracing();
+    // Hold the non-blocking writer's `WorkerGuard` for the full lifetime
+    // of the process (T1.21). When it drops, tracing-appender's
+    // background thread flushes and joins; binding the value to `_`
+    // would drop it immediately and discard any queued events on a
+    // sub-millisecond CLI run like `p10k-rs prompt`. The named slot
+    // keeps the guard alive until `main` returns.
+    let _guard = init_tracing();
     let cli = Cli::parse();
 
     match cli.command {
@@ -868,21 +874,354 @@ fn parse_core_shell(s: &str) -> Result<CoreShell> {
     }
 }
 
-/// Install `tracing-subscriber` only when the user explicitly opts in via
-/// `RUST_LOG`. Skipping the subscriber on the silent path saves ~100-300 µs
-/// per prompt invocation — significant against gitstatusd's sub-ms response
-/// on small repos. Users get debug output with `RUST_LOG=p10k_rs=debug`.
-fn init_tracing() {
+/// Install the diagnostics-log subscriber (T1.21).
+///
+/// Wires a daily-rotating file appender to
+/// `$XDG_STATE_HOME/p10k-rs/diagnostics.log` (fallback
+/// `$HOME/.local/state/p10k-rs/diagnostics.log`). Parent dir is created
+/// at mode `0o700`; today's log file is post-chmod'd to `0o600` so
+/// `tracing-appender`'s default umask-derived mode (typically `0o644`)
+/// doesn't leak diagnostics readable to "others" on a multi-user host.
+///
+/// Filter source: `EnvFilter::try_from_env("P10K_RS_LOG")` with a
+/// default of `warn`. Prefixing with `P10K_RS_LOG` rather than
+/// `RUST_LOG` avoids clobbering the global env var for unrelated tools
+/// running under our process.
+///
+/// Format: compact, ANSI off (file output — no terminal to colour for).
+///
+/// Non-blocking: writes go through `tracing_appender::non_blocking`,
+/// which buffers on a background thread so a slow disk can't add to
+/// prompt latency. The returned [`tracing_appender::non_blocking::WorkerGuard`]
+/// must outlive the last `tracing` event we want flushed; the caller
+/// holds it for the lifetime of `main`. Returns `None` when the log
+/// dir can't be resolved (no `HOME` and no `XDG_STATE_HOME`) or when
+/// dir prep fails — in that case the binary runs without a diagnostics
+/// subscriber and the prompt path is unaffected (events degrade to
+/// no-ops).
+fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{fmt, EnvFilter};
 
-    if std::env::var_os("RUST_LOG").is_none() {
-        return;
+    let dir = diagnostics_log_dir()?;
+    if let Err(e) = ensure_log_dir(&dir) {
+        // No subscriber wired yet, so a `tracing::warn!` here would be
+        // a silent no-op. Fall back to stderr for the one-shot setup
+        // failure. If stderr is also redirected (as it is under the
+        // T1.22 zsh init), the message lands in the same diagnostics
+        // log on the next successful init — same failure shape as
+        // pre-T1.21, no regression.
+        eprintln!(
+            "p10k-rs: failed to prepare diagnostics dir {}: {e}",
+            dir.display()
+        );
+        return None;
     }
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+
+    // Daily rotation: tracing-appender writes
+    // `diagnostics.log.YYYY-MM-DD` files in UTC. The research doc
+    // (`audit-logging.md` Tier 1) asked for 1 MiB size-based rotation,
+    // but tracing-appender's size rotation has known caveats (no
+    // built-in retention; awkward state across restarts). Daily
+    // rotation is simpler, gives a natural retention story (one file
+    // per UTC day; users can `find -mtime +N -delete` if they care),
+    // and the diagnostics channel's expected volume (a handful of
+    // events per shell session) keeps each daily file trivially small.
+    let appender = tracing_appender::rolling::daily(&dir, "diagnostics.log");
+    let (writer, guard) = tracing_appender::non_blocking(appender);
+
+    let filter = EnvFilter::try_from_env("P10K_RS_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
     let _ = fmt()
         .with_env_filter(filter)
-        .with_writer(std::io::stderr)
+        .with_writer(writer)
+        .with_ansi(false)
+        .compact()
         .try_init();
+
+    // Belt-and-braces chmod after the appender opens today's file.
+    // tracing-appender uses the process umask (typically `0o022` →
+    // `0o644`), which would leak diagnostics readable to "others" on a
+    // multi-user host. We re-stat today's file and clamp to `0o600`.
+    // The chmod is a no-op when bits already match; per-prompt cost is
+    // one stat + at most one chmod (µs).
+    let today_path = todays_log_path(&dir);
+    if today_path.exists() {
+        let _ = set_mode_0600(&today_path);
+    }
+    Some(guard)
+}
+
+/// Resolve the diagnostics log directory: `$XDG_STATE_HOME/p10k-rs` if
+/// set, otherwise `$HOME/.local/state/p10k-rs`. Returns `None` when
+/// neither env var is set — the binary then runs without a diagnostics
+/// log, which matches the pre-T1.21 silent behaviour.
+///
+/// Thin wrapper over [`resolve_diagnostics_dir`] so the resolution
+/// logic stays a pure function of its inputs (and therefore unit-
+/// testable without mutating process-wide env vars, which races other
+/// tests).
+fn diagnostics_log_dir() -> Option<PathBuf> {
+    resolve_diagnostics_dir(
+        std::env::var_os("XDG_STATE_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// Pure resolver: pick the diagnostics dir given a candidate
+/// `$XDG_STATE_HOME` and `$HOME`.
+///
+/// Split out from [`diagnostics_log_dir`] so the policy ("prefer XDG;
+/// fall back to `~/.local/state`; ignore empty XDG values") can be
+/// tested without touching process env. Returns `None` when neither
+/// candidate is usable.
+fn resolve_diagnostics_dir(
+    xdg_state_home: Option<&std::ffi::OsStr>,
+    home: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    if let Some(xdg) = xdg_state_home {
+        if !xdg.is_empty() {
+            return Some(PathBuf::from(xdg).join("p10k-rs"));
+        }
+    }
+    let home = home?;
+    Some(
+        PathBuf::from(home)
+            .join(".local")
+            .join("state")
+            .join("p10k-rs"),
+    )
+}
+
+/// Create `dir` with mode `0o700` if missing; idempotent.
+///
+/// `DirBuilder::recursive(true)` creates missing parents too. The
+/// `mode(0o700)` from `DirBuilderExt` applies only to *newly* created
+/// components, so we also `set_permissions` on `dir` itself to clamp a
+/// pre-existing world-readable leaf down to `0o700`. Parents are left
+/// alone — `~/.local/state` is shared with other tools and should
+/// follow the user's umask, not ours.
+fn ensure_log_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true).mode(0o700);
+        builder.create(dir)?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
+}
+
+/// Path to today's rotating log file inside `dir`.
+///
+/// Mirrors `tracing_appender::rolling::daily(dir, "diagnostics.log")`'s
+/// naming convention: `diagnostics.log.YYYY-MM-DD` in UTC. Used by
+/// [`init_tracing`] to chmod the freshly-created file to `0o600`, and
+/// by the test suite to assert the file's mode. If tracing-appender
+/// ever changes its date format, the smoke test catches the drift.
+fn todays_log_path(dir: &std::path::Path) -> PathBuf {
+    let now = time::OffsetDateTime::now_utc();
+    let stamp = format!(
+        "{:04}-{:02}-{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day()
+    );
+    dir.join(format!("diagnostics.log.{stamp}"))
+}
+
+/// Force `path`'s mode to `0o600`. Unix-only; no-op on other platforms.
+#[cfg(unix)]
+fn set_mode_0600(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_mode_0600(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+mod tracing_init_tests {
+    //! T1.21 — diagnostics-log smoke tests.
+    //!
+    //! We don't drive the full `init_tracing` here because it calls
+    //! `try_init` on the global subscriber and unit tests share a
+    //! process. Instead we exercise the load-bearing helpers
+    //! (`diagnostics_log_dir`, `ensure_log_dir`, `todays_log_path`,
+    //! `set_mode_0600`) plus a one-shot tracing → appender → file
+    //! write using a scoped subscriber, which is safe under cargo
+    //! test's threading.
+
+    use super::{ensure_log_dir, resolve_diagnostics_dir, set_mode_0600, todays_log_path};
+    use std::ffi::OsStr;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    fn scratch_path(tag: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "p10k-rs-diag-test-{tag}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn ensure_log_dir_creates_with_mode_0700() {
+        let dir = scratch_path("mkdir-0700");
+        ensure_log_dir(&dir).unwrap();
+        let md = std::fs::metadata(&dir).unwrap();
+        let mode = md.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "expected 0o700, got 0o{mode:o}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_log_dir_tightens_preexisting_loose_mode() {
+        // Simulate a user with a pre-existing diagnostics dir at a
+        // looser mode (e.g. a tool ran under umask 022). The helper
+        // must clamp back to 0o700 — without this, an upgrade from a
+        // pre-T1.21 binary that created the dir at default umask would
+        // leave the diagnostics file discoverable by other UIDs.
+        let dir = scratch_path("mkdir-tighten");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ensure_log_dir(&dir).unwrap();
+        let md = std::fs::metadata(&dir).unwrap();
+        let mode = md.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "expected 0o700 after tighten, got 0o{mode:o}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_mode_0600_clamps_file_mode() {
+        let dir = scratch_path("file-0600");
+        ensure_log_dir(&dir).unwrap();
+        let file = dir.join("diagnostics.log.test");
+        std::fs::write(&file, b"x").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        set_mode_0600(&file).unwrap();
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "expected 0o600, got 0o{mode:o}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diagnostics_dir_prefers_xdg_state_home() {
+        // Pure-function test over the resolver — no env mutation, so
+        // safe to run in parallel under cargo test's worker pool.
+        let resolved = resolve_diagnostics_dir(
+            Some(OsStr::new("/tmp/fake-xdg-state")),
+            Some(OsStr::new("/tmp/fake-home")),
+        )
+        .unwrap();
+        assert_eq!(resolved, PathBuf::from("/tmp/fake-xdg-state/p10k-rs"));
+    }
+
+    #[test]
+    fn diagnostics_dir_falls_back_to_home_local_state() {
+        let resolved = resolve_diagnostics_dir(None, Some(OsStr::new("/tmp/fake-home"))).unwrap();
+        assert_eq!(
+            resolved,
+            PathBuf::from("/tmp/fake-home/.local/state/p10k-rs")
+        );
+    }
+
+    #[test]
+    fn diagnostics_dir_treats_empty_xdg_as_unset() {
+        // Some users export `XDG_STATE_HOME=` to clear it. Treat that
+        // like "unset" rather than building `/p10k-rs` at root.
+        let resolved =
+            resolve_diagnostics_dir(Some(OsStr::new("")), Some(OsStr::new("/tmp/fake-home")))
+                .unwrap();
+        assert_eq!(
+            resolved,
+            PathBuf::from("/tmp/fake-home/.local/state/p10k-rs")
+        );
+    }
+
+    #[test]
+    fn diagnostics_dir_returns_none_when_no_inputs() {
+        assert!(resolve_diagnostics_dir(None, None).is_none());
+    }
+
+    #[test]
+    fn todays_log_path_matches_appender_format() {
+        // Verify `todays_log_path` produces the same filename
+        // tracing-appender's daily rotation would write to (UTC,
+        // `diagnostics.log.YYYY-MM-DD`). If this drifts, our chmod
+        // would silently miss the live file and the next event would
+        // land at the umask-default mode.
+        let dir = scratch_path("today");
+        ensure_log_dir(&dir).unwrap();
+        let computed = todays_log_path(&dir);
+        let parent = computed.parent().unwrap();
+        let name = computed.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(parent, dir);
+        assert!(
+            name.starts_with("diagnostics.log."),
+            "filename {name:?} must carry the diagnostics.log. prefix",
+        );
+        let suffix = &name["diagnostics.log.".len()..];
+        // YYYY-MM-DD: ten chars, two dashes at indices 4 and 7.
+        assert_eq!(suffix.len(), 10, "date suffix {suffix:?} must be 10 chars");
+        assert_eq!(suffix.as_bytes()[4], b'-');
+        assert_eq!(suffix.as_bytes()[7], b'-');
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tracing_warn_lands_in_diagnostics_file() {
+        // End-to-end smoke: configure a scoped subscriber pointing at a
+        // tracing-appender daily appender under a scratch dir, emit a
+        // `tracing::warn!`, drop the guard to flush, then read the
+        // freshly-rolled file and assert the message is present. Uses
+        // `with_default` rather than `try_init` to avoid races with
+        // other tests in the same process.
+        use tracing::subscriber::with_default;
+        use tracing_subscriber::fmt;
+
+        let dir = scratch_path("warn-lands");
+        ensure_log_dir(&dir).unwrap();
+        let appender = tracing_appender::rolling::daily(&dir, "diagnostics.log");
+        let (writer, guard) = tracing_appender::non_blocking(appender);
+        let subscriber = fmt()
+            .with_writer(writer)
+            .with_ansi(false)
+            .compact()
+            .finish();
+        with_default(subscriber, || {
+            tracing::warn!(target: "p10k_rs_test", "diagnostics-smoke marker line");
+        });
+        // Drop the guard so the background thread flushes and exits
+        // before we read the file — same lifecycle the binary follows
+        // by holding `_guard` in `main`.
+        drop(guard);
+
+        let path = todays_log_path(&dir);
+        // Belt-and-braces: appender opens with process umask (0o644
+        // typically). Verify the chmod helper clamps it.
+        if path.exists() {
+            set_mode_0600(&path).unwrap();
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "expected 0o600 after chmod, got 0o{mode:o}");
+        }
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains("diagnostics-smoke marker line"),
+            "expected the warn line in the log file, got: {contents:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// Decide whether the renderer should emit OSC 7 / OSC 133
