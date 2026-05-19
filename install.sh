@@ -95,6 +95,82 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+# T1.20: require git >= 2.35.2 (CVE-2022-24765 mitigation).
+#
+# `p10k-rs`'s vcs segment shells out to `git status` on every prompt against
+# whatever cwd the user is sitting in. Pre-2.35.2 git will happily operate on
+# a `.git` directory owned by a different uid, which lets a malicious repo
+# planted in a shared dir (`/tmp`, an extracted tarball, a Docker bind mount,
+# …) execute arbitrary code via `core.fsmonitor` the moment the user `cd`s in.
+# See https://github.blog/2022-04-12-git-security-vulnerability-announced/ .
+#
+# Policy: loud warn + non-zero exit. Users on stale distros (RHEL 8, Ubuntu
+# 20.04 LTS) can opt in deliberately by setting `P10K_RS_SKIP_GIT_VERSION_CHECK=1`.
+# Hard refuse felt too paternal — the user already has to run `bash install.sh`
+# by hand, so consent is established; the override gives them a way through
+# without forking the script.
+check_git_version() {
+  local raw major minor patch req_major=2 req_minor=35 req_patch=2
+  if ! command -v git >/dev/null 2>&1; then
+    echo "[warn] git not on PATH. vcs segment will be silent until git is installed." >&2
+    return 0
+  fi
+  # `git --version` → "git version 2.43.0" / "git version 2.39.5 (Apple Git-154)" / etc.
+  raw="$(git --version 2>/dev/null | awk '{print $3}')"
+  if ! parse_semver "$raw"; then
+    echo "[warn] couldn't parse 'git --version' output ('$raw'); skipping version check." >&2
+    return 0
+  fi
+  major=$PARSED_MAJOR; minor=$PARSED_MINOR; patch=$PARSED_PATCH
+  if [ "$major" -gt "$req_major" ] \
+     || { [ "$major" -eq "$req_major" ] && [ "$minor" -gt "$req_minor" ]; } \
+     || { [ "$major" -eq "$req_major" ] && [ "$minor" -eq "$req_minor" ] && [ "$patch" -ge "$req_patch" ]; }; then
+    return 0
+  fi
+  echo "" >&2
+  echo "[error] git $major.$minor.$patch is older than the required 2.35.2." >&2
+  echo "        p10k-rs runs 'git status' on every prompt; pre-2.35.2 git is" >&2
+  echo "        vulnerable to CVE-2022-24765 (core.fsmonitor RCE in repos" >&2
+  echo "        owned by another uid). A malicious .git in /tmp, an extracted" >&2
+  echo "        tarball, or a Docker bind mount becomes RCE the moment you cd in." >&2
+  echo "        See https://github.blog/2022-04-12-git-security-vulnerability-announced/" >&2
+  echo "" >&2
+  echo "        Fix: upgrade git (apt/dnf/brew). On stale distros, override with:" >&2
+  echo "          P10K_RS_SKIP_GIT_VERSION_CHECK=1 $0 $*" >&2
+  echo "" >&2
+  return 1
+}
+
+# Parse `MAJOR.MINOR.PATCH[...]` into PARSED_MAJOR / PARSED_MINOR / PARSED_PATCH.
+# Returns 0 on success, 1 if any of the three aren't pure integers. Trailing
+# segments ("rc1", "(Apple Git-154)", "-dev") are ignored.
+parse_semver() {
+  local v="${1:-}"
+  # Strip everything from the first non-version character (space, dash, paren, etc.).
+  v="${v%%[!0-9.]*}"
+  local IFS=.
+  # shellcheck disable=SC2206  # intentional word-split on '.'
+  local parts=( $v )
+  if [ "${#parts[@]}" -lt 3 ]; then
+    return 1
+  fi
+  case "${parts[0]}${parts[1]}${parts[2]}" in
+    *[!0-9]*|"") return 1 ;;
+  esac
+  PARSED_MAJOR="${parts[0]}"
+  PARSED_MINOR="${parts[1]}"
+  PARSED_PATCH="${parts[2]}"
+  return 0
+}
+
+if [ "${P10K_RS_SKIP_GIT_VERSION_CHECK:-0}" != "1" ]; then
+  if ! check_git_version; then
+    exit 1
+  fi
+else
+  echo "[warn] P10K_RS_SKIP_GIT_VERSION_CHECK=1 — bypassing git >= 2.35.2 check (CVE-2022-24765)." >&2
+fi
+
 # ---------- build ----------------------------------------------------------
 
 if [ "$DO_BUILD" -eq 1 ]; then
