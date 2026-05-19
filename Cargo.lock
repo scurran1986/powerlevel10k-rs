@@ -331,6 +331,7 @@ version = "0.1.0"
 dependencies = [
  "p10k-rs-config",
  "rustix 0.38.44",
+ "thiserror",
 ]
 
 [[package]]

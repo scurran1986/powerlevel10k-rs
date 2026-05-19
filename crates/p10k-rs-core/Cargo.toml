@@ -16,6 +16,7 @@ categories.workspace = true
 [dependencies]
 p10k-rs-config = { workspace = true }
 rustix = { workspace = true }
+thiserror = { workspace = true } # typed errors for `safety::open_owned_safely` (T1.14)
 
 [lints]
 workspace = true
