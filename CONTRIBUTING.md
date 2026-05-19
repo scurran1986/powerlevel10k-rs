@@ -50,6 +50,33 @@ Significant decisions go in `docs/adr/` as ADRs. See
 [`docs/adr/README.md`](docs/adr/README.md) for the format. If your PR changes
 how crates interact, the diff should land alongside an ADR — not after it.
 
+## Security issues
+
+Don't open public issues for vulnerabilities. Use GitHub's private
+vulnerability reporting:
+
+<https://github.com/scurran1986/powerlevel10k-rs/security/advisories/new>
+
+[SECURITY.md](SECURITY.md) has the full reporting policy and the
+release-verification recipe.
+
+## Developer Certificate of Origin
+
+Sign off each commit with the **Developer Certificate of Origin 1.1**
+trailer (`Signed-off-by: Your Name <your@email>`). `git commit -s`
+adds it for you. Configure once:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+By signing off you attest, per <https://developercertificate.org>,
+that you wrote the code yourself or have the right to submit it
+under the project's dual MIT / Apache-2.0 license. PRs without
+sign-off can't be accepted — the DCO is the only inbound mechanism;
+there's no CLA alternative.
+
 ## License
 
 By submitting a contribution you agree to license it under the project's dual

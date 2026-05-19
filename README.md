@@ -104,6 +104,18 @@ to a release-workflow run of this repo — don't install. Full
 threat model, reporting channel, and signing-identity details
 live in [SECURITY.md](SECURITY.md).
 
+## Privacy
+
+p10k-rs is **local-only by design.** No telemetry, no analytics,
+no error reporting, no network connections of any kind from the
+prompt or the binary. The only network call in the whole project
+is `get.sh`'s one-time clone of the repository at install time.
+
+No data leaves your machine. There is nothing to opt out of
+because there is nothing collected.
+
+Data-flow boundaries are documented in [SECURITY.md](SECURITY.md).
+
 ## Importing an existing Powerlevel10k config
 
 If you already have a `~/.p10k.zsh`, get a head-start:
@@ -224,3 +236,22 @@ at your option. Contributions are accepted under the same terms.
 `gitstatusd` is bundled as a separate static binary under GPL-3.0;
 see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for the
 bundling rationale per ADR-0001 § Operational.
+
+## Trademarks
+
+**Powerlevel10k** is a project by Roman Perepelitsa
+([romkatv/powerlevel10k](https://github.com/romkatv/powerlevel10k)).
+p10k-rs is an independent Rust port and spiritual successor. It
+is **not affiliated with, endorsed by, or sponsored by** the
+upstream Powerlevel10k project or Roman Perepelitsa. References
+to "Powerlevel10k" in this project are descriptive — identifying
+the prompt design we're porting — and not an assertion of
+ownership or official status.
+
+`gitstatusd` is likewise a separate project by Roman Perepelitsa;
+see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for the
+bundling notice.
+
+Other product names mentioned in this README (terminals, shells,
+cloud providers, etc.) are trademarks of their respective owners.
+No challenge to any trademark is intended.
