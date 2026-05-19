@@ -227,6 +227,55 @@ mod tests {
     }
 
     #[test]
+    fn zsh_precmd_routes_stderr_to_diagnostics_log() {
+        // T1.22 — binary stderr used to be discarded (`2>/dev/null`) so
+        // the silent-failure pile-up flagged in
+        // research/05-security-fs-ipc/audit-logging.md never had a
+        // diagnostic channel. After T1.22 both precmd invocations
+        // (left + right ribbons) append to the T1.21 diagnostics file
+        // at `$XDG_STATE_HOME/p10k-rs/diagnostics.log` (fallback
+        // `$HOME/.local/state/p10k-rs/diagnostics.log`), and the
+        // dir is mkdir-p'd as a guard for the very first invocation
+        // before the binary's `init_tracing` runs.
+        let zsh = init_script(Shell::Zsh);
+        // Original /dev/null pipe must be gone (otherwise we'd silently
+        // double-discard half the failures).
+        assert!(
+            !zsh.contains("2>/dev/null) \""),
+            "zsh init must no longer route the left-render binary stderr to /dev/null"
+        );
+        // Append-to-log path with the XDG fallback expression.
+        let redirect = "2>>\"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log\"";
+        assert!(
+            zsh.contains(redirect),
+            "zsh init must append binary stderr to the T1.21 diagnostics log"
+        );
+        // The redirect must appear at least twice — once for the left
+        // ribbon and once for the right. We assert >= 2 occurrences
+        // so a future addition of more invocations (transient, …)
+        // doesn't break the pin.
+        let count = zsh.matches(redirect).count();
+        assert!(
+            count >= 2,
+            "expected the diagnostics-log redirect on both PROMPT and RPROMPT invocations, found {count}"
+        );
+        // The mkdir guard must precede the first use so the very
+        // first invocation in a fresh $XDG_STATE_HOME doesn't lose
+        // its stderr to a no-such-file open.
+        let mkdir = "mkdir -p \"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs\" 2>/dev/null";
+        let mkdir_pos = zsh
+            .find(mkdir)
+            .expect("zsh init must mkdir -p the diagnostics dir before the redirect");
+        let first_redirect_pos = zsh
+            .find(redirect)
+            .expect("zsh init must contain the diagnostics redirect");
+        assert!(
+            mkdir_pos < first_redirect_pos,
+            "mkdir guard must come before the first stderr redirect"
+        );
+    }
+
+    #[test]
     fn zsh_init_auto_detect_probes_modern_terminals() {
         // The auto-detect path must check the canonical fingerprints
         // for modern terminals (Ghostty, Kitty, Windows Terminal, plus

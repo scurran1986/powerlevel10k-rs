@@ -295,8 +295,19 @@ _p10k_rs_precmd() {
   # caches the per-cwd snapshot in-process). Splitting per-side keeps
   # the binary's wire format trivial: each invocation prints one
   # ribbon, no in-band separators to parse.
-  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" --dump "$_p10k_rs_dump" 2>/dev/null) "
-  RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" 2>/dev/null)"
+  # T1.22 — route binary stderr to the diagnostics log instead of
+  # /dev/null. The binary's tracing-appender subscriber (T1.21)
+  # already captures structured events to the same file, but anything
+  # the binary prints to bare stderr (panic backtraces from depths
+  # outside the subscriber's reach, libc warnings, etc.) used to
+  # vanish. Appending here gives us one canonical channel for "what
+  # broke?" diagnostics. `mkdir -p` is a guard for the very first
+  # invocation in a fresh $XDG_STATE_HOME; the binary creates the
+  # dir itself but only after `init_tracing` runs, and any pre-
+  # tracing stderr from earlier startup needs the dir to exist.
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs" 2>/dev/null
+  PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" --dump "$_p10k_rs_dump" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log") "
+  RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log")"
   return $rs
 }
 
