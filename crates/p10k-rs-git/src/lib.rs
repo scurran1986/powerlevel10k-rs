@@ -125,17 +125,50 @@ impl ShellOut {
     /// (spawn-failed, EBADF on the pipe, etc.) into
     /// [`ShellOutError::Spawn`].
     pub fn status_with_deadline(path: &Path, deadline: Duration) -> Result<Output, ShellOutError> {
-        let mut child = Command::new("git")
-            .arg("-C")
+        let mut cmd = Command::new("git");
+        cmd.arg("-C")
             .arg(path)
-            .args(["status", "--porcelain=v1", "--branch", "--no-renames"])
-            .env("LC_ALL", "C")
+            .args(["status", "--porcelain=v1", "--branch", "--no-renames"]);
+        apply_hardened_git_env(&mut cmd);
+        let mut child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
         wait_with_deadline(&mut child, deadline)
     }
+}
+
+/// Apply defensive environment overrides to a `git` [`Command`] before spawn.
+///
+/// Belt-and-braces alongside the [`SHELLOUT_TIMEOUT`] (T0.4). The prompt is
+/// run on every keypress in untrusted cwds; a leaked parent env var or an
+/// attacker-controlled `.git/config` that turns on `core.fsmonitor` must not
+/// be able to escalate beyond a slow `git status`. T1.19.
+///
+/// Overrides applied:
+///
+/// - `LC_ALL=C` — keep `git status --porcelain=v1` output stable for
+///   parsing regardless of the user's locale.
+/// - `GIT_CEILING_DIRECTORIES=` (empty) — prevents `git` from walking
+///   *up* from `-C <path>` to discover a parent `.git`. A `.git`
+///   planted at `/tmp/attacker/` can't trump the requested path.
+/// - `GIT_OPTIONAL_LOCKS=0` — `git status` will not take optional write
+///   locks (index refresh, fsmonitor handshake). Reduces the wedge
+///   surface and avoids gid-race classes.
+/// - `GIT_TERMINAL_PROMPT=0` — never prompt for credentials. The prompt
+///   runs without a controlling TTY of its own; a prompt attempt would
+///   either hang (until the [`SHELLOUT_TIMEOUT`] kill) or steal input
+///   from the user's shell.
+/// - `GIT_CONFIG_NOSYSTEM=1` — skip `/etc/gitconfig`. Defends against
+///   an admin-poisoned or package-shipped system config injecting a
+///   `core.fsmonitor` or similar exploit vector.
+fn apply_hardened_git_env(cmd: &mut Command) {
+    cmd.env("LC_ALL", "C")
+        .env("GIT_CEILING_DIRECTORIES", "")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_CONFIG_NOSYSTEM", "1");
 }
 
 /// Poll `child` until exit or `deadline` elapses.
@@ -189,11 +222,10 @@ fn wait_with_deadline(
 /// `None` if `git` isn't on `$PATH`, the path isn't inside any repo,
 /// or stdout isn't valid UTF-8.
 fn resolve_git_dir(path: &Path) -> Option<std::path::PathBuf> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(["rev-parse", "--git-dir"])
-        .env("LC_ALL", "C")
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(path).args(["rev-parse", "--git-dir"]);
+    apply_hardened_git_env(&mut cmd);
+    let out = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -448,6 +480,39 @@ mod tests {
         assert_eq!(parse_branch_header("## \x1b[2Jmain"), "[2Jmain");
         assert_eq!(parse_branch_header("## main\x07evil"), "mainevil");
         assert_eq!(parse_branch_header("## main\rEVIL"), "main");
+    }
+
+    // ---- T1.19: defensive env on ShellOut spawn ------------------------
+
+    /// `apply_hardened_git_env` must wire every documented override onto
+    /// the [`Command`]. Use `Command::get_envs()` to capture the env-tuple
+    /// list rather than spawning, so the assertion is hermetic and runs
+    /// even on systems without `git` on `$PATH`.
+    #[test]
+    fn apply_hardened_git_env_sets_documented_overrides() {
+        use std::collections::BTreeMap;
+        use std::ffi::OsStr;
+
+        let mut cmd = Command::new("git");
+        apply_hardened_git_env(&mut cmd);
+
+        let envs: BTreeMap<&OsStr, Option<&OsStr>> = cmd.get_envs().collect();
+
+        let expected: &[(&str, &str)] = &[
+            ("LC_ALL", "C"),
+            ("GIT_CEILING_DIRECTORIES", ""),
+            ("GIT_OPTIONAL_LOCKS", "0"),
+            ("GIT_TERMINAL_PROMPT", "0"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+        ];
+
+        for (k, v) in expected {
+            let got = envs
+                .get(OsStr::new(*k))
+                .unwrap_or_else(|| panic!("env override {k} missing from spawn"));
+            let got = got.unwrap_or_else(|| panic!("env override {k} marked for removal, not set"));
+            assert_eq!(got, OsStr::new(*v), "env override {k} has wrong value");
+        }
     }
 
     // ---- T0.4: wall-clock timeout on ShellOut spawns -------------------
