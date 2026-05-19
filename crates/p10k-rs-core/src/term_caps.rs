@@ -93,7 +93,7 @@ pub struct TermCaps {
 /// 2. Fresh probe (DECRQM round-trip + `$COLORTERM` lookup), then write
 ///    the result to the cache.
 ///
-/// Both paths populate the in-process [`CAPS_CACHE`] so subsequent
+/// Both paths populate the in-process `CAPS_CACHE` so subsequent
 /// renders pay only an atomic load.
 #[must_use]
 pub fn capabilities() -> TermCaps {
