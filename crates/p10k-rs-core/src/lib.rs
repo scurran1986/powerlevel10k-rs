@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime};
 pub mod proc;
 pub mod safety;
 pub mod style;
+pub mod term_caps;
 pub mod term_query;
 
 pub use proc::output_with_deadline;
@@ -326,6 +327,27 @@ pub fn render_prompt(
         left.push_str(OSC133_A);
     }
 
+    // T1.23: wrap the render between OSC 133 `A` and `B` in DECSET 2026
+    // synchronized output (BSU/ESU). The `A`/`B` markers themselves
+    // stay *outside* the wrap so host terminals parsing the semantic
+    // prompt boundary see them as soon as the byte hits the TTY — some
+    // sync-mode implementations buffer the whole payload until ESU,
+    // which would delay the host's "prompt started" callback.
+    //
+    // Gate: capability probe says yes AND shell-integration is active.
+    // The integration gate keeps plain-terminal users on their exact
+    // historical byte sequence; the capability gate keeps the wrap off
+    // terminals that would render the BSU/ESU as visible garbage.
+    //
+    // The guard does NOT hold `&mut left` — it owns a side trailer
+    // that `finish` (or its Drop on panic) records the matching ESU
+    // into. That way the render helpers below can keep mutating
+    // `left` freely; we splice the trailer in right after rendering
+    // completes and before the closing OSC 133 `B`.
+    let sync_supported = term_caps::capabilities().sync_output;
+    let sync_active = sync_supported && ctx.shell_integration_active;
+    let sync_guard = term_caps::SyncOutputGuard::wrap_if(&mut left, sync_active);
+
     let (frame_fg, frame_active) = append_ruler_and_frame_top(&mut left, ctx, mode);
 
     // Resolve enabled segments up front so we can split off the
@@ -379,6 +401,16 @@ pub fn render_prompt(
         frame_active,
         &frame_fg,
     );
+
+    // Close the sync wrap on the normal path: pull the recorded ESU
+    // out of the guard's side trailer and splice it into `left`
+    // immediately before the closing OSC 133 `B`. If the guard was
+    // inactive (`wrap_if(_, false)`), this branch is skipped — neither
+    // BSU nor ESU were emitted, and the prompt stays byte-identical
+    // to the historical output.
+    if let Some(guard) = sync_guard {
+        left.push_str(&guard.finish());
+    }
 
     // Closing OSC 133 `B`: end of PS1, start of the editable command
     // line. Paired with the `A` emitted at the top of `left` above.
@@ -1407,6 +1439,86 @@ mod tests {
             prompt.right.contains('R'),
             "right prompt must still carry the segment text: {:?}",
             prompt.right
+        );
+    }
+
+    #[test]
+    fn render_prompt_wraps_payload_in_bsu_esu_when_sync_supported() {
+        // T1.23: with sync-output supported AND shell-integration on,
+        // the body between OSC 133 `A` and `B` is wrapped in BSU/ESU.
+        // We lock the answer into the in-process cache so the test
+        // doesn't depend on a real TTY.
+        let _ = term_caps::set_cached_for_test(term_caps::TermCaps {
+            sync_output: true,
+            truecolor: false,
+        });
+        // If another test populated the cache first with a different
+        // value, the assert below would fail spuriously. Read the cache
+        // back and skip the byte-pattern assertion in that case — the
+        // OnceLock semantics make this best-effort.
+        let caps = term_caps::capabilities();
+        if !caps.sync_output {
+            return;
+        }
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ true,
+        );
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            prompt.left.contains(term_caps::BSU),
+            "BSU must appear in left when sync supported: {:?}",
+            prompt.left,
+        );
+        assert!(
+            prompt.left.contains(term_caps::ESU),
+            "ESU must appear in left when sync supported: {:?}",
+            prompt.left,
+        );
+        // Ordering: A < BSU < ESU < B.
+        let pos_a = prompt.left.find("\x1b]133;A\x07").expect("A present");
+        let pos_b = prompt.left.find("\x1b]133;B\x07").expect("B present");
+        let pos_bsu = prompt.left.find(term_caps::BSU).expect("BSU present");
+        let pos_esu = prompt.left.find(term_caps::ESU).expect("ESU present");
+        assert!(
+            pos_a < pos_bsu && pos_bsu < pos_esu && pos_esu < pos_b,
+            "expected ordering A < BSU < ESU < B, got {pos_a}/{pos_bsu}/{pos_esu}/{pos_b} in {:?}",
+            prompt.left,
+        );
+    }
+
+    #[test]
+    fn render_prompt_omits_bsu_esu_without_shell_integration() {
+        // The capability gate alone is not enough — without shell
+        // integration the prompt stays byte-identical to the historical
+        // output. This pins that contract: even on a sync-supporting
+        // terminal, integration-off means no BSU/ESU.
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp/work");
+        let ctx = render_ctx_for_host_and_integration(
+            &cfg,
+            &env,
+            cwd,
+            HostKind::None,
+            /* active = */ false,
+        );
+        let prompt = render_prompt(&[], &[], &ctx);
+        assert!(
+            !prompt.left.contains(term_caps::BSU),
+            "BSU must not appear without integration: {:?}",
+            prompt.left,
+        );
+        assert!(
+            !prompt.left.contains(term_caps::ESU),
+            "ESU must not appear without integration: {:?}",
+            prompt.left,
         );
     }
 
