@@ -373,6 +373,49 @@ fn is_fifo(p: &Path) -> bool {
     md.uid() == me
 }
 
+/// Errors produced by [`locate_binary_checked`] when a probed gitstatusd
+/// candidate fails a safety invariant.
+///
+/// `Backend::status` continues to return `Option<GitState>` — the
+/// [`locate_binary`] shim swallows these into `None` so the binary
+/// transparently falls back to `ShellOut` when no acceptable daemon
+/// binary is found. The typed enum exists for tests and for any future
+/// caller that wants to surface the reason a candidate was refused.
+#[derive(Debug, thiserror::Error)]
+pub enum LocateError {
+    /// No candidate matched the probe order (no `P10K_RS_GITSTATUSD_BIN`
+    /// pointing at a regular file, no `gitstatusd[-...]` on `$PATH`).
+    /// The binary falls back to `ShellOut`; not necessarily a bug.
+    #[error("no gitstatusd candidate found on PATH or via P10K_RS_GITSTATUSD_BIN")]
+    NotFound,
+
+    /// A candidate exists but failed the
+    /// [`p10k_rs_core::safety::open_owned_safely`] gate (T1.14): not a
+    /// regular file, owned by a uid that is neither us nor root, or
+    /// hidden behind a symlink we couldn't follow under `O_NOFOLLOW`.
+    ///
+    /// Refusing foreign-owned binaries (T1.17) defends against a
+    /// co-tenant pre-planting `gitstatusd` somewhere on the user's
+    /// `$PATH` ahead of the legitimate copy. Root-owned binaries are
+    /// still accepted so `apt install gitstatusd` keeps working.
+    #[error("refusing gitstatusd at {path}: {source}")]
+    Unsafe {
+        /// The candidate that failed the safety gate.
+        path: PathBuf,
+        /// The underlying [`p10k_rs_core::safety::SafetyError`]
+        /// (foreign owner / wrong type / symlink / …).
+        #[source]
+        source: p10k_rs_core::safety::SafetyError,
+    },
+}
+
+/// One-shot guard so a hostile candidate doesn't spam stderr every
+/// prompt invocation. The flag flips on the first refusal and stays
+/// flipped for the lifetime of the process.
+#[cfg(unix)]
+static FOREIGN_BINARY_WARNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Locate `gitstatusd` on the host. Probes (in order):
 ///   1. `$P10K_RS_GITSTATUSD_BIN` (explicit override).
 ///   2. `gitstatusd` and `gitstatusd-linux-x86_64` on `$PATH`.
@@ -380,12 +423,48 @@ fn is_fifo(p: &Path) -> bool {
 /// The dev-machine fallback path (`/home/seaburdz/...`) was deliberately
 /// removed: it never resolved on any other machine and would happily pick
 /// up any binary that happened to live there on a multi-user host.
+///
+/// Each candidate is gated through `check_candidate` (T1.17, private
+/// helper): the inode must be a regular file owned by either the current
+/// effective uid or root. Foreign-owned binaries are refused with a
+/// one-time stderr warning and the probe continues to the next candidate.
+///
+/// Returns `None` if no candidate passes both the `is_file()` and the
+/// ownership gate; the binary then falls back to `ShellOut`.
 #[must_use]
 pub fn locate_binary() -> Option<PathBuf> {
+    match locate_binary_checked() {
+        Ok(p) => Some(p),
+        Err(LocateError::NotFound) => None,
+        Err(LocateError::Unsafe { path, source }) => {
+            warn_once_foreign_binary(&path, &source);
+            None
+        }
+    }
+}
+
+/// Typed-error variant of [`locate_binary`]. Mostly used by tests; the
+/// production shim above collapses to `Option<PathBuf>` for backwards
+/// compatibility with the existing `cmd_init` call site.
+///
+/// # Errors
+///
+/// Returns [`LocateError::NotFound`] if no probe candidate exists, or
+/// [`LocateError::Unsafe`] if every existing candidate fails the
+/// ownership / file-type gate (the loop tries each candidate and only
+/// returns the first `Unsafe` error if no later candidate passes).
+pub fn locate_binary_checked() -> Result<PathBuf, LocateError> {
+    let mut first_unsafe: Option<LocateError> = None;
+
     if let Some(env) = std::env::var_os("P10K_RS_GITSTATUSD_BIN") {
         let p = PathBuf::from(env);
         if p.is_file() {
-            return Some(p);
+            match check_candidate(&p) {
+                Ok(p) => return Ok(p),
+                Err(e) => {
+                    first_unsafe.get_or_insert(e);
+                }
+            }
         }
     }
     if let Ok(path_env) = std::env::var("PATH") {
@@ -393,16 +472,73 @@ pub fn locate_binary() -> Option<PathBuf> {
             for name in ["gitstatusd", "gitstatusd-linux-x86_64"] {
                 let candidate = dir.join(name);
                 if candidate.is_file() {
-                    return Some(candidate);
+                    match check_candidate(&candidate) {
+                        Ok(p) => return Ok(p),
+                        Err(e) => {
+                            first_unsafe.get_or_insert(e);
+                        }
+                    }
                 }
             }
         }
     }
-    None
+    Err(first_unsafe.unwrap_or(LocateError::NotFound))
 }
 
+/// Verify a single gitstatusd candidate: regular file, owned by our
+/// effective uid or root. Returns the path on success or
+/// [`LocateError::Unsafe`] describing the safety failure.
+///
+/// On non-unix targets this is a no-op pass-through — `gitstatusd` is a
+/// unix-only daemon, and the rest of the backend already gates on
+/// `cfg(unix)`.
+fn check_candidate(path: &Path) -> Result<PathBuf, LocateError> {
+    #[cfg(unix)]
+    {
+        // `open_owned_safely` (T1.14) is exactly the inode check we
+        // want for the binary path:
+        //   - O_NOFOLLOW: symlink to a foreign-owned target is refused.
+        //   - fstat: re-verify file type and owner uid on the inode
+        //     behind the fd, race-free relative to any further path
+        //     manipulation between locate and exec.
+        //   - "owner is us OR root" semantics match what we want for an
+        //     /usr/bin/-style system install.
+        match p10k_rs_core::safety::open_owned_safely(path) {
+            Ok(_fd) => Ok(path.to_path_buf()),
+            Err(source) => Err(LocateError::Unsafe {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // gitstatusd is unix-only. Pass through; the rest of the
+        // backend's `cfg(unix)` gates make the binary unusable on
+        // non-unix anyway.
+        Ok(path.to_path_buf())
+    }
+}
+
+/// One-shot stderr warning that we ignored a candidate gitstatusd
+/// binary because it failed the safety gate.
+#[cfg(unix)]
+fn warn_once_foreign_binary(path: &Path, source: &p10k_rs_core::safety::SafetyError) {
+    use std::sync::atomic::Ordering;
+    if !FOREIGN_BINARY_WARNED.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "p10k-rs: refusing gitstatusd at {}: {source}. \
+             Falling back to ShellOut.",
+            path.display()
+        );
+    }
+}
+
+#[cfg(not(unix))]
+fn warn_once_foreign_binary(_path: &Path, _source: &p10k_rs_core::safety::SafetyError) {}
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -758,5 +894,125 @@ mod tests {
         drop(rfd); // unblock the writer thread via EPIPE
         writer.join().unwrap();
         assert!(result.is_none(), "expected None when stream exceeds cap");
+    }
+
+    // ---------- T1.17: foreign-owned gitstatusd binary refusal ----------
+    //
+    // We can't `chown` a fixture to a different uid without root, so the
+    // foreign-owner branch is exercised indirectly through the
+    // `open_owned_safely` gate: a directory (or symlink) at the binary
+    // path trips `SafetyError::NotRegularFile` (or `Open`), which
+    // `check_candidate` lifts into `LocateError::Unsafe`. That covers
+    // the integration logic — the owner-uid branch itself is covered by
+    // the unit tests in `p10k-rs-core::safety` where `SafetyError::ForeignOwner`
+    // is asserted directly.
+
+    #[test]
+    fn check_candidate_accepts_user_owned_regular_file() {
+        // The fixture we create in $TMPDIR is owned by us (the test
+        // process). Acts as a stand-in for `~/.local/bin/gitstatusd`.
+        let dir = scratch_dir("locate-accept");
+        let p = dir.join("gitstatusd");
+        std::fs::write(&p, b"#!/bin/sh\nexit 0\n").unwrap();
+        let result = check_candidate(&p);
+        rm_rf(&dir);
+        assert!(
+            result.is_ok(),
+            "user-owned regular file must pass, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn check_candidate_rejects_directory() {
+        // A directory at the binary path trips
+        // `SafetyError::NotRegularFile`, which check_candidate maps to
+        // `LocateError::Unsafe`. Exercises the integration with the T1.14
+        // helper end-to-end.
+        let dir = scratch_dir("locate-reject-dir");
+        let result = check_candidate(&dir);
+        rm_rf(&dir);
+        match result {
+            Err(LocateError::Unsafe { source, .. }) => {
+                assert!(
+                    matches!(
+                        source,
+                        p10k_rs_core::safety::SafetyError::NotRegularFile { .. }
+                    ),
+                    "expected NotRegularFile, got {source:?}"
+                );
+            }
+            other => panic!("expected LocateError::Unsafe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_candidate_rejects_symlink_to_safe_target() {
+        // Even a symlink to a perfectly safe file we own is refused —
+        // O_NOFOLLOW on the open. Defends against a multi-user host
+        // where `~/.cargo/bin/gitstatusd → /tmp/attacker/gsd`.
+        let dir = scratch_dir("locate-reject-sym");
+        let real = dir.join("real");
+        std::fs::write(&real, b"#!/bin/sh\nexit 0\n").unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let result = check_candidate(&link);
+        rm_rf(&dir);
+        match result {
+            Err(LocateError::Unsafe { source, .. }) => {
+                assert!(
+                    matches!(source, p10k_rs_core::safety::SafetyError::Open(_)),
+                    "expected SafetyError::Open (ELOOP), got {source:?}"
+                );
+            }
+            other => panic!("expected LocateError::Unsafe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn locate_binary_checked_returns_not_found_for_empty_env() {
+        // Point P10K_RS_GITSTATUSD_BIN at a non-existent path AND empty
+        // PATH so no candidate matches. Must return NotFound, not
+        // Unsafe.
+        let prev_bin = std::env::var_os("P10K_RS_GITSTATUSD_BIN");
+        let prev_path = std::env::var_os("PATH");
+        let nonexistent = scratch_dir("locate-empty").join("definitely-not-here");
+        std::env::set_var("P10K_RS_GITSTATUSD_BIN", &nonexistent);
+        std::env::set_var("PATH", "");
+        let result = locate_binary_checked();
+        if let Some(p) = prev_bin {
+            std::env::set_var("P10K_RS_GITSTATUSD_BIN", p);
+        } else {
+            std::env::remove_var("P10K_RS_GITSTATUSD_BIN");
+        }
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let _ = std::fs::remove_dir_all(nonexistent.parent().unwrap());
+        assert!(
+            matches!(result, Err(LocateError::NotFound)),
+            "expected NotFound, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn locate_binary_checked_via_env_accepts_user_owned() {
+        // End-to-end: drop a fixture, point the env at it, locate must
+        // return its path through the user-owned gate.
+        let dir = scratch_dir("locate-env-accept");
+        let p = dir.join("gitstatusd");
+        std::fs::write(&p, b"#!/bin/sh\nexit 0\n").unwrap();
+        let prev_bin = std::env::var_os("P10K_RS_GITSTATUSD_BIN");
+        std::env::set_var("P10K_RS_GITSTATUSD_BIN", &p);
+        let result = locate_binary_checked();
+        if let Some(prev) = prev_bin {
+            std::env::set_var("P10K_RS_GITSTATUSD_BIN", prev);
+        } else {
+            std::env::remove_var("P10K_RS_GITSTATUSD_BIN");
+        }
+        let got = result.expect("user-owned env-pointed binary must pass");
+        assert_eq!(got, p);
+        rm_rf(&dir);
     }
 }

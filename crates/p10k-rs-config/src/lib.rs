@@ -689,7 +689,7 @@ impl Config {
     ///
     /// The open is wrapped in a TOCTOU-safe pattern that mirrors the
     /// `open_owned_mode_safely` helper lifted into
-    /// [`p10k_rs_core::safety`] (this crate cannot depend on `core`
+    /// `p10k_rs_core::safety` (this crate cannot depend on `core`
     /// because the workspace dep direction is `core → config`; see the
     /// inlined `safety` submodule at the top of this file for the
     /// established duplication pattern):
@@ -744,11 +744,11 @@ static INSECURE_CONFIG_WARNED: AtomicBool = AtomicBool::new(false);
 /// production hot path that this gate protects (`gitstatusd` FIFOs,
 /// shell-init) is unix-only.
 ///
-/// This is the inlined twin of [`p10k_rs_core::safety::open_owned_mode_safely`].
-/// We can't reach across — the workspace dep direction is `core → config`
-/// — so the same duplication carve-out the [`safety`] submodule above
-/// uses for `sanitize_for_terminal` applies here. Behaviour must match
-/// the canonical helper bit-for-bit.
+/// This is the inlined twin of `p10k_rs_core::safety::open_owned_mode_safely`
+/// (intentional broken intra-doc link: this crate cannot depend on core).
+/// The workspace dep direction is `core → config`, so the same duplication
+/// carve-out the [`safety`] submodule above uses for `sanitize_for_terminal`
+/// applies here. Behaviour must match the canonical helper bit-for-bit.
 #[cfg(unix)]
 fn read_config_bytes(path: &Path) -> Result<String> {
     use std::fs::OpenOptions;

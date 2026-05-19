@@ -29,7 +29,10 @@ use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::GitState;
 
 pub mod gitstatusd;
-pub use gitstatusd::{locate_binary as locate_gitstatusd, Gitstatusd};
+pub use gitstatusd::{
+    locate_binary as locate_gitstatusd, locate_binary_checked as locate_gitstatusd_checked,
+    Gitstatusd, LocateError as LocateGitstatusdError,
+};
 
 /// Wall-clock budget for the [`ShellOut`] `git status` spawn.
 ///
