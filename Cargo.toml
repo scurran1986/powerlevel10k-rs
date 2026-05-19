@@ -61,6 +61,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # background writer thread — no surprise transitives.
 tracing-appender = "0.2"
 
+# --- Unicode safety (T1.10, slice α) ---
+# `unicode-normalization` lets the render-path chokepoint NFC-normalise
+# attacker-controlled text so visually-identical decomposed sequences
+# can't bypass equality / display assertions. `unicode-segmentation`
+# powers grapheme-boundary truncation in `SafeText::from_untrusted_with_cap`
+# so oversized branch names don't slice combining marks or ZWJ clusters
+# mid-glyph. Both crates are unicode-rs maintained, MSRV-clean at 1.88,
+# wide reverse-dep counts.
+unicode-normalization = "0.1"
+unicode-segmentation = "1.12"
+
 # --- CLI / styling ---
 clap = { version = "4.5", features = ["derive", "cargo", "env", "wrap_help"] }
 anstyle = "1.0"

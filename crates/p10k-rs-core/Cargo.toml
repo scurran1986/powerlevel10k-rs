@@ -17,6 +17,8 @@ categories.workspace = true
 p10k-rs-config = { workspace = true }
 rustix = { workspace = true }
 thiserror = { workspace = true } # typed errors for `safety::open_owned_safely` (T1.14)
+unicode-normalization = { workspace = true } # NFC at the SafeText boundary (T1.10)
+unicode-segmentation = { workspace = true } # grapheme-safe truncation in SafeText (T1.10)
 
 [lints]
 workspace = true

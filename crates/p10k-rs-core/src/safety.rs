@@ -30,11 +30,20 @@ use std::path::Path;
 
 #[cfg(unix)]
 use thiserror::Error;
+use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
+use unicode_segmentation::UnicodeSegmentation;
 
-/// `true` if `c` is unsafe to emit to a terminal.
+/// Default cap (in grapheme clusters) applied by
+/// [`SafeText::from_untrusted_with_cap`] when callers don't specify their
+/// own. 256 graphemes is well above any sane branch name / cwd component
+/// / kube context, and well below "this will visibly blow up the prompt
+/// line." If you want unbounded text, use [`SafeText::from_untrusted`].
+pub const DEFAULT_SAFE_TEXT_CAP: usize = 256;
+
+/// `true` if `c` is a C0/C1 control or DEL that must not reach the TTY.
 ///
-/// Mirrors the predicate inside [`sanitize_for_terminal`] so the borrowed
-/// fast path and the owned slow path stay in lock-step.
+/// Mirrors the C0/C1 half of the [`sanitize_for_terminal`] predicate so the
+/// borrowed fast path and the owned slow path stay in lock-step.
 #[inline]
 fn is_unsafe(c: char) -> bool {
     if c == '\t' {
@@ -43,23 +52,78 @@ fn is_unsafe(c: char) -> bool {
     c.is_control() || c == '\u{007F}'
 }
 
-/// Replace bytes in `s` that are unsafe to emit to a terminal.
+/// `true` if `c` is a Unicode codepoint we strip on attacker-controlled
+/// input for display-safety reasons (T1.10, slice α).
 ///
-/// Strips every Unicode control code point (`char::is_control()`) except
-/// horizontal tab (`\t`), and also strips DEL (`U+007F`). Tab is preserved
-/// because terminals render it as visible whitespace; everything else
-/// (`\x1b`, `\r`, `\b`, `\x07`, OSC introducers, the unicode C1 controls in
-/// `U+0080..=U+009F`) can drive the terminal's state machine, overwrite
-/// already-rendered prompt content, or mask attacker text behind invisible
-/// regions.
+/// Four classes, all of which render invisibly or near-invisibly while
+/// changing how text is interpreted by the terminal, by a downstream
+/// equality check, or by a human reading the prompt:
+///
+/// - **`BiDi` format characters** (`U+200E`, `U+200F`, `U+202A..=U+202E`,
+///   `U+2066..=U+2069`). These reorder display direction; the
+///   "Trojan Source" class of attacks (Boucher & Anderson 2021) uses
+///   them to hide malicious code from human review.
+/// - **Default-ignorable** marks (`U+200B`/`U+200C`/`U+200D` zero-width
+///   space/non-joiner/joiner, `U+FEFF` BOM, `U+034F` combining grapheme
+///   joiner, `U+180E` Mongolian vowel separator). Invisible bytes that
+///   change clipboard contents, copy/paste behaviour, or identifier
+///   comparison.
+/// - **Tag chars** (`U+E0000..=U+E007F`). The "tag character" range was
+///   originally proposed for language tagging; in practice it's an
+///   arbitrary-data-in-glyph exfiltration channel rendered invisibly by
+///   most terminals.
+/// - **Variation selectors** (`U+FE00..=U+FE0F` and `U+E0100..=U+E01EF`).
+///   These select alternate glyph forms; bare use in branch / path names
+///   is suspect and routinely abused to spoof file extensions.
+///
+/// This is **not** a comprehensive Unicode-spoof defence (homoglyphs,
+/// mixed-script attacks, normalisation tricks beyond NFC are out of
+/// scope for this slice). It's the targeted minimum that closes the
+/// loud "Trojan Source / invisible-bytes" attacks at the render
+/// boundary.
+#[inline]
+fn is_unicode_unsafe(c: char) -> bool {
+    let n = c as u32;
+    matches!(
+        n,
+        // BiDi format
+        0x200E | 0x200F
+        | 0x202A..=0x202E
+        | 0x2066..=0x2069
+        // Default-ignorable invisibles
+        | 0x200B | 0x200C | 0x200D
+        | 0xFEFF | 0x034F | 0x180E
+        // Variation selectors (BMP + supplementary)
+        | 0xFE00..=0xFE0F
+        | 0xE0100..=0xE01EF
+        // Tag characters
+        | 0xE0000..=0xE007F
+    )
+}
+
+/// Replace bytes in `s` that are unsafe to emit to a terminal, then
+/// NFC-normalise the result.
+///
+/// Three predicates fire, in this order:
+///
+/// 1. **C0/C1 controls + DEL** (`is_unsafe`) — `\x1b`, `\r`, `\b`,
+///    `\x07`, OSC introducers, the unicode C1 controls in
+///    `U+0080..=U+009F`, plus DEL. Tab is preserved (terminals render
+///    it as visible whitespace).
+/// 2. **Unicode display-safety class** (`is_unicode_unsafe`) — `BiDi`
+///    format chars (the "Trojan Source" class), zero-width invisibles,
+///    BOM, tag chars, variation selectors. These render invisibly or
+///    reorder display while changing how the text is interpreted.
+/// 3. **NFC normalisation** — collapses decomposed sequences (e.g.
+///    `e` + combining acute `\u{0301}` → precomposed `é`). Without
+///    this, two visually-identical branch names could compare unequal
+///    or evade prompt-side equality checks.
 ///
 /// Returns `Cow<'_, str>`:
-/// - **Borrowed** when the input is already safe (no allocation, common
-///   case for branch names, cwd components, version strings).
-/// - **Owned** when at least one character needs stripping; matches the
-///   pre-Cow signature's `String` semantics.
-///
-/// The output is byte-equal to the input on the no-change path.
+/// - **Borrowed** when the input is already free of unsafe codepoints
+///   *and* already NFC. Zero allocation for the common case (ASCII
+///   branch names, simple cwd components, version strings).
+/// - **Owned** when filtering or normalisation is needed.
 ///
 /// # Examples
 ///
@@ -73,26 +137,43 @@ fn is_unsafe(c: char) -> bool {
 /// ```
 #[must_use]
 pub fn sanitize_for_terminal(s: &str) -> Cow<'_, str> {
-    // Fast path: scan for the first character that needs stripping.
-    // If none, return a borrow — zero allocation. Branch names, cwd
-    // components, and version strings hit this in the common case.
-    let first_bad = s.char_indices().find(|&(_, c)| is_unsafe(c));
-    let Some((split, _)) = first_bad else {
+    // Fast path: no unsafe codepoints AND already NFC → borrow.
+    // Branch names, cwd components, version strings hit this case.
+    let needs_filter = s.chars().any(|c| is_unsafe(c) || is_unicode_unsafe(c));
+    if !needs_filter && is_nfc_quick(s.chars()) == IsNormalized::Yes {
         return Cow::Borrowed(s);
-    };
-    // Slow path: copy the safe prefix, then continue stripping from the
-    // first bad byte. `is_control()` covers `\x00..=\x1f`, `\x7f`, and
-    // the Unicode C1 controls `\u{0080}..=\u{009F}`; the explicit DEL
-    // check is belt-and-braces in case a future Rust definition narrows
-    // `is_control()`.
-    let mut out = String::with_capacity(s.len());
-    out.push_str(&s[..split]);
-    for c in s[split..].chars() {
-        if !is_unsafe(c) {
-            out.push(c);
-        }
     }
-    Cow::Owned(out)
+    // Slow path: filter unsafe codepoints, then NFC-normalise the
+    // result. The two-pass design keeps the filter predicate trivial
+    // and lets the NFC pass operate on a known-clean iterator.
+    let filtered: String = if needs_filter {
+        s.chars()
+            .filter(|&c| !(is_unsafe(c) || is_unicode_unsafe(c)))
+            .collect()
+    } else {
+        s.to_string()
+    };
+    Cow::Owned(filtered.nfc().collect())
+}
+
+/// Truncate `s` to at most `cap` grapheme clusters, appending `…` when
+/// truncation occurred. The ellipsis counts toward `cap`.
+///
+/// Grapheme-cluster boundaries mean combining accents, ZWJ emoji
+/// families, and other multi-codepoint clusters are never cut mid-way.
+fn truncate_to_graphemes(s: &str, cap: usize) -> String {
+    let total = s.graphemes(true).count();
+    if total <= cap {
+        return s.to_string();
+    }
+    // Reserve 1 grapheme for the ellipsis (which is itself 1 grapheme).
+    let take = cap.saturating_sub(1);
+    let mut out = String::with_capacity(s.len());
+    for g in s.graphemes(true).take(take) {
+        out.push_str(g);
+    }
+    out.push('…');
+    out
 }
 
 /// A string whose every codepoint has passed [`sanitize_for_terminal`].
@@ -130,6 +211,34 @@ impl SafeText {
     #[must_use]
     pub fn from_untrusted(s: &str) -> Self {
         Self(sanitize_for_terminal(s).into_owned())
+    }
+
+    /// Construct a `SafeText` from a `&str`, sanitising and then
+    /// truncating to at most `cap` grapheme clusters.
+    ///
+    /// All [`sanitize_for_terminal`] guarantees apply (C0/C1 stripped,
+    /// Unicode-unsafe codepoints stripped, NFC-normalised). On top of
+    /// that, the result has at most `cap` grapheme clusters. If
+    /// truncation occurred, the result ends in `…` (which itself
+    /// counts as one grapheme toward `cap`).
+    ///
+    /// Use this constructor for any text source that could be
+    /// arbitrarily long under attacker influence (branch names, jj
+    /// descriptions, kube context names, env-var values). See
+    /// [`DEFAULT_SAFE_TEXT_CAP`] for the recommended default.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use p10k_rs_core::safety::SafeText;
+    /// let long = "a".repeat(500);
+    /// let t = SafeText::from_untrusted_with_cap(&long, 10);
+    /// assert!(t.as_str().ends_with('…'));
+    /// ```
+    #[must_use]
+    pub fn from_untrusted_with_cap(s: &str, cap: usize) -> Self {
+        let sanitised = sanitize_for_terminal(s);
+        Self(truncate_to_graphemes(&sanitised, cap))
     }
 
     /// Construct a `SafeText` from raw bytes that may not be valid UTF-8.
@@ -509,6 +618,132 @@ mod tests {
         // `From<&str>` sugar for tests and constants — same guarantee.
         let t: SafeText = "with\rcontrol".into();
         assert_eq!(t.as_str(), "withcontrol");
+    }
+
+    // ---------- Unicode hardening (T1.10, slice α) ----------
+
+    #[test]
+    fn strips_bidi_right_to_left_override() {
+        // U+202E is the headline Trojan Source character — reverses
+        // display so what reads as "hellotxt.exe" actually executes
+        // as "helloexe.txt" (or the reverse). Strip the override
+        // unconditionally.
+        assert_eq!(&*sanitize_for_terminal("hello\u{202E}dlrow"), "hellodlrow");
+    }
+
+    #[test]
+    fn strips_bidi_isolates() {
+        // U+2066..U+2069 (LRI/RLI/FSI/PDI) are the modern BiDi
+        // isolates introduced for the same attack class.
+        assert_eq!(&*sanitize_for_terminal("a\u{2066}b\u{2069}c"), "abc");
+    }
+
+    #[test]
+    fn strips_zero_width_joiner() {
+        // ZWJ can splice glyphs invisibly. Strip from attacker text.
+        assert_eq!(&*sanitize_for_terminal("a\u{200D}b"), "ab");
+    }
+
+    #[test]
+    fn strips_zero_width_space_and_bom() {
+        // U+200B (ZWSP) and U+FEFF (BOM) are invisible bytes used to
+        // bypass equality / sort / search.
+        assert_eq!(&*sanitize_for_terminal("a\u{200B}b\u{FEFF}c"), "abc");
+    }
+
+    #[test]
+    fn strips_tag_chars() {
+        // Tag chars (U+E0000..U+E007F) are an arbitrary-data-in-glyph
+        // exfiltration channel, invisible in most terminals.
+        assert_eq!(&*sanitize_for_terminal("ok\u{E0001}\u{E0042}"), "ok");
+    }
+
+    #[test]
+    fn strips_variation_selectors() {
+        // U+FE00..U+FE0F select alternate glyph forms; bare use in
+        // attacker text is suspect and routinely used to spoof
+        // file-extension display.
+        assert_eq!(&*sanitize_for_terminal("plain\u{FE0F}text"), "plaintext");
+    }
+
+    #[test]
+    fn nfc_normalises_decomposed_input() {
+        // "café" decomposed: c, a, f, e, U+0301 (combining acute).
+        // Sanitizer must NFC-normalise to the precomposed form so
+        // equality comparisons against "café" (U+00E9) succeed.
+        let decomposed = "cafe\u{0301}";
+        let composed = "caf\u{00E9}"; // "café" — single codepoint é
+        assert_eq!(&*sanitize_for_terminal(decomposed), composed);
+    }
+
+    #[test]
+    fn fast_path_borrows_when_already_clean_and_nfc() {
+        // Common-case branch name: no unsafe codepoints, already NFC.
+        // The Cow must borrow (zero allocation).
+        let s = "feat/widget-1.2";
+        let out = sanitize_for_terminal(s);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn end_to_end_malicious_branch_neutralised() {
+        // Realistic attack: a file or branch named "e\u{202E}xe.txt"
+        // displays as "etxt.exe" in a BiDi-aware renderer — swapping
+        // the extension. Stripping the RLO leaves the original
+        // bytes visible without the display reorder.
+        let attacker = "e\u{202E}xe.txt";
+        assert_eq!(&*sanitize_for_terminal(attacker), "exe.txt");
+    }
+
+    #[test]
+    fn safe_text_with_cap_truncates_long_input() {
+        let long = "a".repeat(500);
+        let t = SafeText::from_untrusted_with_cap(&long, 10);
+        // 9 'a' + 1 '…' = 10 graphemes.
+        assert!(t.as_str().ends_with('…'));
+        assert_eq!(t.as_str().chars().count(), 10);
+    }
+
+    #[test]
+    fn safe_text_with_cap_under_limit_is_unchanged() {
+        let t = SafeText::from_untrusted_with_cap("short", 100);
+        assert_eq!(t.as_str(), "short");
+        assert!(!t.as_str().contains('…'));
+    }
+
+    #[test]
+    fn safe_text_with_cap_respects_grapheme_boundary() {
+        // "g̃" = g + U+0303 (combining tilde) — no NFC precomposed
+        // form, so it stays as 2 codepoints, 1 grapheme cluster.
+        // Truncation must not split the cluster.
+        let input = "abc g\u{0303}xyz";
+        let t = SafeText::from_untrusted_with_cap(input, 6);
+        // Expect 5 graphemes preserved + 1 ellipsis = 6 graphemes total.
+        // The g̃ cluster must be whole or absent — never split.
+        let graphemes: Vec<&str> = t.as_str().graphemes(true).collect();
+        assert_eq!(graphemes.len(), 6);
+        assert!(t.as_str().ends_with('…'));
+        // If "g\u{0303}" appears, it must appear as a whole 2-byte
+        // sequence — never just "g" followed by ellipsis.
+        if t.as_str().contains('g') {
+            assert!(t.as_str().contains('\u{0303}'));
+        }
+    }
+
+    #[test]
+    fn safe_text_with_cap_strips_then_caps() {
+        // Sanitisation runs FIRST, then truncation. A BiDi RLO in
+        // the input shouldn't survive even if there's headroom in
+        // the cap.
+        let t = SafeText::from_untrusted_with_cap("safe\u{202E}", 100);
+        assert_eq!(t.as_str(), "safe");
+    }
+
+    #[test]
+    fn default_safe_text_cap_is_set_to_256() {
+        // Sanity-pin the constant so a careless change is caught
+        // in review — 256 graphemes is the documented contract.
+        assert_eq!(DEFAULT_SAFE_TEXT_CAP, 256);
     }
 
     // ---------- open_owned_safely (T1.14) ----------
