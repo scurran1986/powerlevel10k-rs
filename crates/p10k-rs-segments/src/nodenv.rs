@@ -13,7 +13,7 @@
 //! value lands in `text` (see `dir.rs` and `virtualenv.rs` for the same
 //! pattern).
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -80,9 +80,9 @@ impl Segment for Nodenv {
 /// exercise [`sanitise_version`] directly to avoid mutating
 /// process-global env state (`std::env::set_var` is `unsafe` since Rust
 /// 1.85, and parallel test threads would race on it anyway).
-fn current_nodenv_version() -> Option<String> {
+fn current_nodenv_version() -> Option<SafeText> {
     let raw = std::env::var("NODENV_VERSION").ok()?;
-    sanitise_version(&raw)
+    sanitise_version(&raw).map(|s| SafeText::from_untrusted(&s))
 }
 
 /// Sanitise a raw `$NODENV_VERSION` value for terminal output.

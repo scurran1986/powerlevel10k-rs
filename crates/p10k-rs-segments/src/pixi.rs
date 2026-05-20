@@ -19,7 +19,7 @@
 //!
 //! [Pixi]: https://pixi.sh
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -87,9 +87,9 @@ impl Segment for Pixi {
 /// exercise [`sanitise_project`] directly to avoid mutating process-global
 /// env state (`std::env::set_var` is `unsafe` since Rust 1.85, and
 /// parallel test threads would race on it anyway).
-fn current_pixi_project() -> Option<String> {
+fn current_pixi_project() -> Option<SafeText> {
     let raw = std::env::var("PIXI_PROJECT_NAME").ok()?;
-    sanitise_project(&raw)
+    sanitise_project(&raw).map(|s| SafeText::from_untrusted(&s))
 }
 
 /// Sanitise a candidate pixi project name. Returns `None` for empty

@@ -12,9 +12,9 @@
 //!
 //! Workspace names come from the filesystem / environment and are
 //! attacker-controlled in the same way `cwd` is — they pass through
-//! [`sanitize_for_terminal`] before landing in the prompt buffer.
+//! [`SafeText::from_untrusted`] before landing in the prompt buffer.
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -85,15 +85,15 @@ impl Segment for Terraform {
 /// `$TF_WORKSPACE` takes precedence (matches Terraform's own resolution
 /// order); otherwise falls back to walking up from `cwd`. The returned
 /// string is already sanitised for terminal output.
-fn current_terraform_workspace(cwd: &std::path::Path) -> Option<String> {
+fn current_terraform_workspace(cwd: &std::path::Path) -> Option<SafeText> {
     if let Ok(ws) = std::env::var("TF_WORKSPACE") {
-        let clean = sanitize_for_terminal(&ws).into_owned();
+        let clean = SafeText::from_untrusted(&ws);
         if !clean.is_empty() {
             return Some(clean);
         }
     }
     find_terraform_workspace(cwd)
-        .map(|s| sanitize_for_terminal(&s).into_owned())
+        .map(|s| SafeText::from_untrusted(&s))
         .filter(|s| !s.is_empty())
 }
 

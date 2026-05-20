@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -80,7 +80,7 @@ impl Segment for Virtualenv {
 /// exercise [`extract_basename`] directly to avoid mutating process-global
 /// env state (`std::env::set_var` is `unsafe` since Rust 1.85, and parallel
 /// test threads would race on it anyway).
-fn current_virtualenv() -> Option<String> {
+fn current_virtualenv() -> Option<SafeText> {
     let raw = std::env::var("VIRTUAL_ENV").ok()?;
     if raw.is_empty() {
         return None;
@@ -89,7 +89,7 @@ fn current_virtualenv() -> Option<String> {
     if basename.is_empty() {
         None
     } else {
-        Some(basename)
+        Some(SafeText::from_untrusted(&basename))
     }
 }
 

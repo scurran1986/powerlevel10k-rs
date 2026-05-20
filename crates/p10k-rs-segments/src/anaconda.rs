@@ -14,7 +14,7 @@
 //! prompt line. Sanitisation happens before the value lands in `text`
 //! (see `dir.rs` for the same pattern).
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -83,7 +83,7 @@ impl Segment for Anaconda {
 /// exercise [`extract_env_name`] directly to avoid mutating
 /// process-global env state (`std::env::set_var` is `unsafe` since Rust
 /// 1.85, and parallel test threads would race on it anyway).
-fn current_conda_env() -> Option<String> {
+fn current_conda_env() -> Option<SafeText> {
     let raw = std::env::var("CONDA_DEFAULT_ENV").ok()?;
     if raw.is_empty() {
         return None;
@@ -92,7 +92,7 @@ fn current_conda_env() -> Option<String> {
     if basename.is_empty() {
         None
     } else {
-        Some(basename)
+        Some(SafeText::from_untrusted(&basename))
     }
 }
 

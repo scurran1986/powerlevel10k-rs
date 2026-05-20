@@ -28,7 +28,7 @@
 //! the prompt line, so they pass through [`sanitize_for_terminal`] before
 //! render — same pattern as `kubecontext`, `cwd`, and `virtualenv`.
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 use serde::Deserialize;
@@ -119,20 +119,20 @@ fn config_path() -> Option<std::path::PathBuf> {
 /// chain. Returns `None` when the segment should stay hidden — that
 /// covers the `default` context, unset/empty values, and unreadable
 /// config files.
-fn current_docker_context() -> Option<String> {
+fn current_docker_context() -> Option<SafeText> {
     if let Some(ctx) = std::env::var("DOCKER_CONTEXT")
         .ok()
         .filter(|s| !s.is_empty())
     {
-        return finalise(&ctx);
+        return finalise(&ctx).map(|s| SafeText::from_untrusted(&s));
     }
     if let Some(host) = std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()) {
-        return finalise(&host);
+        return finalise(&host).map(|s| SafeText::from_untrusted(&s));
     }
     let path = config_path()?;
     let json = std::fs::read_to_string(path).ok()?;
     let parsed = parse_docker_config(&json)?;
-    finalise(&parsed)
+    finalise(&parsed).map(|s| SafeText::from_untrusted(&s))
 }
 
 /// Sanitise, truncate, and apply the `default`-filter. Returns `None`

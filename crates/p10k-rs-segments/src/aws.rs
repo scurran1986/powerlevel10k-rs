@@ -16,7 +16,7 @@
 //! Yellow is upstream Powerlevel10k's nearest match for the orange-ish
 //! default we don't have in the named-colour table.
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -84,11 +84,11 @@ impl Segment for Aws {
 /// exercise [`sanitize_profile`] directly to avoid mutating process-global
 /// env state (`std::env::set_var` is `unsafe` since Rust 1.85, and parallel
 /// test threads would race on it anyway).
-fn current_aws_profile() -> Option<String> {
+fn current_aws_profile() -> Option<SafeText> {
     for var in ["AWS_VAULT", "AWS_PROFILE", "AWS_DEFAULT_PROFILE"] {
         if let Ok(raw) = std::env::var(var) {
             if let Some(clean) = sanitize_profile(&raw) {
-                return Some(clean);
+                return Some(SafeText::from_untrusted(&clean));
             }
         }
     }

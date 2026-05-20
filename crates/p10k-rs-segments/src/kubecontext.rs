@@ -23,10 +23,10 @@
 //!
 //! Context names are user-controlled (anyone with a kubeconfig writes
 //! them) and end up on the prompt line, so they pass through
-//! [`sanitize_for_terminal`] before render — same pattern as `cwd` and
-//! `virtualenv`.
+//! [`SafeText::from_untrusted`] before render — same pattern as `cwd`
+//! and `virtualenv`.
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -107,11 +107,11 @@ fn config_path() -> Option<std::path::PathBuf> {
 /// Read the resolved kubeconfig and return the sanitised current-context,
 /// or `None` if the file is missing/unreadable or has no usable
 /// `current-context` line.
-fn current_kubecontext() -> Option<String> {
+fn current_kubecontext() -> Option<SafeText> {
     let path = config_path()?;
     let yaml = std::fs::read_to_string(path).ok()?;
     parse_current_context(&yaml)
-        .map(|s| sanitize_for_terminal(&s).into_owned())
+        .map(|s| SafeText::from_untrusted(&s))
         .filter(|s| !s.is_empty())
 }
 
