@@ -572,6 +572,28 @@ pub struct AiConfig {
     /// Per-host opt-in flags. Key is the host identifier ("claude-code", ...).
     #[serde(rename = "host")]
     pub hosts: HashMap<String, HostConfig>,
+    /// The AI model currently active in this session, e.g. `"claude-opus-4-7"`.
+    ///
+    /// Purely descriptive; set by the user in their TOML config to annotate
+    /// which model is in use. This is owner-written configuration (not
+    /// attacker-controlled input) so a plain `String` is appropriate — no
+    /// `SafeText` wrapping needed. The value is not sanitised at parse time
+    /// because it never reaches the prompt render path directly; it is
+    /// available to the `render_statusline` host-metadata path, which is
+    /// currently a stub (returns `""`) and will wire this field in a later
+    /// slice.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Current context-window size in tokens, e.g. `200000` for a 200 K
+    /// context model.
+    ///
+    /// Opt-in and advisory: the user sets this in TOML to give the prompt
+    /// (or an AI host's statusline) a hint about available context budget.
+    /// Like [`Self::model`], this field is not rendered today — it is wired
+    /// to the `render_statusline` path which ships in a later slice. Absent
+    /// means "unknown / not configured".
+    #[serde(default)]
+    pub context_tokens: Option<u32>,
 }
 
 /// Per-host AI integration toggle.
@@ -1188,5 +1210,58 @@ left = ["dir"]
             }
             other => panic!("expected Io(NotFound), got {other:?}"),
         }
+    }
+
+    #[test]
+    fn ai_config_model_and_context_tokens_round_trip() {
+        // Both new fields parse correctly when set, and round-trip through
+        // `to_toml` + `from_toml` with the same values.
+        let src = "schema_version = 1\n\
+                   [ai]\n\
+                   model = \"claude-opus-4-7\"\n\
+                   context_tokens = 200000\n";
+        let cfg = Config::from_toml(src).expect("parse ai model+context_tokens");
+        assert_eq!(
+            cfg.ai.model.as_deref(),
+            Some("claude-opus-4-7"),
+            "model must round-trip"
+        );
+        assert_eq!(
+            cfg.ai.context_tokens,
+            Some(200_000),
+            "context_tokens must round-trip"
+        );
+
+        // Serialise and re-parse to confirm both directions.
+        let serialised = cfg.to_toml().expect("serialise");
+        let reparsed = Config::from_toml(&serialised).expect("reparse");
+        assert_eq!(reparsed.ai.model.as_deref(), Some("claude-opus-4-7"));
+        assert_eq!(reparsed.ai.context_tokens, Some(200_000));
+    }
+
+    #[test]
+    fn ai_config_defaults_when_fields_absent() {
+        // Neither field is required. Parsing a minimal config (or an `[ai]`
+        // block without these keys) must leave both as `None`.
+        let src = "schema_version = 1\n";
+        let cfg = Config::from_toml(src).expect("parse minimal");
+        assert!(cfg.ai.model.is_none(), "model must default to None");
+        assert!(
+            cfg.ai.context_tokens.is_none(),
+            "context_tokens must default to None"
+        );
+    }
+
+    #[test]
+    fn ai_config_rejects_unknown_fields() {
+        // `deny_unknown_fields` on `AiConfig`: a typo like `models = "x"`
+        // must surface loud instead of being silently ignored.
+        let src = "schema_version = 1\n[ai]\nmodels = \"x\"\n";
+        let err = Config::from_toml(src).expect_err("must reject unknown field");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("unknown field"),
+            "expected 'unknown field' in error, got: {msg}"
+        );
     }
 }
