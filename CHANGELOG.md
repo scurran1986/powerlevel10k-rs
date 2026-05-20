@@ -8,11 +8,12 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Post-v0.1.3 slice ledger. Closes 3 of the 5 v0.2-deferred items
-from the sprint memo (T1.8, T1.10, T1.11). Staged for v0.1.4 —
-draft notes at `.github/release-notes/v0.1.4.md`.
+Post-v0.1.3 slice ledger. Closes 4 of the 5 v0.2-deferred items
+from the sprint memo (T1.8, T1.10, T1.11, T1.24); only T0.5
+(sha256-pin gitstatusd at install) remains deferred. Staged for
+v0.1.4 — draft notes at `.github/release-notes/v0.1.4.md`.
 
-Test count: **495 passing**, 3 ignored (up from 368 at v0.1.3).
+Test count: **505 passing**, 3 ignored (up from 368 at v0.1.3).
 
 ### Render-layer Unicode safety (T1.10, T1.11)
 
@@ -40,6 +41,21 @@ Test count: **495 passing**, 3 ignored (up from 368 at v0.1.3).
   when the cwd-compare fails. `Off` behaviour byte-identical to
   pre-T1.8. `UniqueDir` aliased to `SameDir` until cross-prompt
   history lands. 8 new unit tests cover the truth table.
+
+### Truecolor hex literals (T1.24)
+
+- `aa323f6` **T1.24** `feat(config)`: TOML colour values now accept
+  `#rgb` (shorthand) and `#rrggbb` (full) hex literals alongside
+  the existing name, integer-index, and `[r, g, b]`-array forms.
+  Shorthand expands per CSS convention (`#f60` ≡ `#ff6600`). The
+  truecolor SGR emission path was already wired since slice 25-era;
+  T1.24 closes the user-facing ergonomic gap with a custom serde
+  `Visitor` and 10 new tests. End-to-end smoke-tested:
+  `foreground = "#ff6600"` emits `\x1b[38;2;255;102;0m` exactly.
+
+  Schema discipline: any `#`-prefixed string MUST be a valid 3- or
+  6-digit hex literal — `"#xyz"` is a parse error, not a silent
+  fallback to `Color::Named("#xyz")`.
 
 ### Per-segment + per-host config
 
@@ -131,9 +147,11 @@ release cycle), T1.8 (transient prompt modes), T1.10 (Unicode
 hardening), T1.11 (E2E SafeText for 10 segments), T1.24 (24-bit
 truecolor + hex schema).
 
-**Status update**: T1.8 / T1.10 / T1.11 shipped post-tag and are
-on `main`; see `[Unreleased]` above. T0.5 and T1.24 remain
-deferred.
+**Status update**: T1.8 / T1.10 / T1.11 / T1.24 shipped post-tag
+and are on `main`; see `[Unreleased]` above. Only T0.5 remains
+deferred — it needs a different install flow (today's install.sh
+symlinks a `brew` / `apt`-installed gitstatusd; pinning requires
+a download + verify model).
 
 Test count: 368 passing at tag time.
 
