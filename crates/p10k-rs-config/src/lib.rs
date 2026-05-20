@@ -361,17 +361,29 @@ pub struct StateOverrides {
     pub icon: Option<String>,
 }
 
-/// A color value: either a Powerlevel9k-style name or an ANSI/truecolor index.
+/// A color value: a Powerlevel9k-style name, an ANSI index, or a
+/// truecolor RGB triple.
 ///
-/// The string variant retains `red`, `darkred`, `wheat4`, etc. The numeric
-/// variants land truecolor and 256-color values.
+/// Three TOML input shapes deserialize to the matching variant:
+///
+/// - **String literal** — `foreground = "red"` → [`Color::Named`].
+/// - **Hex literal** — `foreground = "#ff6600"` → [`Color::Rgb`]. Six- and
+///   three-digit forms both work (`"#f60"` expands to `"#ff6600"` per CSS
+///   convention). Any string starting with `#` MUST be valid hex; an
+///   invalid hex literal like `"#xyz"` is a parse error rather than a
+///   silent fall-back to `Named`, because a `#`-prefixed name is
+///   overwhelmingly likely to be a typo.
+/// - **Integer 0–255** — `foreground = 202` → [`Color::Indexed`].
+/// - **3-element array of u8** — `foreground = [255, 102, 0]` →
+///   [`Color::Rgb`]. Same in-memory result as the hex form; choose
+///   whichever reads better in context.
 ///
 /// The named variant is `Cow<'static, str>` rather than `String` so that
 /// segment defaults can supply zero-allocation static literals
 /// (`Color::Named("blue".into())` becomes `Cow::Borrowed("blue")` via
 /// `From<&'static str>`). User-supplied values from TOML deserialize as
 /// `Cow::Owned` and behave like a `String` — same memory cost, same API.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Color {
     /// Named color (Powerlevel9k compat).
@@ -380,6 +392,127 @@ pub enum Color {
     Indexed(u8),
     /// Truecolor `[r, g, b]`.
     Rgb([u8; 3]),
+}
+
+/// Parse a hex colour literal. Accepts `#rgb` (shorthand) and `#rrggbb`
+/// (full); rejects everything else.
+///
+/// Returns:
+/// - `Ok(Some([r, g, b]))` — valid hex; the caller produces
+///   [`Color::Rgb`].
+/// - `Ok(None)` — string does NOT start with `#`; the caller produces
+///   [`Color::Named`].
+/// - `Err(msg)` — string starts with `#` but isn't a valid 3- or
+///   6-digit hex literal. The caller surfaces this as a TOML parse
+///   error rather than silently treating the typo as a name.
+fn parse_hex_color(s: &str) -> std::result::Result<Option<[u8; 3]>, String> {
+    let Some(hex) = s.strip_prefix('#') else {
+        return Ok(None);
+    };
+    match hex.len() {
+        3 => {
+            // `#rgb` → `#rrggbb` per CSS convention (`0xf` → `0xff`).
+            let r = u8::from_str_radix(&hex[0..1], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            let g = u8::from_str_radix(&hex[1..2], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            let b = u8::from_str_radix(&hex[2..3], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            Ok(Some([r * 17, g * 17, b * 17]))
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            let g = u8::from_str_radix(&hex[2..4], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            let b = u8::from_str_radix(&hex[4..6], 16)
+                .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+            Ok(Some([r, g, b]))
+        }
+        _ => Err(format!("hex colour must be `#rgb` or `#rrggbb`, got {s:?}")),
+    }
+}
+
+impl<'de> Deserialize<'de> for Color {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ColorVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ColorVisitor {
+            type Value = Color;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(
+                    "a colour: name string (`\"red\"`), hex literal \
+                     (`\"#ff6600\"` / `\"#f60\"`), ANSI index 0–255, or \
+                     `[r, g, b]` triple",
+                )
+            }
+
+            fn visit_str<E>(self, s: &str) -> std::result::Result<Color, E>
+            where
+                E: serde::de::Error,
+            {
+                match parse_hex_color(s).map_err(E::custom)? {
+                    Some(rgb) => Ok(Color::Rgb(rgb)),
+                    None => Ok(Color::Named(Cow::Owned(s.to_owned()))),
+                }
+            }
+
+            fn visit_string<E>(self, s: String) -> std::result::Result<Color, E>
+            where
+                E: serde::de::Error,
+            {
+                match parse_hex_color(&s).map_err(E::custom)? {
+                    Some(rgb) => Ok(Color::Rgb(rgb)),
+                    None => Ok(Color::Named(Cow::Owned(s))),
+                }
+            }
+
+            fn visit_u64<E>(self, n: u64) -> std::result::Result<Color, E>
+            where
+                E: serde::de::Error,
+            {
+                u8::try_from(n)
+                    .map(Color::Indexed)
+                    .map_err(|_| E::custom(format!("ANSI index must be 0..=255, got {n}")))
+            }
+
+            fn visit_i64<E>(self, n: i64) -> std::result::Result<Color, E>
+            where
+                E: serde::de::Error,
+            {
+                u8::try_from(n)
+                    .map(Color::Indexed)
+                    .map_err(|_| E::custom(format!("ANSI index must be 0..=255, got {n}")))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Color, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let r: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("RGB array needs 3 elements, got 0"))?;
+                let g: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("RGB array needs 3 elements, got 1"))?;
+                let b: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("RGB array needs 3 elements, got 2"))?;
+                if seq.next_element::<u8>()?.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "RGB array must have exactly 3 elements",
+                    ));
+                }
+                Ok(Color::Rgb([r, g, b]))
+            }
+        }
+
+        deserializer.deserialize_any(ColorVisitor)
+    }
 }
 
 /// Padding around a segment.
@@ -1305,6 +1438,112 @@ left = ["dir"]
         assert!(
             msg.contains("unknown field"),
             "expected 'unknown field' in error, got: {msg}"
+        );
+    }
+
+    // ---------- T1.24: hex literal Color deserialization ----------
+
+    fn parse_color(src: &str) -> Color {
+        let toml = format!("schema_version = 1\n[segment.dir]\nforeground = {src}\n");
+        let cfg = Config::from_toml(&toml).expect("toml must parse");
+        cfg.segments
+            .get("dir")
+            .expect("dir segment present")
+            .foreground
+            .clone()
+            .expect("foreground was set above")
+    }
+
+    #[test]
+    fn color_hex_6_digit() {
+        assert_eq!(parse_color("\"#ff6600\""), Color::Rgb([0xff, 0x66, 0x00]));
+    }
+
+    #[test]
+    fn color_hex_3_digit_expands_per_css() {
+        // `#f60` → `#ff6600`. Matches CSS shorthand: each digit is
+        // doubled (`0xf` → `0xff`).
+        assert_eq!(parse_color("\"#f60\""), Color::Rgb([0xff, 0x66, 0x00]));
+    }
+
+    #[test]
+    fn color_hex_uppercase_hex_works() {
+        assert_eq!(parse_color("\"#FF6600\""), Color::Rgb([0xff, 0x66, 0x00]));
+        assert_eq!(parse_color("\"#AbCdEf\""), Color::Rgb([0xab, 0xcd, 0xef]));
+    }
+
+    #[test]
+    fn color_hex_black_and_white_round_trip() {
+        assert_eq!(parse_color("\"#000000\""), Color::Rgb([0, 0, 0]));
+        assert_eq!(parse_color("\"#000\""), Color::Rgb([0, 0, 0]));
+        assert_eq!(parse_color("\"#ffffff\""), Color::Rgb([0xff, 0xff, 0xff]));
+        assert_eq!(parse_color("\"#fff\""), Color::Rgb([0xff, 0xff, 0xff]));
+    }
+
+    #[test]
+    fn color_named_string_still_works() {
+        // Strings that don't start with `#` are still Named.
+        assert_eq!(
+            parse_color("\"red\""),
+            Color::Named(Cow::Owned("red".to_owned()))
+        );
+        assert_eq!(
+            parse_color("\"wheat4\""),
+            Color::Named(Cow::Owned("wheat4".to_owned()))
+        );
+    }
+
+    #[test]
+    fn color_indexed_int_still_works() {
+        // ANSI index: integer in TOML.
+        assert_eq!(parse_color("202"), Color::Indexed(202));
+        assert_eq!(parse_color("0"), Color::Indexed(0));
+        assert_eq!(parse_color("255"), Color::Indexed(255));
+    }
+
+    #[test]
+    fn color_indexed_out_of_range_errors() {
+        // 256 is outside `u8`. Must error, not silently truncate.
+        let toml = "schema_version = 1\n[segment.dir]\nforeground = 256\n";
+        let err = Config::from_toml(toml).expect_err("256 must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("ANSI index") || msg.contains("invalid value"),
+            "expected index/range error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn color_rgb_array_still_works() {
+        // Three-element array form remains valid alongside the hex form.
+        assert_eq!(parse_color("[255, 102, 0]"), Color::Rgb([0xff, 0x66, 0x00]));
+    }
+
+    #[test]
+    fn color_hex_invalid_chars_error_not_named() {
+        // A `#`-prefixed string with non-hex chars is overwhelmingly a
+        // typo — we surface it loud rather than silently falling back
+        // to `Named("#xyzxyz")`. Pre-T1.24 there were no hex literals
+        // so this is the first sigil-based reserved prefix on the
+        // string side of Color.
+        let toml = "schema_version = 1\n[segment.dir]\nforeground = \"#xyzxyz\"\n";
+        let err = Config::from_toml(toml).expect_err("must reject invalid hex");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("hex") || msg.contains("invalid"),
+            "expected hex parse error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn color_hex_wrong_length_errors() {
+        // 4-character hash-prefix is neither 3 nor 6 digits; reject.
+        let toml = "schema_version = 1\n[segment.dir]\nforeground = \"#fffe\"\n";
+        let err = Config::from_toml(toml).expect_err("must reject 4-digit hex");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("hex") || msg.contains("#rrggbb"),
+            "expected hex parse error, got: {msg}"
         );
     }
 }
