@@ -68,12 +68,14 @@ pub fn detect_jj(cwd: &Path) -> Option<JjState> {
             "-r",
             "@",
             "-T",
-            // Five fields, pipe-separated. `description.first_line()`
+            // Seven fields, pipe-separated. `description.first_line()`
             // would be nicer but isn't stable across all jj versions;
             // we take the whole description and trim to the first line
-            // in Rust below. The trailing literal sentinel keeps the
-            // parser robust if jj appends a newline.
-            r#"change_id.short() ++ "|" ++ commit_id.short() ++ "|" ++ bookmarks ++ "|" ++ description ++ "|END""#,
+            // in Rust below. Fields 6 and 7 are the `divergent` and
+            // `self.conflict()` booleans, emitted as "1" or "0" so the
+            // parser stays a simple `split('|')`. The trailing literal
+            // sentinel keeps the parser robust if jj appends a newline.
+            r#"change_id.short() ++ "|" ++ commit_id.short() ++ "|" ++ bookmarks ++ "|" ++ description ++ "|" ++ if(divergent, "1", "0") ++ "|" ++ if(self.conflict(), "1", "0") ++ "|END""#,
         ])
         .env("LC_ALL", "C")
         .stdin(Stdio::null())
@@ -109,10 +111,12 @@ fn find_jj_root(start: &Path) -> Option<PathBuf> {
 
 /// Parse the pipe-separated `jj log` output into a [`JjState`].
 ///
-/// Fields: `change_id | commit_id | bookmarks | description | END`.
+/// Fields: `change_id | commit_id | bookmarks | description | divergent | conflicts | END`.
 /// Anything past the `END` sentinel is discarded — that's the trailing
 /// newline jj appends. Bookmarks come space-separated; we take the
 /// first one as the "primary" bookmark to surface in the prompt.
+/// The `divergent` and `conflicts` fields are `"1"` or `"0"` as emitted
+/// by the template's `if(…, "1", "0")` expressions.
 fn parse_log_output(raw: &[u8]) -> JjState {
     // Lossy UTF-8 is the right call here — same posture as
     // `p10k-rs-git`'s wire parser. A description with stray bytes
@@ -121,12 +125,14 @@ fn parse_log_output(raw: &[u8]) -> JjState {
     // Strip a trailing newline jj typically appends.
     let line = text.trim_end_matches('\n');
     // The template ends with `|END`, so split on `|` and read the
-    // first four fields. Anything missing falls to default.
+    // first six fields. Anything missing falls to default.
     let mut parts = line.split('|');
     let change_id = parts.next().unwrap_or("").trim();
     let commit_id = parts.next().unwrap_or("").trim();
     let bookmarks = parts.next().unwrap_or("").trim();
     let description_raw = parts.next().unwrap_or("");
+    let divergent_field = parts.next().unwrap_or("").trim();
+    let conflicts_field = parts.next().unwrap_or("").trim();
     // First whitespace-delimited bookmark — jj's `bookmarks` template
     // emits a space-separated list. Empty when the change has none.
     let bookmark = bookmarks.split_whitespace().next().unwrap_or("");
@@ -138,8 +144,8 @@ fn parse_log_output(raw: &[u8]) -> JjState {
         bookmark: SafeText::from_untrusted(bookmark),
         description: SafeText::from_untrusted(description),
         dirty: false,
-        conflicts: false,
-        divergent: false,
+        divergent: divergent_field == "1",
+        conflicts: conflicts_field == "1",
     }
 }
 
@@ -255,6 +261,33 @@ mod tests {
         let s = parse_log_output(raw);
         // ESC byte is gone; the otherwise-printable payload survives.
         assert_eq!(s.description.as_str(), "[2Jevil");
+    }
+
+    #[test]
+    fn parse_log_output_clean_both_false() {
+        // Both divergent and conflicts fields are "0" → both booleans false.
+        let raw = b"abc123|def456|main|Implement widget\n|0|0|END\n";
+        let s = parse_log_output(raw);
+        assert!(!s.divergent, "divergent should be false");
+        assert!(!s.conflicts, "conflicts should be false");
+    }
+
+    #[test]
+    fn parse_log_output_divergent_only() {
+        // Change is divergent but not in conflict.
+        let raw = b"abc123|def456||divergent change|1|0|END\n";
+        let s = parse_log_output(raw);
+        assert!(s.divergent, "divergent should be true");
+        assert!(!s.conflicts, "conflicts should be false");
+    }
+
+    #[test]
+    fn parse_log_output_conflicts_only() {
+        // Change has conflicts but is not divergent.
+        let raw = b"abc123|def456|main|conflicted merge|0|1|END\n";
+        let s = parse_log_output(raw);
+        assert!(!s.divergent, "divergent should be false");
+        assert!(s.conflicts, "conflicts should be true");
     }
 
     #[test]
