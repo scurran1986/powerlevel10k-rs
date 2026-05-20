@@ -8,7 +8,134 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-(empty)
+Post-v0.1.3 slice ledger. Closes 3 of the 5 v0.2-deferred items
+from the sprint memo (T1.8, T1.10, T1.11). Staged for v0.1.4 —
+draft notes at `.github/release-notes/v0.1.4.md`.
+
+Test count: **495 passing**, 3 ignored (up from 368 at v0.1.3).
+
+### Render-layer Unicode safety (T1.10, T1.11)
+
+- `75b7c92` **T1.10** `feat(safety)`: `SafeText` now strips
+  Unicode-class hazards (BiDi controls, ZWJ/ZWNJ, format
+  characters, deprecated tags), normalises to NFC, and truncates
+  on grapheme-cluster boundaries via `from_untrusted_with_cap`.
+  Closes the BiDi/ZWJ class of render-path injection the
+  forward-research threat model flagged.
+- `d266a5e` **T1.11** `refactor(segments)`: ten segment helpers
+  that read user-controlled env vars now return `Option<SafeText>`
+  instead of `Option<String>` — `anaconda`, `aws`, `docker_context`,
+  `fnm`, `kubecontext`, `nodenv`, `pixi`, `pyenv`, `terraform`,
+  `virtualenv`. Behaviour unchanged (`SafeText: Display`); the
+  type-system invariant "this value is sanitised" is now
+  load-bearing at the helper boundary, not by convention.
+
+### Transient prompt modes wired (T1.8)
+
+- `86fcd6d` **T1.8** `feat(transient)`: the four-mode
+  `TransientPromptMode` enum (`Off` / `Always` / `SameDir` /
+  `UniqueDir`) is now honestly differentiated at the wire. New
+  exit-code-2 protocol between the binary and the zsh init lets
+  `same-dir` / `unique-dir` keep the full ribbon in scrollback
+  when the cwd-compare fails. `Off` behaviour byte-identical to
+  pre-T1.8. `UniqueDir` aliased to `SameDir` until cross-prompt
+  history lands. 8 new unit tests cover the truth table.
+
+### Per-segment + per-host config
+
+- `4392a6a` **slice 59** `feat(vcs)`:
+  `[segment.<name>].marker_foreground` opt-in field paints the
+  `* ! + ~ ? ≡` index markers independently from the branch
+  text. Closes the last hardcoded colour in the prompt.
+- `274f3ba` **slice 62** `feat(jj)`: jj `divergent` and
+  `conflicts` parsed from the `jj log -T` template (slice 52
+  had left them at default). Render side was already wired in
+  `p10k-rs-segments/src/jj.rs`. 3 parser tests.
+- `e288972` **slice 61** `feat(ai)`: schema-only addition of
+  `[ai].model: Option<String>` and `[ai].context_tokens:
+  Option<u32>`. Both opt-in. Render path remains a stub —
+  `render_statusline()` returns empty until the per-host
+  metadata story lands.
+
+### Test-harness env-race hardening
+
+Three `std::env::set_var`-based test races found and serialised
+under module-level `Mutex<()>`. New invariant documented in
+STATE.md — any test that mutates env vars must acquire the
+module lock.
+
+- `cc4141b` `fix(tests)`: `p10k-rs-config::tests` (P10K_RS_CONFIG
+  collision between missing-file + parse-error tests) and
+  `p10k-rs-git::gitstatusd::tests` (PATH="" test breaking the
+  `mkfifo` shell-out in concurrent FIFO tests).
+- `09293c9` `fix(tests)`: `p10k-rs-core::term_caps::tests`
+  (XDG_RUNTIME_DIR / P10K_RS_SESSION_ID / COLORTERM / TERM
+  collisions across four tests; closes the
+  `write_cache_uses_0600_perms_on_unix` flake the slice-59
+  agent flagged in passing).
+
+### Minor
+
+- `5bfb2fd` `fix(core)`: drop a private intra-doc link to
+  `CAPS_CACHE` in `term_caps` that broke `cargo doc -D warnings`.
+
+## [0.1.3] - 2026-05-18
+
+First **signed release** — every tarball ships with a sigstore
+keyless signature plus SLSA build-provenance attestation. Combined
+supply-chain (Tier 0) + shell-integration / observability (Tier 1)
+release: 30 slices across both waves.
+
+See `.github/release-notes/v0.1.3.md` for the full user-facing
+write-up. Highlights:
+
+### Tier 0 — supply chain
+
+- Sigstore-signed release artifacts (`*.cosign.bundle`) via
+  keyless OIDC; identity bound to the workflow file + tag and
+  recorded in Rekor.
+- SLSA build-provenance attestation per artifact, queryable via
+  `gh attestation verify`.
+- Third-party GitHub Actions pinned to commit SHAs.
+- Dependabot weekly with grouped patch+minor PRs.
+- Tag pattern tightened to `v[0-9]+.[0-9]+.[0-9]+*` to refuse
+  accidental non-semver releases.
+- `concurrency: release-${ref}` with `cancel-in-progress: false`
+  so partial publishes finish cleanly.
+- `SECURITY.md` + release-verification recipe documented
+  (T0.9, T0.10).
+
+### Tier 1 — shell integration + UX
+
+- OSC 133 A/B/C/D semantic-prompt boundaries emit by default on
+  modern terminals (Ghostty, WezTerm, iTerm2, Kitty, VS Code,
+  Windows Terminal, and any host exporting `$TERM_PROGRAM` /
+  `$WT_SESSION` / `$GHOSTTY_RESOURCES_DIR` / `$KITTY_WINDOW_ID`
+  / an AI-agent env var). Suppressed on Warp.
+- DECSET 2026 synchronized-output wrap with a `Drop` guard.
+- `p10k-rs config check` subcommand for TOML validation.
+- Generic `AGENT` / `AI_AGENT` env-var probes + Goose detection.
+- Bracketed-paste re-arm on every precmd.
+- Atomic dump writes at mode `0600`.
+- Foreign-owned gitstatusd binary refused at locate-time.
+- Daily tracing-appender log at `$XDG_STATE_HOME/p10k-rs`.
+- Defensive env (`GIT_CEILING_DIRECTORIES` etc.) on `ShellOut`
+  spawn.
+- Install script requires `git ≥ 2.35.2` (CVE-2022-24765).
+- Binary stderr routed to the diagnostics log too.
+
+### Deferred to v0.2 (at tag time)
+
+T0.5 (sha256-pin gitstatusd binary at install — needs its own
+release cycle), T1.8 (transient prompt modes), T1.10 (Unicode
+hardening), T1.11 (E2E SafeText for 10 segments), T1.24 (24-bit
+truecolor + hex schema).
+
+**Status update**: T1.8 / T1.10 / T1.11 shipped post-tag and are
+on `main`; see `[Unreleased]` above. T0.5 and T1.24 remain
+deferred.
+
+Test count: 368 passing at tag time.
 
 ## [0.1.2] - 2026-05-15
 
