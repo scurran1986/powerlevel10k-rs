@@ -1,14 +1,12 @@
 //! `vcs` — version-control segment.
 //!
 //! Branch name painted black-on-green (P10K-classic palette), with a trailing
-//! `*` when the working tree is dirty. The dirty marker stays hardcoded red
-//! per the project's load-bearing test pin — it's a subsegment, not the
-//! segment-level fg. Disabled (skipped by the renderer) when not in a repo.
+//! `*` when the working tree is dirty. The dirty marker and action label colour
+//! defaults to red; users can override it via `[segment.vcs].marker_foreground`
+//! in their TOML config. Disabled (skipped by the renderer) when not in a repo.
 //! ADR-0001's daemon client will replace the producer behind
 //! [`RenderCtx::git`] later; this segment doesn't change when that swap
 //! happens.
-
-use std::fmt::Write;
 
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
@@ -58,50 +56,7 @@ impl Segment for Vcs {
             };
         };
 
-        // Build the plain (display-width) version first; then wrap with
-        // ANSI escapes. Upstream P10K order:
-        //   `<branch> ⇡<ahead> ⇣<behind> *<dirty> !<conflicts> \
-        //    +<staged> ~<unstaged> ?<untracked>`
-        // The bare `*` dirty marker still renders, but only when no
-        // `+ ~ ?` count indicators are present — those counts are
-        // themselves a dirty signal, so the bare `*` becomes redundant.
-        // The `*` marker stays hardcoded red (load-bearing test pin);
-        // every other indicator inherits the segment's fg/bg band.
         let any_change_counts = git.staged > 0 || git.unstaged > 0 || git.untracked > 0;
-        let show_dirty_marker = git.dirty && !any_change_counts;
-
-        // Detached-HEAD detection (slice 47). Upstream P10K convention: a
-        // branch literally equal to `"HEAD"` (or empty) with a non-empty
-        // commit OID means the working tree is parked on a bare commit
-        // rather than a named ref. We swap the branch label for the
-        // `mdi-source-commit` glyph + 7-char SHA prefix so the prompt
-        // can't lie about "which branch am I on" when the answer is
-        // "none". The SHA is sliced off `SafeText` — ASCII hex is safe
-        // by construction, but we still pull from the already-sanitised
-        // value so an upstream wire-format change that smuggles a
-        // non-hex byte into field 3 can't reintroduce control chars.
-        let branch_label = git.branch.as_str();
-        let commit_label = git.commit.as_str();
-        let detached =
-            (branch_label == "HEAD" || branch_label.is_empty()) && !commit_label.is_empty();
-        let sha_prefix = if detached {
-            commit_label
-                .chars()
-                .take(SHA_PREFIX_LEN)
-                .collect::<String>()
-        } else {
-            String::new()
-        };
-
-        // Slice 56: the join between vcs subsegments (branch + ahead /
-        // behind / staged / unstaged / untracked / conflicts / action /
-        // stash) is the first real consumer of
-        // `layout.separators.subsegment`. We default to a single space
-        // so the look is unchanged for users who don't set the field.
-        // `plain_len` below counts grapheme clusters via `chars().count()`,
-        // which works for ASCII separators like " · " or " | "; an
-        // upstream slice can swap in `unicode-width` if anyone configures
-        // a wide-glyph separator.
         let sub_sep = ctx
             .config
             .layout
@@ -109,43 +64,10 @@ impl Segment for Vcs {
             .subsegment
             .as_deref()
             .unwrap_or(" ");
-        let mut plain = String::with_capacity(git.branch.len() + git.tag.len() + 32);
-        if detached {
-            plain.push_str(DETACHED_HEAD_GLYPH);
-            plain.push_str(&sha_prefix);
-        } else {
-            plain.push_str(branch_label);
-        }
-        // Tag display (slice 47). Upstream P10K renders ` @ <tag>` after
-        // the branch label when HEAD points at a tag. The daemon's wire
-        // field 18 surfaces the greatest-lex tag pointing at HEAD; an
-        // empty `tag` (older daemons, `ShellOut`, or HEAD not on a tag)
-        // skips this entirely so the look is unchanged for the common
-        // case.
-        if !git.tag.as_str().is_empty() {
-            let _ = write!(plain, "{sub_sep}@ {}", git.tag.as_str());
-        }
-        if git.ahead > 0 {
-            let _ = write!(plain, "{sub_sep}\u{21e1}{}", git.ahead);
-        }
-        if git.behind > 0 {
-            let _ = write!(plain, "{sub_sep}\u{21e3}{}", git.behind);
-        }
-        // Track byte offset of the red-painted `*` marker so the ANSI
-        // wrapper can split the plain string at that exact point.
-        let dirty_marker_offset = if show_dirty_marker {
-            plain.push_str(sub_sep);
-            let off = plain.len();
-            plain.push('*');
-            Some(off)
-        } else {
-            None
-        };
-        let action_marker = append_index_indicators(&mut plain, sub_sep, git);
+        let (plain, dirty_marker_offset, action_marker) =
+            build_plain_text(git, sub_sep, any_change_counts);
 
-        // Compute state first so we can pass it to the style resolver below.
-        // Index-level changes (`staged/unstaged/untracked`) count as
-        // dirty even if the consumer didn't set the `dirty` bool.
+        // State: conflict > dirty > diverged > clean.
         let state = if git.has_conflicts {
             "conflict"
         } else if git.dirty || any_change_counts {
@@ -156,18 +78,9 @@ impl Segment for Vcs {
             "clean"
         };
 
-        // Resolve the icon glyph through the state-aware precedence chain:
-        // state-keyed override → segment-level override → Nerd Font default.
-        // Painted inside the head_fg colour band so it tracks the branch
-        // colour (and the per-state foreground override).
         let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
-
-        // Head colour goes through the config-aware style resolver; default
-        // is black-on-green (P10K-classic palette) when no override is
-        // configured. Marker stays hardcoded red — it's a subsegment, not
-        // the segment-level fg, and threading it through config would
-        // conflict with the single per-state fg field. Future slice can
-        // add separate marker control.
+        // Default palette: black-on-green (P10K classic). Marker colour defaults
+        // to red but honours `[segment.vcs].marker_foreground` when set.
         let bg_sgr = style::render_bg(
             ctx.config,
             self.name(),
@@ -180,6 +93,7 @@ impl Segment for Vcs {
             Some(state),
             Color::Named("black".into()),
         );
+        let marker_fg = resolve_marker_fg(ctx.config, self.name());
         let text = paint_alarm_spans(
             &bg_sgr,
             &head_fg,
@@ -187,9 +101,8 @@ impl Segment for Vcs {
             &plain,
             dirty_marker_offset,
             action_marker,
+            &marker_fg,
         );
-
-        // plain_len accounts for the icon glyph (1 display cell) + 1 space.
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
             .saturating_add(2);
@@ -202,6 +115,83 @@ impl Segment for Vcs {
             background: Some(Color::Named("green".into())),
         }
     }
+}
+
+/// Build the display-width plain-text string for the vcs segment.
+///
+/// Returns `(plain, dirty_marker_offset, action_marker)` where:
+/// - `plain` is the fully assembled display string (branch/SHA, tag, counts).
+/// - `dirty_marker_offset` is the byte offset of the `*` glyph when present.
+/// - `action_marker` is `Some((start, end))` byte span of the action label.
+///
+/// Extracted from `Vcs::render` to keep that function under the 100-line limit.
+fn build_plain_text(
+    git: &p10k_rs_core::GitState,
+    sub_sep: &str,
+    any_change_counts: bool,
+) -> (String, Option<usize>, Option<(usize, usize)>) {
+    use std::fmt::Write as _;
+    let show_dirty_marker = git.dirty && !any_change_counts;
+
+    // Detached-HEAD: branch == "HEAD" (or empty) with a non-empty commit OID.
+    let branch_label = git.branch.as_str();
+    let commit_label = git.commit.as_str();
+    let detached = (branch_label == "HEAD" || branch_label.is_empty()) && !commit_label.is_empty();
+    let sha_prefix = if detached {
+        commit_label
+            .chars()
+            .take(SHA_PREFIX_LEN)
+            .collect::<String>()
+    } else {
+        String::new()
+    };
+
+    let mut plain = String::with_capacity(git.branch.len() + git.tag.len() + 32);
+    if detached {
+        plain.push_str(DETACHED_HEAD_GLYPH);
+        plain.push_str(&sha_prefix);
+    } else {
+        plain.push_str(branch_label);
+    }
+    // Tag: ` @ <tag>` when HEAD points at a named tag (daemon field 18).
+    if !git.tag.as_str().is_empty() {
+        let _ = write!(plain, "{sub_sep}@ {}", git.tag.as_str());
+    }
+    if git.ahead > 0 {
+        let _ = write!(plain, "{sub_sep}\u{21e1}{}", git.ahead);
+    }
+    if git.behind > 0 {
+        let _ = write!(plain, "{sub_sep}\u{21e3}{}", git.behind);
+    }
+    // Track byte offset of the alarm-coloured `*` for paint_alarm_spans.
+    let dirty_marker_offset = if show_dirty_marker {
+        plain.push_str(sub_sep);
+        let off = plain.len();
+        plain.push('*');
+        Some(off)
+    } else {
+        None
+    };
+    let action_marker = append_index_indicators(&mut plain, sub_sep, git);
+    (plain, dirty_marker_offset, action_marker)
+}
+
+/// Resolve the SGR escape for vcs marker glyphs (`* ! + ~ ? ≡`).
+///
+/// Returns the `[segment.vcs].marker_foreground` value rendered through
+/// [`style::sgr_fg`] when set; falls back to the historical hardcoded red
+/// (`\x1b[31m`) when absent so existing users see no change.
+fn resolve_marker_fg(
+    config: &p10k_rs_config::Config,
+    segment: &str,
+) -> std::borrow::Cow<'static, str> {
+    config
+        .segments
+        .get(segment)
+        .and_then(|sc| sc.marker_foreground.clone())
+        .map_or(std::borrow::Cow::Borrowed("\x1b[31m"), |c| {
+            style::sgr_fg(&c, config.colors)
+        })
 }
 
 /// Append index-level indicators to `plain`: conflicts `!`, staged `+N`,
@@ -248,8 +238,11 @@ fn append_index_indicators(
     action_marker
 }
 
-/// Splice red SGRs around the dirty `*` and in-progress action label spans
+/// Splice marker SGRs around the dirty `*` and in-progress action label spans
 /// inside `plain`, leaving the rest of the `head_fg` colour band intact.
+///
+/// `marker_fg` is the SGR escape to apply to alarm spans — defaults to red
+/// (`\x1b[31m`) but callers can pass a resolved `marker_foreground` override.
 ///
 /// Extracted from `Vcs::render` to keep that function under clippy's
 /// `too_many_lines` threshold. Both spans are non-overlapping and
@@ -262,8 +255,8 @@ fn paint_alarm_spans(
     plain: &str,
     dirty_marker_offset: Option<usize>,
     action_marker: Option<(usize, usize)>,
+    marker_fg: &str,
 ) -> String {
-    let red = "\x1b[31m";
     let reset_fg = style::reset_fg();
     let reset_bg = style::reset_bg();
     let mut text = format!("{bg_sgr}{head_fg}{icon} ");
@@ -277,7 +270,7 @@ fn paint_alarm_spans(
     let mut cursor = 0;
     for (start, end) in spans {
         text.push_str(&plain[cursor..start]);
-        text.push_str(red);
+        text.push_str(marker_fg);
         text.push_str(&plain[start..end]);
         text.push_str(head_fg);
         cursor = end;
@@ -721,6 +714,60 @@ mod tests {
         assert!(
             out.text.contains("@ v2.0.0"),
             "missing tag after detached SHA: {:?}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn marker_foreground_defaults_to_red() {
+        // Slice 59: absent `marker_foreground` must preserve the historical
+        // `\x1b[31m` (red) so existing users see no change.
+        let (cfg, env) = (Config::default(), EnvSnapshot::default());
+        let g = GitState {
+            branch: "main".into(),
+            dirty: true,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(
+            out.text.contains("\x1b[31m"),
+            "default marker colour must be red (\\x1b[31m): {:?}",
+            out.text
+        );
+        assert!(out.text.contains('*'), "dirty marker must be present");
+    }
+
+    #[test]
+    fn marker_foreground_override_replaces_red() {
+        // Slice 59: `[segment.vcs].marker_foreground = "blue"` must paint
+        // the dirty `*` and action labels blue instead of red. The blue
+        // SGR must appear in the output and the default red must not.
+        let cfg = p10k_rs_core::Config::from_toml(
+            "schema_version = 1\n\
+             [segment.vcs]\n\
+             marker_foreground = \"blue\"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let g = GitState {
+            branch: "feat/x".into(),
+            dirty: true,
+            ..Default::default()
+        };
+        let ctx = ctx_with_git(&cfg, &env, Path::new("/"), Some(&g));
+        let out = Vcs.render(&ctx);
+        assert!(out.text.contains('*'), "dirty marker must be present");
+        // Ansi256 blue is `\x1b[38;5;4m`; that's the default ColorMode.
+        assert!(
+            out.text.contains("\x1b[38;5;4m"),
+            "marker must use blue SGR (\\x1b[38;5;4m): {:?}",
+            out.text
+        );
+        // The hardcoded red must not appear — it was replaced by blue.
+        assert!(
+            !out.text.contains("\x1b[31m"),
+            "hardcoded red must not appear when marker_foreground overrides it: {:?}",
             out.text
         );
     }

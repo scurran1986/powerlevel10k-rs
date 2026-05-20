@@ -321,6 +321,25 @@ pub struct SegmentConfig {
     pub show_in_dir: Option<Vec<Glob>>,
     /// Disable the segment when the cwd matches this glob.
     pub disabled_dir_pattern: Option<Glob>,
+    /// Optional foreground color for status markers (`* ! + ~ ? ≡`).
+    ///
+    /// When set, this colour is used for the vcs segment's dirty/alarm
+    /// markers instead of the default hardcoded red. Other segments
+    /// accept the field (the schema is shared) but ignore it.
+    ///
+    /// Absent (the default) preserves the historical red behaviour so
+    /// existing users see no change. When present, the value is emitted
+    /// via the existing `style::sgr_fg` path so colour-mode degradation
+    /// (`Ansi8`, `Ansi256`, `TrueColor`, `FollowTerminal`) applies
+    /// exactly as it does for [`Self::foreground`].
+    ///
+    /// # Example
+    ///
+    /// ```toml
+    /// [segment.vcs]
+    /// marker_foreground = "blue"
+    /// ```
+    pub marker_foreground: Option<Color>,
     /// Per-state overrides, keyed by segment-defined state tag
     /// (e.g. `"error"`, `"writable"`).
     pub states: HashMap<String, StateOverrides>,
