@@ -79,6 +79,14 @@ enum Command {
         /// time (an approximation — see the init script comment).
         #[arg(long, default_value = "")]
         upcoming_command: String,
+        /// Path the previous prompt was rendered at. The zsh init
+        /// script captures this at the prior `precmd` and forwards it
+        /// at `zle-line-finish` time so the binary can decide whether
+        /// to collapse for the `same-dir` / `unique-dir` transient
+        /// modes. Unset for `off` / `always` modes — they never need
+        /// it. Only consulted when `--render-side transient`.
+        #[arg(long)]
+        last_prompt_cwd: Option<PathBuf>,
     },
     /// Print the per-shell init script. `eval` / `source` from your rc file.
     Init {
@@ -154,6 +162,7 @@ fn main() -> Result<()> {
             json,
             render_side,
             upcoming_command,
+            last_prompt_cwd,
         } => {
             tracing::debug!(
                 shell,
@@ -163,6 +172,7 @@ fn main() -> Result<()> {
                 json,
                 render_side,
                 upcoming_command,
+                ?last_prompt_cwd,
                 "prompt invoked"
             );
             if json {
@@ -176,6 +186,7 @@ fn main() -> Result<()> {
                 dump.as_deref(),
                 side,
                 &upcoming_command,
+                last_prompt_cwd.as_deref(),
             )
         }
         Command::Init { shell } => {
@@ -307,6 +318,167 @@ fn parse_render_side(s: &str) -> Result<RenderSide> {
     }
 }
 
+/// Decision returned by [`decide_transient`] — what the zsh init
+/// script should do with the binary's transient render result.
+///
+/// The wire protocol the shell consumes:
+///
+/// - [`TransientDecision::Emit`] (exit 0, stdout = the value): zsh
+///   assigns `PROMPT=<stdout>` and calls `zle reset-prompt`. The string
+///   may be empty (the `off` mode case) — that matches the historical
+///   transient behaviour where `PROMPT=""` collapses the line.
+/// - [`TransientDecision::KeepPrompt`] (exit 2, stdout empty): zsh
+///   leaves `PROMPT` untouched so the full ribbon stays in scrollback.
+///   New in T1.8 — only `SameDir` / `UniqueDir` reach this case when
+///   the cwd-compare fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TransientDecision {
+    /// Print this string and exit 0. Empty string is valid (`off` mode).
+    Emit(String),
+    /// Print nothing and exit 2 so the shell skips the `PROMPT` swap.
+    KeepPrompt,
+}
+
+/// Code returned for [`TransientDecision::KeepPrompt`]. Exit 1 is
+/// already overloaded for any [`anyhow`] error path; 2 is unused and
+/// makes the "this is a deliberate policy signal" reading unambiguous
+/// to anyone reading the zsh init script.
+const TRANSIENT_KEEP_PROMPT_EXIT_CODE: i32 = 2;
+
+/// Decide what to emit (and how to exit) for `--render-side transient`,
+/// gated on the user's [`p10k_rs_config::TransientPromptMode`].
+///
+/// Pure: takes the mode, the current cwd, the previous prompt's cwd
+/// (`None` when the shell didn't pass `--last-prompt-cwd`, e.g. the
+/// first prompt of a session), and the renderer's already-computed
+/// transient string. Returns the wire decision; the caller writes it
+/// to stdout and exits.
+///
+/// The mode semantics:
+///
+/// - `Off`: never collapse. Emit empty (matches pre-T1.8 behaviour
+///   byte-for-byte).
+/// - `Always`: always collapse. Emit the rendered string.
+/// - `SameDir`: collapse only when this prompt's cwd matches the
+///   previous prompt's cwd. On mismatch (or unknown previous cwd),
+///   keep the full prompt.
+/// - `UniqueDir`: aliased to `SameDir` for now. The "collapse all but
+///   the most recent prompt at each unique directory" semantic needs
+///   cross-prompt history tracking that lands in a follow-up slice.
+///   Today the variant is preserved in the schema so users can opt
+///   into it without a breaking-config rename when the real semantic
+///   ships.
+fn decide_transient(
+    mode: p10k_rs_config::TransientPromptMode,
+    cwd: &std::path::Path,
+    last_prompt_cwd: Option<&std::path::Path>,
+    transient_render: Option<&str>,
+) -> TransientDecision {
+    use p10k_rs_config::TransientPromptMode as Mode;
+    let collapsed = transient_render.unwrap_or("");
+    match mode {
+        Mode::Off => TransientDecision::Emit(String::new()),
+        Mode::Always => TransientDecision::Emit(collapsed.to_owned()),
+        Mode::SameDir | Mode::UniqueDir => match last_prompt_cwd {
+            Some(prev) if prev == cwd => TransientDecision::Emit(collapsed.to_owned()),
+            _ => TransientDecision::KeepPrompt,
+        },
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod transient_decision_tests {
+    use super::{decide_transient, TransientDecision};
+    use p10k_rs_config::TransientPromptMode as Mode;
+    use std::path::PathBuf;
+
+    fn cwd() -> PathBuf {
+        PathBuf::from("/home/u/work")
+    }
+
+    #[test]
+    fn off_emits_empty_regardless_of_render() {
+        // Byte-identical to pre-T1.8 behaviour: Off ignores the render
+        // result and emits "", which the shell assigns as PROMPT="".
+        let d = decide_transient(Mode::Off, &cwd(), None, Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::Emit(String::new()));
+    }
+
+    #[test]
+    fn off_emits_empty_even_with_matching_prev_cwd() {
+        // `--last-prompt-cwd` must NOT influence Off — the mode is the
+        // policy source of truth.
+        let prev = cwd();
+        let d = decide_transient(Mode::Off, &cwd(), Some(&prev), Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::Emit(String::new()));
+    }
+
+    #[test]
+    fn always_emits_render_ignoring_prev_cwd() {
+        // Always doesn't consult `--last-prompt-cwd` (the shell can
+        // skip the flag entirely; the binary must not require it).
+        let d = decide_transient(Mode::Always, &cwd(), None, Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
+    }
+
+    #[test]
+    fn always_emits_empty_when_render_is_none() {
+        // Defensive: if the layout has no `prompt_char`, the renderer
+        // emits no transient. Always-mode still exits 0 with empty
+        // stdout — the shell collapses to PROMPT="".
+        let d = decide_transient(Mode::Always, &cwd(), None, None);
+        assert_eq!(d, TransientDecision::Emit(String::new()));
+    }
+
+    #[test]
+    fn same_dir_emits_when_cwds_match() {
+        let prev = cwd();
+        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
+    }
+
+    #[test]
+    fn same_dir_keeps_prompt_when_cwds_differ() {
+        let prev = PathBuf::from("/elsewhere");
+        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::KeepPrompt);
+    }
+
+    #[test]
+    fn same_dir_keeps_prompt_on_first_prompt_of_session() {
+        // First precmd of the session — the shell hasn't seeded
+        // `_P10K_RS_PREV_PROMPT_CWD` yet so it skips the flag, the
+        // binary sees None. KeepPrompt is the conservative call —
+        // we can't prove this is a "same-dir streak" yet.
+        let d = decide_transient(Mode::SameDir, &cwd(), None, Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::KeepPrompt);
+    }
+
+    #[test]
+    fn unique_dir_aliases_to_same_dir_today() {
+        // UniqueDir's history-aware semantic isn't implemented yet —
+        // it acts as SameDir. Pin this so the alias is visible in
+        // tests; the follow-up slice will replace these assertions
+        // with the real "collapse all but most-recent at each dir"
+        // behaviour.
+        let prev_same = cwd();
+        let prev_diff = PathBuf::from("/elsewhere");
+        assert_eq!(
+            decide_transient(Mode::UniqueDir, &cwd(), Some(&prev_same), Some("\u{276F}")),
+            TransientDecision::Emit("\u{276F}".to_owned())
+        );
+        assert_eq!(
+            decide_transient(Mode::UniqueDir, &cwd(), Some(&prev_diff), Some("\u{276F}")),
+            TransientDecision::KeepPrompt
+        );
+        assert_eq!(
+            decide_transient(Mode::UniqueDir, &cwd(), None, Some("\u{276F}")),
+            TransientDecision::KeepPrompt
+        );
+    }
+}
+
 /// Render the prompt: discover the user's TOML config, fall back to a
 /// hardcoded factory default if anything goes wrong.
 fn cmd_prompt(
@@ -316,6 +488,7 @@ fn cmd_prompt(
     dump: Option<&std::path::Path>,
     side: RenderSide,
     upcoming_command: &str,
+    last_prompt_cwd: Option<&std::path::Path>,
 ) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
@@ -384,25 +557,28 @@ fn cmd_prompt(
     // The init script appends formatting (single space for PROMPT, raw
     // assignment for RPROMPT) at the call site.
     //
-    // For `--render-side transient`: the rendered string from
-    // `render_prompt` is always present (the core renderer no longer
-    // gates on `transient_prompt` — that's a binary-level policy
-    // decision). When `transient_prompt = off` we suppress the output
-    // here so the zle widget's unconditional PROMPT swap collapses to
-    // a no-op assignment.
-    let transient_fallback = String::new();
-    let rendered = match side {
-        RenderSide::Left => &prompt.left,
-        RenderSide::Right => &prompt.right,
+    // For `--render-side transient`: gate the bytes (and the exit code)
+    // on the user's [`p10k_rs_config::TransientPromptMode`] via [`decide_transient`].
+    // `KeepPrompt` is the new T1.8 path — `SameDir` / `UniqueDir` with
+    // a cwd-mismatch returns exit 2 so the zsh widget skips its PROMPT
+    // swap and the full ribbon stays in scrollback.
+    match side {
+        RenderSide::Left => print!("{}", prompt.left),
+        RenderSide::Right => print!("{}", prompt.right),
         RenderSide::Transient => {
-            if cfg.transient_prompt == p10k_rs_config::TransientPromptMode::Off {
-                &transient_fallback
-            } else {
-                prompt.transient.as_ref().unwrap_or(&transient_fallback)
+            match decide_transient(
+                cfg.transient_prompt,
+                cwd.as_path(),
+                last_prompt_cwd,
+                prompt.transient.as_deref(),
+            ) {
+                TransientDecision::Emit(s) => print!("{s}"),
+                TransientDecision::KeepPrompt => {
+                    std::process::exit(TRANSIENT_KEEP_PROMPT_EXIT_CODE);
+                }
             }
         }
-    };
-    print!("{rendered}");
+    }
 
     // Dump the rendered prompt to disk for the instant-prompt path. Only
     // the left side is cached today — the instant-prompt path exists to

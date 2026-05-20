@@ -308,6 +308,16 @@ _p10k_rs_precmd() {
   mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs" 2>/dev/null
   PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" --dump "$_p10k_rs_dump" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log") "
   RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log")"
+  # T1.8 — shift the cwd-history slots forward. `_P10K_RS_PREV_PROMPT_CWD`
+  # is the cwd where the prompt-above-the-current one was rendered;
+  # `_P10K_RS_CURR_PROMPT_CWD` is the cwd of the prompt we just emitted.
+  # `zle-line-finish` reads the *prev* slot to decide whether to collapse:
+  # at line-finish time $PWD still equals CURR (the command hasn't run
+  # yet), so the meaningful comparison is "was the prompt before this one
+  # also at $PWD?" Empty on first precmd of a session — the widget skips
+  # the flag in that case, so SameDir/UniqueDir naturally KeepPrompt.
+  _P10K_RS_PREV_PROMPT_CWD="$_P10K_RS_CURR_PROMPT_CWD"
+  _P10K_RS_CURR_PROMPT_CWD="$PWD"
   return $rs
 }
 
@@ -316,15 +326,42 @@ add-zsh-hook precmd _p10k_rs_precmd
 add-zsh-hook zshexit _p10k_rs_stop_daemon
 
 # Transient prompt widget. Runs once per accepted line, just before
-# the command is dispatched: we ask the binary for the collapsed
-# PROMPT, assign it, and call `zle reset-prompt` so the user's
-# scrollback gets the minimal form. When `transient_prompt = off`,
-# the binary prints nothing — PROMPT becomes empty, the redraw is a
-# no-op, and the next precmd refills PROMPT with the full ribbon. No
-# `RPROMPT` swap: the right prompt naturally clears on redraw.
+# the command is dispatched: ask the binary for the collapsed PROMPT,
+# assign it, and call `zle reset-prompt` so the user's scrollback gets
+# the minimal form.
+#
+# Wire protocol (T1.8):
+#   exit 0, empty stdout       → mode=off; assign PROMPT="" (preserves
+#                                pre-T1.8 byte-level behaviour)
+#   exit 0, non-empty stdout   → mode=always / same-dir match;
+#                                assign PROMPT=<stdout>
+#   exit 2 (any stdout)        → mode=same-dir or unique-dir mismatch;
+#                                leave PROMPT alone so the full ribbon
+#                                stays in scrollback
+#
+# `--last-prompt-cwd` carries the cwd of the prompt *before* the one
+# being collapsed (see `_P10K_RS_PREV_PROMPT_CWD` in `_p10k_rs_precmd`).
+# Skipped when empty (first prompt of a session, or transient_prompt is
+# off/always and doesn't need it) — the binary then treats that as an
+# unknown previous cwd and the SameDir/UniqueDir branches naturally
+# fall to KeepPrompt.
 _p10k_rs_zle_line_finish() {
-  local transient
-  transient="$("$_P10K_RS_BIN" prompt --shell zsh --render-side transient 2>/dev/null)"
+  local transient rc
+  local -a args
+  args=( prompt --shell zsh --render-side transient )
+  if [[ -n "$_P10K_RS_PREV_PROMPT_CWD" ]]; then
+    args+=( --last-prompt-cwd "$_P10K_RS_PREV_PROMPT_CWD" )
+  fi
+  transient="$("$_P10K_RS_BIN" "${args[@]}" 2>/dev/null)"
+  rc=$?
+  # rc == 2 is the policy signal "keep the full PROMPT in scrollback"
+  # for same-dir / unique-dir modes whose cwd-compare failed. Any other
+  # non-zero exit (binary missing, panic, etc.) is also treated as
+  # KeepPrompt — silently degrading to "no transient" beats blanking
+  # the user's prompt over a transient binary fault.
+  if (( rc != 0 )); then
+    return 0
+  fi
   PROMPT="$transient"
   # T1.1 — clear RPROMPT before redraw. Without this the right-side
   # ribbon lingers in the scrollback next to the collapsed transient

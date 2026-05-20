@@ -611,10 +611,11 @@ fn append_ribbon(
 ///
 /// The transient render walks no segments other than `prompt_char`,
 /// emits no frame, ruler, segments, or trailing newline — one line of
-/// `<fg>❯</fg>`. `TransientPromptMode::Quiet`,
-/// `TransientPromptMode::SameDir`, and `TransientPromptMode::UniqueDir`
-/// are presently indistinguishable at the render layer; a future slice
-/// can branch on the mode without a schema change.
+/// `<fg>❯</fg>`. The mode-driven decision ("emit this string vs. leave
+/// the full PROMPT alone") lives in the binary; this renderer always
+/// produces the collapsed bytes regardless of which mode the user has
+/// set. See `decide_transient` in `crates/p10k-rs/src/main.rs` for the
+/// wire-protocol semantics consumed by the zsh init script.
 ///
 /// The result is wrapped for the target shell so its SGRs survive
 /// zsh's prompt-width tracker exactly like `left`/`right`. When the

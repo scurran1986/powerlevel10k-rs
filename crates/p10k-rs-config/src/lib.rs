@@ -520,17 +520,41 @@ pub enum InstantPromptMode {
 }
 
 /// Transient-prompt behaviour mode.
+///
+/// Drives the zsh `zle-line-finish` widget's collapse decision via the
+/// binary's `--render-side transient` exit code (T1.8). The four modes:
+///
+/// - [`Self::Off`] — never collapse. The binary emits an empty string
+///   and exits 0; the shell assigns `PROMPT=""` and falls through to
+///   the next precmd's full render. Preserves the pre-T1.8 byte-level
+///   behaviour.
+/// - [`Self::Always`] — collapse every accepted prompt. The binary
+///   emits the rendered `❯` and exits 0; the shell swaps `PROMPT`.
+/// - [`Self::SameDir`] — collapse only when this prompt's cwd matches
+///   the previous prompt's cwd. The zsh init forwards the previous
+///   cwd via `--last-prompt-cwd`; on mismatch the binary exits 2 and
+///   the shell leaves the full ribbon intact in scrollback.
+/// - [`Self::UniqueDir`] — same wire behaviour as [`Self::SameDir`]
+///   today. The intended "collapse all but the most recent prompt at
+///   each unique directory" semantic needs cross-prompt history state
+///   that has not yet landed. The variant is preserved in the schema
+///   so users can opt into it now without a breaking-config rename
+///   when the real semantic ships.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransientPromptMode {
-    /// Disable transient prompt.
+    /// Disable transient prompt. Empty stdout, exit 0.
     #[default]
     Off,
-    /// Always collapse past prompts.
+    /// Always collapse past prompts. Renders `❯`, exit 0.
     Always,
-    /// Collapse only when the next prompt is in the same directory.
+    /// Collapse only when this prompt's cwd matches the previous
+    /// prompt's cwd. Renders `❯` + exit 0 on match; exit 2 (skip the
+    /// `PROMPT` swap) on mismatch.
     SameDir,
-    /// Collapse only when the next prompt is in a unique directory.
+    /// Reserved for "collapse all but the most recent prompt at each
+    /// unique directory." Currently aliased to [`Self::SameDir`] —
+    /// the history-aware semantic lands in a follow-up slice.
     UniqueDir,
 }
 
