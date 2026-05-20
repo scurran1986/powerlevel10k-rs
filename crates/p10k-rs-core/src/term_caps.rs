@@ -476,6 +476,17 @@ mod tests {
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
+    /// Serialises tests that mutate process-global env vars consumed by
+    /// `cache_path()` / `session_id()` / `probe_truecolor()` —
+    /// specifically `XDG_RUNTIME_DIR`, `P10K_RS_SESSION_ID`,
+    /// `TERM_SESSION_ID`, `COLORTERM`, and `TERM`. `cargo test` runs
+    /// tests on a thread-pool; without this guard one test can clobber
+    /// `XDG_RUNTIME_DIR` or `P10K_RS_SESSION_ID` in the window between
+    /// another test's `set_var` and the `write_cache` / `metadata` it
+    /// depends on. Poison is ignored so a panicked test doesn't silently
+    /// skip the rest.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn guard_emits_bsu_immediately_and_esu_on_finish() {
         // Construction writes BSU into the caller's buffer; `finish`
@@ -646,6 +657,9 @@ mod tests {
 
     #[test]
     fn write_cache_uses_0600_perms_on_unix() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Pin the load-bearing on-disk permissions for the cache file:
         // shared `/tmp/p10k-rs/` is the fallback location, and any
         // other user on the box must NOT be able to read or modify the
@@ -692,6 +706,9 @@ mod tests {
 
     #[test]
     fn session_id_uses_p10k_env_first() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Priority of session keys is part of the cache contract — a
         // change here invalidates every running session's cache, so
         // pin the order in a test.
@@ -713,6 +730,9 @@ mod tests {
 
     #[test]
     fn session_id_sanitises_path_separators() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // A malicious / typo'd session id with `/` or `..` must not
         // escape the cache directory.
         let prev = std::env::var_os("P10K_RS_SESSION_ID");
@@ -730,6 +750,9 @@ mod tests {
 
     #[test]
     fn probe_truecolor_honours_colorterm() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var_os("COLORTERM");
         std::env::set_var("COLORTERM", "truecolor");
         let yes = probe_truecolor();
