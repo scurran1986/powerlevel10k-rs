@@ -1012,17 +1012,27 @@ left = ["dir"]
         }
     }
 
+    /// Serialises the two tests that mutate the process-global
+    /// `P10K_RS_CONFIG` env var. `cargo test` runs tests in parallel
+    /// on a thread-pool, and `std::env::set_var` is process-global, so
+    /// without this guard the parse-error test can win the env in the
+    /// window between the missing-file test's `set_var` and `load_default`
+    /// — flipping the missing-test's `Io` expectation into a `Parse` failure.
+    /// Poison is ignored: a panic in one test must not silently skip the
+    /// other.
+    static P10K_RS_CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn load_default_falls_back_when_missing() {
+        let _guard = P10K_RS_CONFIG_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Point env at a path that doesn't exist; loader must return an
         // Io error (binary translates that to "use factory default").
         let missing = std::env::temp_dir()
             .join(format!("p10krs-load-missing-{}", unique_suffix()))
             .join("definitely-not-here.toml");
         let prev = std::env::var_os("P10K_RS_CONFIG");
-        // This test is intentionally serial-friendly; the only other test
-        // here that touches P10K_RS_CONFIG is `load_default_falls_back_on_parse_error`,
-        // and both restore the var on exit.
         std::env::set_var("P10K_RS_CONFIG", &missing);
         let result = Config::load_default();
         restore_env("P10K_RS_CONFIG", prev);
@@ -1036,6 +1046,9 @@ left = ["dir"]
 
     #[test]
     fn load_default_falls_back_on_parse_error() {
+        let _guard = P10K_RS_CONFIG_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Write a garbage file, point env at it, expect Parse error.
         let path =
             std::env::temp_dir().join(format!("p10krs-load-garbage-{}.toml", unique_suffix()));

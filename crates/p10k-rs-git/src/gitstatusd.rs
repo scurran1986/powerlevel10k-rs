@@ -799,6 +799,15 @@ mod tests {
 
     // ---------- security regression tests (slice E) ----------
 
+    /// Serialises tests that mutate process-global state — specifically
+    /// the `PATH` / `P10K_RS_GITSTATUSD_BIN` env vars and the FIFO tests
+    /// that shell out to `mkfifo`. `cargo test` runs tests in parallel
+    /// on a thread-pool, and `locate_binary_checked_returns_not_found_for_empty_env`
+    /// sets `PATH=""` mid-test — a concurrent FIFO test then fails to
+    /// resolve the `mkfifo` binary with `ENOENT`. Poison is ignored: a
+    /// panic in one test must not silently skip the others.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Build a unique scratch dir under `$TMPDIR` for filesystem tests.
     /// We hand-roll instead of pulling `tempfile` back in (removed in
     /// slice 9 per workspace dep policy).
@@ -833,6 +842,9 @@ mod tests {
 
     #[test]
     fn open_fifo_safely_accepts_real_fifo_owned_by_us() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = scratch_dir("fifo-accept");
         let p = dir.join("req");
         mkfifo(&p);
@@ -856,6 +868,9 @@ mod tests {
 
     #[test]
     fn open_fifo_safely_rejects_symlink_to_fifo() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Defence against the TOCTOU swap: even if the path is a symlink
         // to a real FIFO, O_NOFOLLOW on open should fail.
         let dir = scratch_dir("fifo-reject-symlink");
@@ -970,6 +985,9 @@ mod tests {
 
     #[test]
     fn locate_binary_checked_returns_not_found_for_empty_env() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Point P10K_RS_GITSTATUSD_BIN at a non-existent path AND empty
         // PATH so no candidate matches. Must return NotFound, not
         // Unsafe.
@@ -998,6 +1016,9 @@ mod tests {
 
     #[test]
     fn locate_binary_checked_via_env_accepts_user_owned() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // End-to-end: drop a fixture, point the env at it, locate must
         // return its path through the user-owned gate.
         let dir = scratch_dir("locate-env-accept");
