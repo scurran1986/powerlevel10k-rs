@@ -8,14 +8,18 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Post-v0.1.3 slice ledger. Closes 4 of the 5 v0.2-deferred items
-from the sprint memo (T1.8, T1.10, T1.11, T1.24) plus two
-ROADMAP suggested-next slices (58, 63) and an mdBook docs audit.
-Only **T0.5** (sha256-pin gitstatusd at install) remains
-deferred. Staged for v0.1.4 — draft notes at
+Post-v0.1.3 slice ledger. Ships 4 of 5 sprint-memo v0.2-deferred
+items as code (T1.8, T1.10, T1.11, T1.24) plus two ROADMAP
+suggested-next slices (58, 63), the slice 61 follow-up (AI
+statusline render now wired), and an mdBook docs audit. The
+remaining T0.5 (gitstatusd sha256-pin) and slice 60 (gix-status
+correctness fallback) ship as **design docs** in
+`~/.planning/powerlevel10k-rs/research/` — implementation
+deferred to v0.1.5 per the "needs its own release" / "needs new
+dep tree" framings. Staged for v0.1.4 — draft notes at
 `.github/release-notes/v0.1.4.md`.
 
-Test count: **517 passing**, 3 ignored (up from 368 at v0.1.3).
+Test count: **527 passing**, 3 ignored (up from 368 at v0.1.3).
 
 ### Render-layer Unicode safety (T1.10, T1.11)
 
@@ -74,6 +78,28 @@ Test count: **517 passing**, 3 ignored (up from 368 at v0.1.3).
   Option<u32>`. Both opt-in. Render path remains a stub —
   `render_statusline()` returns empty until the per-host
   metadata story lands.
+
+### AI statusline render wired (slice 61 follow-up)
+
+- `b5862dd` `feat(ai)`: `render_statusline()` is no longer a
+  stub. Implements the Claude Code statusline contract documented
+  at `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`:
+  reads JSON on stdin, prints a single line on stdout. Three
+  render shapes — full (`<model> | <pct>% / <ctxk>k | <cwd>`),
+  budget-known-but-no-usage-yet (`<model> | -- / <ctxk>k | <cwd>`),
+  and minimal (`<model> | <cwd>`). User `[ai].model` and
+  `[ai].context_tokens` overrides win over the host JSON. Hosts
+  other than `ClaudeCode` return empty (their protocols aren't
+  yet documented). New `pub fn parse_host_kind(s: &str) -> HostKind`
+  routes the `--host` CLI flag. The binary's `Statusline`
+  subcommand now actually does something — previously it bailed
+  with "AI integration phase." End-to-end smoke verified:
+  `echo '<JSON>' | p10k-rs statusline --host claude-code` →
+  `"Opus 4.7 | 18% / 200k | work"`.
+  Closes STATE.md gotcha #12. 10 new tests on the parse / render
+  matrix. New deps in `p10k-rs-ai`: `serde`, `serde_json`,
+  `p10k-rs-config` — all already in `[workspace.dependencies]`,
+  no workspace-level change.
 
 ### Prompt-loop refinements (slice 58, slice 63)
 

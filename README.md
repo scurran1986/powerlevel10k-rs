@@ -56,7 +56,7 @@ release builds on every tag push (Linux x86_64/aarch64 GNU, macOS
 x86_64/aarch64). Full slice ledger in `CHANGELOG.md` — the headline
 features are listed below under "What works today".
 
-**517 tests pass workspace-wide** (3 ignored). Builds clean on
+**527 tests pass workspace-wide** (3 ignored). Builds clean on
 stable Rust 1.88 across all five gates (`build`, `test`,
 `clippy -D warnings`, `fmt --check`, `doc -D warnings`) plus
 `cargo deny check` and `cargo machete`.
