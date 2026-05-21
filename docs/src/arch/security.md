@@ -25,6 +25,31 @@ can be arbitrary bytes) by lossy-decoding then sanitising. The
 construction path is the only way to get one — there is no
 `SafeText::new_unchecked`.
 
+### Unicode-class hardening (T1.10 / T1.11)
+
+`SafeText::from_untrusted_with_cap` (T1.10) extends the baseline ASCII
+control strip with three additional passes:
+
+- **BiDi / format controls** — strips Unicode general-category `Cf`
+  codepoints (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069, U+FEFF, and
+  the deprecated tag block U+E0000–U+E007F). These are the classes the
+  forward-research threat model flagged as capable of visually inverting
+  or hiding prompt content.
+- **NFC normalisation** — output is in Unicode Canonical Decomposition
+  followed by Canonical Composition so that grapheme rendering is
+  deterministic regardless of source normalisation form.
+- **Grapheme-safe truncation** — length caps applied via
+  `unicode-segmentation` grapheme boundaries, not byte or scalar
+  offsets, so multi-codepoint emoji and combining sequences are never
+  split mid-glyph.
+
+T1.11 extended the `SafeText` chokepoint to ten segment env-var helpers
+(`anaconda`, `aws`, `docker_context`, `fnm`, `kubecontext`, `nodenv`,
+`pixi`, `pyenv`, `terraform`, `virtualenv`). Each now returns
+`Option<SafeText>` instead of `Option<String>`, making "this value is
+sanitised" a type-system invariant at the helper boundary rather than a
+convention.
+
 ## `wrap_for_shell`
 
 The final escape that adapts to each shell's prompt-width-tracking

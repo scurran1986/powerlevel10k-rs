@@ -24,7 +24,7 @@ overrides all reach the rendered prompt.
 | `vi_mode` | Vi keymap indicator: `INSERT` / `NORMAL` / `VISUAL` / `OPER`. _TODO: confirm wire-up in non-zsh shells._ |
 | `root_indicator` | Single red lightning glyph when EUID is 0. |
 | `vcs` | Branch name black-on-green with a trailing dirty marker. Powered by `gitstatusd` on the hot path. |
-| `jj` | Jujutsu sibling to `vcs`. Auto-hidden when not inside a `.jj/` working copy, so safe to keep in the always-on group; users who never run jj pay nothing for it. Renders change-id + bookmarks + a `divergent` flag when set. |
+| `jj` | Jujutsu sibling to `vcs`. Auto-hidden when not inside a `.jj/` working copy, so safe to keep in the always-on group; users who never run jj pay nothing for it. Renders change-id + bookmarks + `divergent` and `conflicts` indicators parsed from `jj log -T` (slice 62). |
 
 ## Auto-detected
 

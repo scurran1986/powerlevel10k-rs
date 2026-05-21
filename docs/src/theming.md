@@ -13,10 +13,15 @@ corner glyphs around the prompt (default `╰─` at the bottom-left of the
 prompt-char line), and `[layout.ruler]` draws a horizontal divider above
 the prompt. Both accept a `glyph` and `foreground` colour. Per-segment
 styling rides on top of that — `[segment.<name>]` carries `foreground`,
-`background`, `icon`, and `padding`, and `[segment.<name>.states.<tag>]`
-overrides those when a segment tags its output with that state (the
-canonical example is `vcs.states.dirty` painting the branch name red
-when the working tree is dirty). Marker / subsegment colours currently
-stay hardcoded because `SegmentConfig` has one foreground per state;
-that limitation is documented in the per-segment styling note in the
-project `CLAUDE.md`.
+`background`, `icon`, `padding`, and `marker_foreground`, and
+`[segment.<name>.states.<tag>]` overrides those when a segment tags its
+output with that state (the canonical example is `vcs.states.dirty`
+painting the branch name red when the working tree is dirty).
+`marker_foreground` (slice 59) paints the `vcs` index markers
+(`* ! + ~ ? ≡`) independently from the branch text:
+
+```toml
+[segment.vcs]
+foreground = "green"
+marker_foreground = "yellow"   # markers use yellow; branch text uses green
+```

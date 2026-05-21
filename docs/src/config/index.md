@@ -33,7 +33,19 @@ foreground = "magenta"
 ```
 
 Colour values: a Powerlevel9k-style name (`"blue"`, `"brightred"`, …),
-an ANSI 256 index (`0`–`255`), or an `[r, g, b]` triple for truecolor.
+an ANSI 256 index (`0`–`255`), an `[r, g, b]` triple for truecolor, or
+a hex literal (`"#rrggbb"` / `"#rgb"` shorthand) that expands per CSS
+convention (`"#f60"` ≡ `"#ff6600"`). Hex literals require `colors =
+"true-color"` to reach the terminal as RGB; on `ansi256` they are
+quantised to the nearest palette entry.
+
+```toml
+# All four forms are equivalent for orange:
+foreground = "orange"           # named
+foreground = 214                # ANSI 256 index
+foreground = [255, 175, 0]      # [r, g, b] triple
+foreground = "#ffaf00"          # hex literal (T1.24)
+```
 
 See the [full schema reference](../reference/schema.md) for every
 recognised field and the [segments catalogue](../segments/index.md) for

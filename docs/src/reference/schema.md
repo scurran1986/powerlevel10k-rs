@@ -70,6 +70,7 @@ silently doing nothing.
 | `disabled` | `bool` | Skip the segment entirely. |
 | `foreground` | `Option<Color>` | Foreground colour. |
 | `background` | `Option<Color>` | Background colour. |
+| `marker_foreground` | `Option<Color>` | Foreground colour for index markers (`* ! + ~ ? ≡`) on the `vcs` segment (slice 59). Paints markers independently from the branch text. Ignored by other segments. |
 | `icon` | `Option<String>` | Override the default icon glyph (sanitised at parse). |
 | `padding` | `Padding` | Whitespace cells on either side. |
 | `truncate` | `DirTruncate` | Cwd truncation policy (only the `dir` segment reads it). |
@@ -105,13 +106,14 @@ component and is meaningfully more expensive on slow filesystems.
 
 ## `Color`
 
-Untagged enum — TOML accepts three shapes:
+Untagged enum — TOML accepts four shapes:
 
 | Shape | Example | Meaning |
 |---|---|---|
 | String | `"blue"`, `"brightred"`, `"wheat4"` | Powerlevel9k-style name (16 P9k-compat names land). |
 | Integer | `33`, `196` | ANSI 256 index (0–255). |
 | Array | `[120, 200, 0]` | Truecolor `[r, g, b]`. |
+| Hex string | `"#ff6600"`, `"#f60"` | Truecolor hex literal (T1.24). Shorthand expands per CSS convention. `#`-prefixed strings that are not valid 3- or 6-digit hex are a parse error. |
 
 ## `InstantPromptMode`
 
@@ -119,8 +121,12 @@ Untagged enum — TOML accepts three shapes:
 
 ## `TransientPromptMode`
 
-`off` (default) &middot; `always` &middot; `same-dir` &middot;
-`unique-dir`.
+| Value | Behaviour |
+|---|---|
+| `off` | Transient prompt disabled. Every prompt stays at full width in scrollback. Default. |
+| `always` | Every accepted command collapses the preceding prompt to a single chevron. |
+| `same-dir` | Collapse only when the next prompt is in the same directory as the previous one. Full ribbon is kept in scrollback when you `cd`. Uses an exit-code-2 wire protocol between the binary and the zsh init (T1.8). |
+| `unique-dir` | Intended to collapse all but the most recent prompt at each unique directory. Currently aliased to `same-dir` — the cross-prompt history needed for true unique-dir semantics is not yet implemented. The variant is in the schema so the config key will not need renaming when the follow-up lands. |
 
 ## `AiConfig` — `[ai]`
 
@@ -129,6 +135,8 @@ Untagged enum — TOML accepts three shapes:
 | `osc7` | `bool` | Emit OSC 7 (current working directory) sequences. |
 | `osc133` | `bool` | Emit OSC 133 (semantic prompt) sequences. |
 | `host` | `HashMap<String, HostConfig>` | Per-host opt-in. Serialised as `[ai.host.<id>]`. |
+| `model` | `Option<String>` | Active model name (schema-only, slice 61). Accepted and stored; the AI statusline render path is still a stub — this field has no visible effect until that ships. |
+| `context_tokens` | `Option<u32>` | Context window size hint in tokens (schema-only, slice 61). Same stub caveat as `model`. |
 
 ## `HostConfig` — `[ai.host.<id>]`
 
