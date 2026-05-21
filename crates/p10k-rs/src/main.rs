@@ -772,6 +772,64 @@ fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
     })
 }
 
+/// Derive the default instant-prompt dump path from the current environment.
+///
+/// Mirrors the zsh init script's `_p10k_rs_dump` assignment so the two
+/// sides stay in sync: a different `$TERM` value produces a different
+/// filename, causing a natural cache miss rather than sourcing a dump
+/// rendered for a terminal with different colour / escape capabilities.
+///
+/// Path shape:
+/// `${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-<user>-<term>.zsh`
+///
+/// `<user>` is `$USER` → `$USERNAME` → `"default"` (matching the shell
+/// fallback). `<term>` is `$TERM` stripped to `[a-zA-Z0-9_-]` characters
+/// only, defaulting to `"dumb"` when `$TERM` is unset or reduces to
+/// empty after sanitisation.
+///
+/// This function is **not** called by the binary at runtime — the dump
+/// path arrives as `--dump <path>` from the shell init script, which
+/// constructs the same filename. The function exists so the derivation
+/// logic has a single Rust anchor that can be unit-tested.
+///
+/// # Example
+///
+/// ```ignore
+/// // With TERM=xterm-256color, USER=alice:
+/// // → ~/.cache/p10k-rs/dump-alice-xterm-256color.zsh
+/// let path = instant_dump_path();
+/// ```
+#[cfg(test)]
+fn instant_dump_path() -> PathBuf {
+    let cache_home = std::env::var_os("XDG_CACHE_HOME").map_or_else(
+        || {
+            std::env::var_os("HOME")
+                .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
+                .join(".cache")
+        },
+        PathBuf::from,
+    );
+
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "default".to_owned());
+
+    let term_raw = std::env::var("TERM").unwrap_or_default();
+    let term_safe: String = term_raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    let term = if term_safe.is_empty() {
+        "dumb".to_owned()
+    } else {
+        term_safe
+    };
+
+    cache_home
+        .join("p10k-rs")
+        .join(format!("dump-{user}-{term}.zsh"))
+}
+
 /// Serialise the rendered PROMPT to a sourceable shell snippet at `path`,
 /// using a temp-file + rename for atomicity (so a half-written dump never
 /// corrupts the next shell's instant prompt).
@@ -1570,6 +1628,169 @@ mod shell_integration_tests {
         let active =
             resolve_shell_integration(ShellIntegrationMode::Auto, &HostKind::None, env_with(&[]));
         assert!(!active);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod instant_dump_path_tests {
+    use super::instant_dump_path;
+
+    /// Serialises tests that mutate process-global env vars consumed by
+    /// `instant_dump_path()` — specifically `XDG_CACHE_HOME`, `USER`,
+    /// `USERNAME`, and `TERM`. Matches the established pattern in
+    /// `p10k-rs-core::term_caps` and `p10k-rs-config`.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_env<F: FnOnce()>(vars: &[(&str, Option<&str>)], f: F) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Save and apply.
+        let saved: Vec<(&str, Option<std::ffi::OsString>)> = vars
+            .iter()
+            .map(|(k, _)| (*k, std::env::var_os(k)))
+            .collect();
+        for (k, v) in vars {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+        f();
+        // Restore.
+        for (k, v) in saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+
+    #[test]
+    fn term_is_included_in_filename() {
+        // Core invariant: $TERM appears in the dump filename so a different
+        // terminal type produces a different path and thus a cache miss.
+        with_env(
+            &[
+                ("XDG_CACHE_HOME", Some("/cache")),
+                ("USER", Some("alice")),
+                ("TERM", Some("xterm-256color")),
+            ],
+            || {
+                let p = instant_dump_path();
+                let name = p.file_name().unwrap().to_str().unwrap();
+                assert!(
+                    name.contains("xterm-256color"),
+                    "filename must embed $TERM; got {name}"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn different_terms_produce_different_paths() {
+        // Two shells with different $TERM must not share a dump file.
+        let path_a = {
+            let mut p = None;
+            with_env(
+                &[
+                    ("XDG_CACHE_HOME", Some("/cache")),
+                    ("USER", Some("bob")),
+                    ("TERM", Some("xterm-256color")),
+                ],
+                || p = Some(instant_dump_path()),
+            );
+            p.unwrap()
+        };
+        let path_b = {
+            let mut p = None;
+            with_env(
+                &[
+                    ("XDG_CACHE_HOME", Some("/cache")),
+                    ("USER", Some("bob")),
+                    ("TERM", Some("tmux-256color")),
+                ],
+                || p = Some(instant_dump_path()),
+            );
+            p.unwrap()
+        };
+        assert_ne!(
+            path_a, path_b,
+            "xterm-256color and tmux-256color must map to different dump files"
+        );
+    }
+
+    #[test]
+    fn hostile_term_is_sanitised() {
+        // A $TERM containing path-traversal bytes must not escape the parent
+        // directory. After sanitisation only [a-zA-Z0-9_-] survive, mirroring
+        // the zsh-side `${TERM//[^a-zA-Z0-9_-]/}`. The dots and slashes from
+        // `../../etc/shadow` are stripped entirely.
+        with_env(
+            &[
+                ("XDG_CACHE_HOME", Some("/cache")),
+                ("USER", Some("carol")),
+                ("TERM", Some("../../etc/shadow")),
+            ],
+            || {
+                let p = instant_dump_path();
+                // The path must not traverse outside its parent directory.
+                // `PathBuf::components` normalises away `..` — so if any
+                // `..` survived the sanitisation the path would resolve
+                // outside `/cache/p10k-rs/`. Assert it stays inside.
+                let parent = p.parent().unwrap();
+                assert_eq!(
+                    parent,
+                    std::path::Path::new("/cache/p10k-rs"),
+                    "sanitised dump must stay inside p10k-rs cache dir; got parent = {parent:?}"
+                );
+                // The filename itself must be a single component (no `/`).
+                let name = p.file_name().unwrap().to_str().unwrap();
+                assert!(
+                    !name.contains('/'),
+                    "sanitised term must not introduce a path separator; got {name}"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn unset_term_falls_back_to_dumb() {
+        // $TERM unset → fall back to the literal "dumb" token so the
+        // filename is always well-formed.
+        with_env(
+            &[
+                ("XDG_CACHE_HOME", Some("/cache")),
+                ("USER", Some("dave")),
+                ("TERM", None),
+            ],
+            || {
+                let p = instant_dump_path();
+                let name = p.file_name().unwrap().to_str().unwrap();
+                assert!(
+                    name.contains("dumb"),
+                    "unset $TERM must produce 'dumb' token in filename; got {name}"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn xdg_cache_home_is_respected() {
+        // The dump dir honours $XDG_CACHE_HOME.
+        with_env(
+            &[
+                ("XDG_CACHE_HOME", Some("/my/custom/cache")),
+                ("USER", Some("eve")),
+                ("TERM", Some("screen")),
+            ],
+            || {
+                let p = instant_dump_path();
+                assert!(
+                    p.starts_with("/my/custom/cache/p10k-rs/"),
+                    "dump path must honour XDG_CACHE_HOME; got {p:?}"
+                );
+            },
+        );
     }
 }
 

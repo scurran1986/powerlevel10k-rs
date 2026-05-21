@@ -56,11 +56,20 @@ typeset -g _P10K_RS_GITSTATUSD_BIN='__P10K_RS_GITSTATUSD_BIN__'
 # rest of init finishes. The real precmd then overwrites PROMPT with a
 # fresh render at the first prompt.
 #
-# Per-user: `${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-<user>.zsh`.
+# Per-user, per-TERM: `${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-<user>-<term>.zsh`.
 # A stale cache shows the previous shell session's last cwd until the
 # first precmd fires — acceptable trade for masking gitstatusd's
 # ~2 s first-call cost on kernel-class repos.
-typeset -g _p10k_rs_dump="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-${USER:-${USERNAME:-default}}.zsh"
+#
+# $TERM is part of the key (slice 63): switching terminals (e.g. xterm-256color
+# → tmux-256color, or a remote host with a different $TERM) produces a
+# different filename, so the old dump is never sourced for the wrong terminal.
+# The sanitisation strips everything that isn't alphanumeric, hyphen, or
+# underscore, matching the Rust-side `instant_dump_path` logic, so a hostile
+# $TERM value can't escape the parent directory.
+typeset -g _p10k_rs_term_safe="${${TERM:-dumb}//[^a-zA-Z0-9_-]/}"
+typeset -g _p10k_rs_dump="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-rs/dump-${USER:-${USERNAME:-default}}-${_p10k_rs_term_safe:-dumb}.zsh"
+unset _p10k_rs_term_safe
 # T1.18 — refuse to source the instant-prompt dump unless it's a regular
 # file, owner-matches this UID, and mode is exactly 0600. The dump is
 # `source`d as code at every shell startup; defends against an attacker

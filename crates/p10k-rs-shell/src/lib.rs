@@ -393,4 +393,26 @@ mod tests {
             .expect("_p10k_rs_preexec must still assign _P10K_RS_UPCOMING_CMD from \\$1");
         let _ = assign; // presence is the assertion
     }
+    // --- Slice 63: instant-prompt $TERM-aware cache key --------------------------
+
+    #[test]
+    fn zsh_dump_path_includes_term() {
+        // Slice 63: the dump filename must embed a $TERM-derived token so
+        // switching terminals (e.g. xterm-256color → tmux-256color) produces
+        // a different path and causes a natural cache miss rather than
+        // sourcing a dump rendered for the wrong terminal capabilities.
+        let zsh = init_script(Shell::Zsh);
+        // The $TERM variable must appear in the dump path assignment. We
+        // check the sanitised-variable form used to build the filename.
+        assert!(
+            zsh.contains("TERM") && zsh.contains("_p10k_rs_term_safe"),
+            "zsh init must embed a sanitised $TERM token in the dump filename"
+        );
+        // The dump path variable must reference the sanitised term token,
+        // not the raw $TERM, to guard against hostile values.
+        assert!(
+            zsh.contains("_p10k_rs_term_safe"),
+            "zsh init must sanitise $TERM before embedding it in the dump path"
+        );
+    }
 }
