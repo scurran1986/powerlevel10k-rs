@@ -203,7 +203,7 @@ fn main() -> Result<()> {
         }
         Command::Statusline { host } => {
             tracing::debug!(host, "statusline invoked");
-            anyhow::bail!("statusline lands with the AI integration phase")
+            cmd_statusline(&host)
         }
         Command::SegmentList => {
             for name in p10k_rs_segments::segment_names() {
@@ -1072,6 +1072,38 @@ fn cmd_configure() -> Result<()> {
     let cfg = p10k_rs_wizard::run().map_err(anyhow::Error::from)?;
     let toml = cfg.to_toml().context("serialise wizard config")?;
     print!("{toml}");
+    Ok(())
+}
+
+/// `p10k-rs statusline --host <name>` — render the per-host statusline.
+///
+/// The host pipes JSON session data on stdin (e.g. Claude Code's
+/// statusline contract — see
+/// `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`).
+/// The binary reads it, loads the user's `[ai]` config block for
+/// optional overrides (`model`, `context_tokens`), and prints the
+/// rendered statusline to stdout with no trailing newline. The host
+/// displays whatever bytes we print.
+///
+/// Crash-safe: a config load failure falls back to factory defaults
+/// (no `[ai]` overrides — pure best-effort render from JSON). Stdin
+/// read failure is the only path that bubbles an error; everything
+/// else degrades gracefully because the host re-invokes us on every
+/// event anyway.
+fn cmd_statusline(host: &str) -> Result<()> {
+    use std::io::Read;
+
+    let host_kind = p10k_rs_ai::parse_host_kind(host);
+    let mut json_in = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut json_in)
+        .context("read statusline JSON from stdin")?;
+    let cfg = Config::load_default().unwrap_or_else(|e| {
+        tracing::warn!("statusline: config load failed: {e}; rendering without [ai] overrides");
+        factory_default_config()
+    });
+    let rendered = p10k_rs_ai::render_statusline(&host_kind, &json_in, &cfg.ai);
+    print!("{rendered}");
     Ok(())
 }
 

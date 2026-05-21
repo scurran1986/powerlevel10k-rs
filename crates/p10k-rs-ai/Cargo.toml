@@ -15,6 +15,9 @@ categories.workspace = true
 
 [dependencies]
 p10k-rs-core = { workspace = true }
+p10k-rs-config = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

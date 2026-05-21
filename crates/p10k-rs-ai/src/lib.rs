@@ -125,19 +125,176 @@ pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
     HostKind::None
 }
 
-/// Render the JSON statusline payload for `host`, given the host's input
-/// JSON on stdin.
+/// Parse a `--host` CLI value into a [`HostKind`].
 ///
-/// Returns an empty string today — the per-host statusline format lands
-/// in the AI integration phase (slice 61). The function exists as a
-/// stable public entry point so the binary's `statusline --host …`
-/// subcommand can route to it once richer per-host metadata is wired.
-/// Returning `""` instead of panicking keeps the public surface
-/// crash-safe: a caller that reaches this from a misrouted CLI invocation
-/// gets no output rather than a process-killing `unimplemented!()`.
+/// Inverse of [`HostKind`]'s `Display` impl: accepts `"none"`,
+/// `"claude-code"`, `"goose"`, `"aider"`, `"cursor"`, and any other
+/// non-empty kebab-case-ish string (folded to lowercase, trimmed),
+/// which becomes [`HostKind::Generic`]. An empty input maps to
+/// [`HostKind::None`] to match the "no host declared" semantic.
+///
+/// Pure, infallible: there are no invalid host names — unknown labels
+/// become [`HostKind::Generic`], which is the catch-all in the schema.
 #[must_use]
-pub fn render_statusline(_host: HostKind, _json_in: &[u8]) -> String {
-    String::new()
+pub fn parse_host_kind(s: &str) -> HostKind {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "" | "none" => HostKind::None,
+        "claude-code" => HostKind::ClaudeCode,
+        "goose" => HostKind::Goose,
+        "aider" => HostKind::Aider,
+        "cursor" => HostKind::Cursor,
+        other => HostKind::Generic(other.to_owned()),
+    }
+}
+
+/// Subset of the Claude Code statusline JSON contract we actually
+/// render. Every field is `Option`-wrapped because the canonical
+/// schema (see
+/// `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`)
+/// documents that most fields may be absent before the first API
+/// response, after `/compact`, or when the model doesn't support the
+/// feature. Unknown fields are silently ignored for
+/// forward-compatibility — `serde_json` defaults to that posture.
+#[derive(Debug, Default, serde::Deserialize)]
+struct ClaudeCodeStatuslineInput {
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    model: Option<ClaudeCodeModel>,
+    #[serde(default)]
+    context_window: Option<ClaudeCodeContextWindow>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct ClaudeCodeModel {
+    #[serde(default)]
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct ClaudeCodeContextWindow {
+    #[serde(default)]
+    context_window_size: Option<u32>,
+    #[serde(default)]
+    used_percentage: Option<f64>,
+}
+
+/// Cap on the visible width of any single text token we paste into the
+/// statusline. Statuslines live in a single terminal row that may be
+/// narrow (split panes, tmux, IDE side-bars), so we cap each field
+/// rather than try to fit a wide model name + cwd into 80 columns.
+///
+/// Applied via [`SafeText::from_untrusted_with_cap`] so the limit is
+/// grapheme-aware and survives non-ASCII model names like
+/// `"Sonnet 4.6 (中文)"`.
+const STATUSLINE_TOKEN_CAP: usize = 32;
+
+/// Render the statusline payload for `host`, given the host's input
+/// JSON on stdin and the user's `[ai]` config block.
+///
+/// Wire contract per host:
+///
+/// - [`HostKind::ClaudeCode`] — parses the Claude Code statusline JSON
+///   schema (see
+///   `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`)
+///   and returns a single-line summary:
+///   `"<model> | <used%> / <ctx-k>k | <cwd-basename>"`. User-supplied
+///   overrides in `[ai].model` and `[ai].context_tokens` win over the
+///   live JSON values so the user can override the host's reported
+///   labels (useful when running a model fine-tune that reports a
+///   different `display_name` than the user thinks of it as).
+/// - Every other [`HostKind`] — returns an empty string. The per-host
+///   protocol for Cursor / Aider / Goose / generic agents is not yet
+///   documented; rendering anything would be a guess. Empty stdout is
+///   the contract for "we don't know what to render," and the host
+///   will just see no statusline.
+///
+/// Crash-safe: malformed JSON returns an empty string rather than
+/// panicking. The host kills the process on every update anyway
+/// (in-flight cancellation per the Claude Code contract), so any
+/// non-trivial error handling beyond "best-effort render or empty" is
+/// wasted code.
+///
+/// [`SafeText`] boundary: `model.display_name` and `cwd` flow from
+/// the host's JSON, which originates from a session that may have an
+/// attacker-controlled `display_name` (a maliciously named local
+/// fine-tune) or `cwd` (a hostile repository path). Both pass through
+/// [`SafeText::from_untrusted_with_cap`] before landing in the output.
+///
+/// [`SafeText`]: p10k_rs_core::safety::SafeText
+/// [`SafeText::from_untrusted_with_cap`]: p10k_rs_core::safety::SafeText::from_untrusted_with_cap
+#[must_use]
+pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
+    match host {
+        HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai),
+        _ => String::new(),
+    }
+}
+
+fn render_claude_code_statusline(json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
+    use p10k_rs_core::safety::SafeText;
+
+    // Malformed JSON → fall back to defaults across the board so the
+    // user still gets *something* useful (the [ai].model override if
+    // set) instead of a panic.
+    let parsed: ClaudeCodeStatuslineInput = serde_json::from_slice(json_in).unwrap_or_default();
+
+    // User override wins. Falls back to host JSON, then to "?".
+    let model_raw = ai
+        .model
+        .as_deref()
+        .or_else(|| {
+            parsed
+                .model
+                .as_ref()
+                .and_then(|m| m.display_name.as_deref())
+        })
+        .unwrap_or("?");
+    let model = SafeText::from_untrusted_with_cap(model_raw, STATUSLINE_TOKEN_CAP);
+
+    let ctx_size = ai.context_tokens.or_else(|| {
+        parsed
+            .context_window
+            .as_ref()
+            .and_then(|c| c.context_window_size)
+    });
+
+    let used_pct = parsed
+        .context_window
+        .as_ref()
+        .and_then(|c| c.used_percentage);
+
+    let cwd_basename_raw = parsed
+        .cwd
+        .as_deref()
+        .and_then(|p| std::path::Path::new(p).file_name())
+        .and_then(|os| os.to_str())
+        .unwrap_or("?");
+    let cwd = SafeText::from_untrusted_with_cap(cwd_basename_raw, STATUSLINE_TOKEN_CAP);
+
+    // Three shapes depending on which fields the host gave us; pick
+    // the most-informative one available without inventing missing
+    // data.
+    match (used_pct, ctx_size) {
+        (Some(pct), Some(size_tokens)) => {
+            // Clamp to 0..=100 because a misbehaving host could emit
+            // outside-range values; format precision `:.0` rounds to
+            // integer percent without an `as u32` cast that would
+            // truncate / lose sign.
+            let pct_clamped = pct.clamp(0.0, 100.0);
+            let ctx_k = size_tokens / 1000;
+            format!("{model} | {pct_clamped:.0}% / {ctx_k}k | {cwd}")
+        }
+        (None, Some(size_tokens)) => {
+            // Pre-first-API-call: no usage yet, but we know the budget.
+            let ctx_k = size_tokens / 1000;
+            format!("{model} | -- / {ctx_k}k | {cwd}")
+        }
+        _ => {
+            // No context-window data at all. Just model + cwd.
+            format!("{model} | {cwd}")
+        }
+    }
 }
 
 /// Emit an OSC 7 sequence reporting `cwd` to the host terminal.
@@ -197,21 +354,209 @@ pub fn osc133_command_end(exit: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        detect_from_env, osc133_command_end, osc133_command_start, osc7_emit, render_statusline,
-        HostKind,
+        detect_from_env, osc133_command_end, osc133_command_start, osc7_emit, parse_host_kind,
+        render_statusline, HostKind,
     };
+    use p10k_rs_config::AiConfig;
     use std::path::Path;
 
+    /// Build an empty `AiConfig` for tests that don't exercise overrides.
+    fn empty_ai_config() -> AiConfig {
+        AiConfig::default()
+    }
+
     #[test]
-    fn render_statusline_stub_returns_empty_without_panicking() {
-        // The function is a public stub for the AI statusline phase. The
-        // contract today is "returns an empty string, never panics" so a
-        // misrouted CLI call (`statusline --host …` before the per-host
-        // payload format is wired) degrades gracefully instead of taking
-        // the process down. Pin the contract.
-        assert_eq!(render_statusline(HostKind::None, b""), "");
-        assert_eq!(render_statusline(HostKind::ClaudeCode, b"{}"), "");
-        assert_eq!(render_statusline(HostKind::Aider, b"\x00\xff"), "");
+    fn render_statusline_non_claude_hosts_return_empty() {
+        // Only `ClaudeCode` has a documented wire protocol; every other
+        // host returns the empty contract until each gets its own spec.
+        let ai = empty_ai_config();
+        assert_eq!(render_statusline(&HostKind::None, b"", &ai), "");
+        assert_eq!(render_statusline(&HostKind::Goose, b"{}", &ai), "");
+        assert_eq!(render_statusline(&HostKind::Aider, b"\x00\xff", &ai), "");
+        assert_eq!(render_statusline(&HostKind::Cursor, b"{}", &ai), "");
+        assert_eq!(
+            render_statusline(&HostKind::Generic("custom".into()), b"{}", &ai),
+            ""
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_crash_safe_on_garbage() {
+        // Malformed JSON, non-UTF-8 bytes — must NOT panic. Returns a
+        // best-effort string built from defaults + any `[ai]` overrides.
+        let ai = empty_ai_config();
+        // Empty bytes: serde_json errors → defaults across the board.
+        let out = render_statusline(&HostKind::ClaudeCode, b"", &ai);
+        assert!(
+            out.contains('?'),
+            "expected fallback '?' tokens, got {out:?}"
+        );
+        // Random binary noise: same path.
+        let out2 = render_statusline(&HostKind::ClaudeCode, b"\xff\xfe\x00garbage", &ai);
+        assert!(
+            !out2.is_empty(),
+            "garbage input should still produce a best-effort line"
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_renders_full_schema() {
+        let ai = empty_ai_config();
+        let json = br#"{
+            "cwd": "/home/u/work/powerlevel10k-rs",
+            "model": { "display_name": "Opus 4.7" },
+            "context_window": {
+                "context_window_size": 200000,
+                "used_percentage": 18.3
+            }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        // Format: `<model> | <pct>% / <ctxk>k | <cwd-basename>`.
+        assert!(out.contains("Opus 4.7"), "model name missing: {out:?}");
+        // 18.3 rounds to 18.
+        assert!(out.contains("18%"), "rounded percentage missing: {out:?}");
+        // 200000 / 1000 = 200.
+        assert!(
+            out.contains("200k"),
+            "context-budget k-form missing: {out:?}"
+        );
+        // Basename only — full path not in output.
+        assert!(
+            out.contains("powerlevel10k-rs"),
+            "cwd basename missing: {out:?}"
+        );
+        assert!(
+            !out.contains("/home/u"),
+            "full cwd leaked into statusline: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_user_model_override_wins() {
+        // `[ai].model` set by the user → must be preferred over the
+        // host's `model.display_name`. Use case: user runs a local
+        // fine-tune that reports a name they don't recognise.
+        let mut ai = empty_ai_config();
+        ai.model = Some("my-fork-of-opus".to_owned());
+        let json = br#"{"model": {"display_name": "Opus 4.7"}}"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        assert!(
+            out.contains("my-fork-of-opus"),
+            "user override missing: {out:?}"
+        );
+        assert!(
+            !out.contains("Opus 4.7"),
+            "user override should replace host display_name: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_user_ctx_size_override_wins() {
+        let mut ai = empty_ai_config();
+        ai.context_tokens = Some(1_000_000);
+        let json = br#"{
+            "context_window": { "context_window_size": 200000, "used_percentage": 5.0 }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        // 1_000_000 / 1000 = 1000. Override beats the 200k from JSON.
+        assert!(out.contains("1000k"), "user ctx override missing: {out:?}");
+        assert!(
+            !out.contains("200k"),
+            "host ctx leaked despite override: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_handles_missing_context_window() {
+        // Pre-first-API-call case: model known, no context-window data.
+        let ai = empty_ai_config();
+        let json = br#"{
+            "cwd": "/tmp/foo",
+            "model": { "display_name": "Sonnet 4.6" }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        // Two-token shape `<model> | <cwd>` (no "% / k").
+        assert!(out.contains("Sonnet 4.6"));
+        assert!(out.contains("foo"));
+        assert!(
+            !out.contains('%'),
+            "no percentage shape allowed without data: {out:?}"
+        );
+        assert!(
+            !out.contains('k'),
+            "no k-form shape allowed without data: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_statusline_claude_code_handles_pre_first_api_call() {
+        // We know the budget but used_percentage hasn't populated yet.
+        // Should render `<model> | -- / <ctxk>k | <cwd>`.
+        let ai = empty_ai_config();
+        let json = br#"{
+            "cwd": "/tmp/foo",
+            "model": { "display_name": "Opus 4.7" },
+            "context_window": { "context_window_size": 200000 }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        assert!(out.contains("--"), "expected '--' placeholder: {out:?}");
+        assert!(out.contains("200k"), "ctx budget still rendered: {out:?}");
+    }
+
+    #[test]
+    fn render_statusline_claude_code_sanitises_hostile_model_name() {
+        // A maliciously named local model could embed an ANSI escape
+        // or BiDi control in `display_name`. SafeText must strip it
+        // before the value lands in the statusline output.
+        let ai = empty_ai_config();
+        let json = br#"{
+            "cwd": "/tmp",
+            "model": { "display_name": "Opus\r[31mEVIL" }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        // CR and ESC stripped. The literal `[31m` remains as harmless
+        // text — that's the documented post-sanitisation behaviour
+        // (SafeText strips control bytes, not their textual fallout).
+        assert!(!out.contains('\r'), "CR leaked: {out:?}");
+        assert!(!out.contains('\u{001b}'), "ESC leaked: {out:?}");
+    }
+
+    #[test]
+    fn render_statusline_claude_code_clamps_out_of_range_percent() {
+        // Defensive: a misbehaving host emitting > 100% must not produce
+        // ridiculous output. Clamped to 0..=100.
+        let ai = empty_ai_config();
+        let json = br#"{
+            "model": { "display_name": "M" },
+            "context_window": { "context_window_size": 100000, "used_percentage": 9999.0 }
+        }"#;
+        let out = render_statusline(&HostKind::ClaudeCode, json, &ai);
+        assert!(out.contains("100%"), "expected 100% clamp: {out:?}");
+        assert!(
+            !out.contains("9999"),
+            "raw value leaked despite clamp: {out:?}"
+        );
+    }
+
+    #[test]
+    fn parse_host_kind_maps_known_names() {
+        assert_eq!(parse_host_kind("claude-code"), HostKind::ClaudeCode);
+        assert_eq!(parse_host_kind("CLAUDE-CODE"), HostKind::ClaudeCode);
+        assert_eq!(parse_host_kind("  goose  "), HostKind::Goose);
+        assert_eq!(parse_host_kind("aider"), HostKind::Aider);
+        assert_eq!(parse_host_kind("cursor"), HostKind::Cursor);
+        assert_eq!(parse_host_kind("none"), HostKind::None);
+        assert_eq!(parse_host_kind(""), HostKind::None);
+    }
+
+    #[test]
+    fn parse_host_kind_unknown_becomes_generic() {
+        // Forward-compat: an agent that adopts a new label still routes
+        // through the catch-all rather than erroring.
+        assert_eq!(
+            parse_host_kind("future-agent"),
+            HostKind::Generic("future-agent".to_owned())
+        );
     }
 
     /// Build a fake env lookup from a list of key/value pairs. Anything
