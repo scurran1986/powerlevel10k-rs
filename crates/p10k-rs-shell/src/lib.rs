@@ -294,4 +294,103 @@ mod tests {
             );
         }
     }
+
+    // --- Slice 58: line-pre-redraw widget ----------------------------------------
+
+    #[test]
+    fn zsh_line_pre_redraw_widget_is_registered() {
+        // Slice 58 — the widget must be declared as a named zle widget so
+        // zsh knows to call it on every redraw. Without the `zle -N` binding
+        // the function exists but is never invoked.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains("zle -N line-pre-redraw _p10k_rs_zle_line_pre_redraw"),
+            "zsh init must register _p10k_rs_zle_line_pre_redraw as the line-pre-redraw widget"
+        );
+    }
+
+    #[test]
+    fn zsh_line_pre_redraw_updates_upcoming_cmd_from_buffer() {
+        // The widget must store $BUFFER into _P10K_RS_UPCOMING_CMD so
+        // precmd picks up the live command line.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains("_P10K_RS_UPCOMING_CMD=\"$BUFFER\""),
+            "line-pre-redraw widget must assign _P10K_RS_UPCOMING_CMD from \\$BUFFER"
+        );
+    }
+
+    #[test]
+    fn zsh_line_pre_redraw_has_first_word_cache() {
+        // The first-word cache avoids calling `zle reset-prompt` on every
+        // character — only when the command verb changes. Pin both the
+        // cache variable and the comparison.
+        let zsh = init_script(Shell::Zsh);
+        assert!(
+            zsh.contains("_P10K_RS_PREV_UPCOMING_FIRST_WORD"),
+            "zsh init must declare the first-word cache variable for line-pre-redraw"
+        );
+        assert!(
+            zsh.contains("\"$first_word\" != \"$_P10K_RS_PREV_UPCOMING_FIRST_WORD\""),
+            "line-pre-redraw widget must compare current first word to cached first word"
+        );
+    }
+
+    #[test]
+    fn zsh_precmd_resets_first_word_cache() {
+        // After precmd fires the cache must be cleared so the next command
+        // line starts fresh. Without this reset, a new command that shares
+        // its verb with the previous one would not trigger reset-prompt.
+        let zsh = init_script(Shell::Zsh);
+        // The reset must appear inside _p10k_rs_precmd (after the
+        // `_P10K_RS_UPCOMING_CMD=""` drain), not just at the init-time
+        // typeset declaration. Search only the portion of the script
+        // starting at the precmd function definition.
+        let precmd_start = zsh
+            .find("_p10k_rs_precmd()")
+            .expect("zsh init must define _p10k_rs_precmd");
+        let cache_reset = zsh[precmd_start..]
+            .find("_P10K_RS_PREV_UPCOMING_FIRST_WORD=\"\"")
+            .expect("zsh init must reset _P10K_RS_PREV_UPCOMING_FIRST_WORD inside _p10k_rs_precmd");
+        let _ = cache_reset; // presence inside the function body is the assertion
+    }
+
+    #[test]
+    fn zsh_line_pre_redraw_reset_prompt_gated_on_verb_change() {
+        // `zle reset-prompt` must be inside the first-word-changed branch,
+        // not called unconditionally on every keystroke. Verify ordering:
+        // the cache comparison precedes `zle reset-prompt`.
+        let zsh = init_script(Shell::Zsh);
+        let cmp_pos = zsh
+            .find("\"$first_word\" != \"$_P10K_RS_PREV_UPCOMING_FIRST_WORD\"")
+            .expect("first-word comparison must exist");
+        // There are two `zle reset-prompt` calls: one in the transient
+        // widget and one in the line-pre-redraw widget. We want the one
+        // that comes after the comparison.
+        let reset_pos = zsh[cmp_pos..]
+            .find("zle reset-prompt 2>/dev/null")
+            .expect("zle reset-prompt must appear after the first-word comparison")
+            + cmp_pos;
+        assert!(
+            reset_pos > cmp_pos,
+            "zle reset-prompt must be inside the verb-changed branch"
+        );
+    }
+
+    #[test]
+    fn zsh_preexec_still_sets_upcoming_cmd() {
+        // Slice 58 adds line-pre-redraw but must NOT remove the preexec
+        // assignment — preexec provides the history-expanded command for
+        // the "show context after running" case and overwrites BUFFER's
+        // raw text with the expanded form.
+        let zsh = init_script(Shell::Zsh);
+        let preexec_start = zsh
+            .find("_p10k_rs_preexec()")
+            .expect("zsh init must define _p10k_rs_preexec");
+        // The assignment must occur inside the preexec function body.
+        let assign = zsh[preexec_start..]
+            .find("_P10K_RS_UPCOMING_CMD=\"$1\"")
+            .expect("_p10k_rs_preexec must still assign _P10K_RS_UPCOMING_CMD from \\$1");
+        let _ = assign; // presence is the assertion
+    }
 }

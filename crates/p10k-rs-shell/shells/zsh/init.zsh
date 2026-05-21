@@ -177,23 +177,68 @@ autoload -Uz add-zsh-hook
 # last prompt" — covers the very first prompt and ^C-on-empty-line cases.
 typeset -gi _p10k_rs_cmd_start=0
 
-# Slice 44: feed the `show_on_command` gate.
+# show_on_command gate — dual-source design (slice 44 + slice 58).
 #
-# Upstream Powerlevel10k drives `show_on_command` by re-rendering as the
-# user types — a zle widget watches `$BUFFER` keystroke-by-keystroke
-# and updates the prompt so `aws ...` reveals the `aws` segment the
-# instant the verb is typed. That is correct but expensive: one
-# `p10k-rs prompt` subprocess per keystroke.
+# There are two producers for `_P10K_RS_UPCOMING_CMD`:
 #
-# MVP path (this slice): capture the LAST accepted command at preexec
-# and feed it to the NEXT precmd via `--upcoming-command`. The segment
-# then appears next to the prompt right after the user ran a matching
-# command, not before. That's the upstream behaviour for the common
-# case ("I just ran `aws ...`; show me the aws context next to the
-# return-status segment") at a fraction of the cost. The "before"
-# variant lands when a zle-line-pre-redraw widget is added in a follow-up
-# slice.
+#   1. `_p10k_rs_zle_line_pre_redraw` (slice 58, this file below) fires on
+#      every ZLE redraw while the user is typing. It reads `$BUFFER` —
+#      the live command line — and stores it here. When the first
+#      whitespace-delimited word of `$BUFFER` changes from what was last
+#      rendered, it calls `zle reset-prompt` so `show_on_command` segments
+#      appear/disappear the instant the command verb is typed. This is the
+#      correct "upcoming" semantic that matches upstream Powerlevel10k.
+#      Cost: one string compare per keystroke; `zle reset-prompt` only on
+#      verb change, not every character.
+#
+#   2. `_p10k_rs_preexec` (legacy, below) captures `$1` — the
+#      history-expanded accepted command — just before it runs. This was
+#      the only source before slice 58 and is kept for two reasons: (a) it
+#      gives the precmd the correct command for the "show context right
+#      after running a relevant command" case, and (b) it resets
+#      `_P10K_RS_UPCOMING_CMD` from BUFFER to the actual shell-expanded
+#      line (covers command substitution, aliases, etc.).
+#
+# `precmd` drains `_P10K_RS_UPCOMING_CMD` into a local and clears it
+# before calling the binary. `line-pre-redraw` repopulates it from
+# `$BUFFER` between prompts. Net effect: the binary always sees the most
+# recent command-line content, whichever source was latest.
 typeset -g _P10K_RS_UPCOMING_CMD=""
+
+# Cache: the first word of $BUFFER as of the last `zle reset-prompt`
+# triggered by line-pre-redraw. Empty string means either no buffer or
+# no reset-prompt has fired yet. Compared on each line-pre-redraw to
+# decide whether the verb changed — avoids a `reset-prompt` per character.
+typeset -g _P10K_RS_PREV_UPCOMING_FIRST_WORD=""
+
+# ZLE line-pre-redraw widget (slice 58).
+#
+# Fires on every ZLE redraw while the user is editing (keystrokes,
+# paste, completion). Updates `_P10K_RS_UPCOMING_CMD` from `$BUFFER`
+# so `precmd` picks up the live command line rather than the *last*
+# accepted one. Calls `zle reset-prompt` only when the first word
+# changes — typically one `reset-prompt` per verb typed, not one per
+# character — keeping the binary invocation rate acceptable.
+#
+# The first-word cache (`_P10K_RS_PREV_UPCOMING_FIRST_WORD`) is reset
+# to "" by `_p10k_rs_precmd` at every prompt cycle so a fresh empty
+# buffer after a command correctly retriggers the gate.
+_p10k_rs_zle_line_pre_redraw() {
+  _P10K_RS_UPCOMING_CMD="$BUFFER"
+  # Extract the first whitespace-delimited word from $BUFFER.
+  local first_word=""
+  if [[ -n "${BUFFER// /}" ]]; then
+    first_word="${${BUFFER##[[:space:]]#}%%[[:space:]]*}"
+  fi
+  # Only re-render when the verb changed. This keeps cost to one string
+  # comparison per keystroke and at most one `p10k-rs prompt` subprocess
+  # per verb change (not per character).
+  if [[ "$first_word" != "$_P10K_RS_PREV_UPCOMING_FIRST_WORD" ]]; then
+    _P10K_RS_PREV_UPCOMING_FIRST_WORD="$first_word"
+    zle reset-prompt 2>/dev/null
+  fi
+}
+zle -N line-pre-redraw _p10k_rs_zle_line_pre_redraw
 
 # OSC 133 shell-integration markers (T1.5 / T1.9 bundle).
 #
@@ -245,6 +290,10 @@ fi
 _p10k_rs_preexec() {
   _p10k_rs_cmd_start=$EPOCHSECONDS
   # `$1` is the full command line about to run (already history-expanded).
+  # This overwrites whatever `_p10k_rs_zle_line_pre_redraw` last stored from
+  # $BUFFER — the history-expanded form is more accurate for the precmd
+  # "last ran command" use-case (aliases resolved, substitutions applied).
+  # See the dual-source design note near `_P10K_RS_UPCOMING_CMD` above.
   _P10K_RS_UPCOMING_CMD="$1"
   # OSC 133 `C` — start of command output. Emitted between the user
   # accepting the line and the command actually running, so the host
@@ -281,6 +330,12 @@ _p10k_rs_precmd() {
   fi
   local upcoming="$_P10K_RS_UPCOMING_CMD"
   _P10K_RS_UPCOMING_CMD=""
+  # Reset the line-pre-redraw first-word cache so the next command line
+  # starts fresh. Without this, the first character of a new command that
+  # happens to share a verb with the previous one would not trigger a
+  # reset-prompt, leaving show_on_command segments stale until a different
+  # verb is typed.
+  _P10K_RS_PREV_UPCOMING_FIRST_WORD=""
   # Detect dead daemon and respawn. `kill -0 $pid` exits 0 if the process
   # exists, non-zero otherwise. ~1ms cost per prompt; a wedged or crashed
   # daemon would otherwise force every prompt onto the slow ShellOut path
