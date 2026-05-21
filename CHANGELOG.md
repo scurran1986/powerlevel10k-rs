@@ -9,11 +9,13 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 ## [Unreleased]
 
 Post-v0.1.3 slice ledger. Closes 4 of the 5 v0.2-deferred items
-from the sprint memo (T1.8, T1.10, T1.11, T1.24); only T0.5
-(sha256-pin gitstatusd at install) remains deferred. Staged for
-v0.1.4 — draft notes at `.github/release-notes/v0.1.4.md`.
+from the sprint memo (T1.8, T1.10, T1.11, T1.24) plus two
+ROADMAP suggested-next slices (58, 63) and an mdBook docs audit.
+Only **T0.5** (sha256-pin gitstatusd at install) remains
+deferred. Staged for v0.1.4 — draft notes at
+`.github/release-notes/v0.1.4.md`.
 
-Test count: **505 passing**, 3 ignored (up from 368 at v0.1.3).
+Test count: **517 passing**, 3 ignored (up from 368 at v0.1.3).
 
 ### Render-layer Unicode safety (T1.10, T1.11)
 
@@ -72,6 +74,38 @@ Test count: **505 passing**, 3 ignored (up from 368 at v0.1.3).
   Option<u32>`. Both opt-in. Render path remains a stub —
   `render_statusline()` returns empty until the per-host
   metadata story lands.
+
+### Prompt-loop refinements (slice 58, slice 63)
+
+- `d579217` **slice 58** `feat(zsh)`: true upcoming-command via
+  ZLE `line-pre-redraw`. A new `_p10k_rs_zle_line_pre_redraw`
+  widget assigns `$BUFFER` to `_P10K_RS_UPCOMING_CMD` on every
+  redraw; `zle reset-prompt` is gated on first-word change via
+  the new `_P10K_RS_PREV_UPCOMING_FIRST_WORD` cache, keeping the
+  redraw rate at one-per-verb-change rather than one-per-keystroke.
+  Preserves the legacy `preexec` assignment for any consumer that
+  wanted the "last-ran" semantic. Closes STATE.md gotcha #3 (the
+  slice-44 honesty-gap). 6 new pinning tests in `p10k-rs-shell`.
+
+- `5716ab3` **slice 63** `feat(instant-prompt)`: the dump file
+  name now embeds a sanitised `$TERM` token. Switching terminals
+  (e.g. `xterm-256color` → `tmux-256color`) produces a different
+  path so the previous session's dump is never sourced into a
+  shell with mismatched capabilities. Sanitisation strips to
+  `[a-zA-Z0-9_-]` with a `dumb` fallback. Cache-write side (the
+  binary) needs no change — the shell-derived path arrives via
+  `--dump`. 5 new path-derivation tests in `p10k-rs` + 1 pinning
+  test in `p10k-rs-shell`.
+
+### mdBook docs backfill
+
+- `156183f` `docs(mdbook)`: 5 pages updated to reflect
+  post-v0.1.3 features — `config/index.md` (hex literals),
+  `reference/schema.md` (Color shapes, marker_foreground,
+  TransientPromptMode table, AiConfig rows), `arch/security.md`
+  (Unicode-class hardening section), `segments/index.md` (jj
+  divergent/conflicts), `theming.md` (marker_foreground).
+  62 lines added, 12 replaced.
 
 ### Test-harness env-race hardening
 
