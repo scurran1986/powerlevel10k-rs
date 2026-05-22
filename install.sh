@@ -32,6 +32,11 @@ SHELL_NAME="zsh"
 DO_BUILD=1
 DO_RC=1
 UNINSTALL=0
+# T0.5: gitstatusd acquisition mode.
+#   pinned  — download + sha256-verify (default, v0.1.5)
+#   system  — legacy: symlink an already-installed brew/apt copy
+#   none    — skip entirely; the binary will use the ShellOut fallback
+GITSTATUSD_MODE="pinned"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +44,8 @@ while [ $# -gt 0 ]; do
     --no-rc) DO_RC=0; shift ;;
     --no-build) DO_BUILD=0; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
+    --gitstatusd=*) GITSTATUSD_MODE="${1#--gitstatusd=}"; shift ;;
+    --gitstatusd) GITSTATUSD_MODE="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,/^set -euo/p' "$0" | sed -e 's/^# \?//' -e '/^set -euo/d'
       exit 0
@@ -46,6 +53,11 @@ while [ $# -gt 0 ]; do
     *) echo "[error] unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+case "$GITSTATUSD_MODE" in
+  pinned|system|none) ;;
+  *) echo "[error] --gitstatusd=$GITSTATUSD_MODE: expected pinned, system, or none" >&2; exit 2 ;;
+esac
 
 # Resolve repo root from the script's location, not $PWD.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -191,31 +203,211 @@ if [ -z "$INSTALLED_BIN" ]; then
 fi
 echo "[install] binary at $INSTALLED_BIN"
 
-# ---------- gitstatusd discovery -------------------------------------------
+# ---------- gitstatusd acquisition -----------------------------------------
 #
-# `p10k-rs init zsh` substitutes the gitstatusd binary path it found at init
-# time. After slice 9 (which dropped a dev-machine fallback for security
-# reasons), the binary only probes `$P10K_RS_GITSTATUSD_BIN` and `$PATH`.
-# If a known canonical install isn't already on PATH, symlink it next to
-# the p10k-rs binary so the daemon path stays intact for new shells.
-GITSTATUSD_CANDIDATES=(
-  "/opt/homebrew/bin/gitstatusd"
-  "/usr/local/bin/gitstatusd"
-)
-if ! command -v gitstatusd >/dev/null 2>&1; then
-  for cand in "${GITSTATUSD_CANDIDATES[@]}"; do
+# T0.5: pinned download + sha256 verification is the default in v0.1.5.
+# `--gitstatusd=system` keeps the legacy symlink path for users who
+# explicitly want their brew/apt-installed binary. `--gitstatusd=none`
+# skips the work entirely (the binary falls back to its slow ShellOut
+# git path at runtime).
+#
+# Important contract (per design doc § "Fallback if download fails"):
+# this section must never `exit` non-zero on failure. A missing
+# optional perf optimisation is not a reason to break the install —
+# the prompt still renders via ShellOut, just slower. Every failure
+# path drops to "warn loudly, continue".
+
+# Sha256 helper — handles shasum (POSIX, Darwin default) and sha256sum
+# (Linux coreutils). Echoes the digest hex to stdout, returns 1 if no
+# hasher is available. Quiet on success; the caller compares.
+sha256_of() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+verify_sha256() {
+  local file="$1" expected="$2" actual
+  actual="$(sha256_of "$file")" || return 1
+  [ "$actual" = "$expected" ]
+}
+
+# Map (uname -s, uname -m) → our canonical triple key (matches
+# crates/p10k-rs-git/data/gitstatusd-pins.toml).
+# Echoes the triple on stdout; non-zero on unsupported host.
+detect_host_triple() {
+  local s m
+  s="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  m="$(uname -m 2>/dev/null)"
+  case "$s/$m" in
+    linux/x86_64|linux/amd64)   echo "x86_64-linux-gnu" ;;
+    linux/aarch64|linux/arm64)  echo "aarch64-linux-gnu" ;;
+    darwin/x86_64)              echo "x86_64-darwin" ;;
+    darwin/arm64|darwin/aarch64) echo "aarch64-darwin" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Read a value from the simple `key = "value"` pin file. We avoid pulling
+# in a TOML parser — the pin file is intentionally flat (no nesting beyond
+# the per-triple table) and the patterns we care about are all
+# `key = "..."` lines under a `[pins.<triple>]` header.
+#
+# Args: <pin-file> <triple> <field>   (field = upstream_file | tarball_sha256 | binary_sha256)
+read_pin_field() {
+  local file="$1" triple="$2" field="$3"
+  awk -v want="[pins.$triple]" -v key="$field" '
+    $0 == want { in_section = 1; next }
+    /^\[/      { in_section = 0; next }
+    in_section && $1 == key {
+      # match key = "value" — strip surrounding quotes from the last field
+      v = $0
+      sub(/^[^=]*=[ \t]*/, "", v)
+      sub(/^"/, "", v)
+      sub(/"[ \t]*$/, "", v)
+      print v
+      exit
+    }
+  ' "$file"
+}
+
+install_pinned_gitstatusd() {
+  local pin_file="$SCRIPT_DIR/crates/p10k-rs-git/data/gitstatusd-pins.toml"
+  if [ ! -f "$pin_file" ]; then
+    echo "[warn] gitstatusd pin file not found at $pin_file; skipping pinned install." >&2
+    echo "       The vcs segment will use the slow ShellOut fallback." >&2
+    return 0
+  fi
+  local triple
+  if ! triple="$(detect_host_triple)"; then
+    echo "[warn] unsupported host ($(uname -s)/$(uname -m)) — no gitstatusd pin available." >&2
+    echo "       The vcs segment will use the slow ShellOut fallback." >&2
+    return 0
+  fi
+  local version file expected_sha
+  version="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "$pin_file")"
+  file="$(read_pin_field "$pin_file" "$triple" "upstream_file")"
+  expected_sha="$(read_pin_field "$pin_file" "$triple" "tarball_sha256")"
+  if [ -z "$version" ] || [ -z "$file" ] || [ -z "$expected_sha" ]; then
+    echo "[warn] pin file missing version / $triple entry; skipping pinned install." >&2
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "[warn] curl not on PATH — cannot fetch pinned gitstatusd. ShellOut fallback in use." >&2
+    return 0
+  fi
+  if ! command -v tar >/dev/null 2>&1; then
+    echo "[warn] tar not on PATH — cannot extract pinned gitstatusd. ShellOut fallback in use." >&2
+    return 0
+  fi
+  if ! command -v sha256_of >/dev/null 2>&1; then : ; fi
+  if ! sha256_of /dev/null >/dev/null 2>&1; then
+    echo "[warn] neither shasum nor sha256sum on PATH; cannot verify gitstatusd pin. Skipping." >&2
+    return 0
+  fi
+
+  local target_dir target_path
+  target_dir="$HOME/.cargo/bin"
+  target_path="$target_dir/gitstatusd"
+  mkdir -p "$target_dir"
+
+  # Idempotency: if the on-disk binary already matches the pinned binary
+  # sha256, skip the download.
+  local binary_sha
+  binary_sha="$(read_pin_field "$pin_file" "$triple" "binary_sha256")"
+  if [ -n "$binary_sha" ] && [ -x "$target_path" ] && verify_sha256 "$target_path" "$binary_sha"; then
+    echo "[gitstatusd] $target_path already at pinned sha256 ($version, ${binary_sha:0:12}…) — skipping download."
+    return 0
+  fi
+
+  local url="https://github.com/romkatv/gitstatus/releases/download/${version}/${file}.tar.gz"
+  local tmp_tar tmp_dir
+  tmp_tar="$(mktemp "$target_dir/.gitstatusd.tar.gz.XXXXXXXX")"
+  tmp_dir="$(mktemp -d "$target_dir/.gitstatusd.d.XXXXXXXX")"
+  # Best-effort cleanup on any exit from this function.
+  trap 'rm -f "$tmp_tar"; rm -rf "$tmp_dir"' RETURN
+
+  echo "[gitstatusd] downloading $file.tar.gz from $url"
+  if ! curl --fail --location --silent --show-error \
+        --proto '=https' --tlsv1.2 \
+        --max-time 60 \
+        -o "$tmp_tar" "$url"; then
+    echo "[warn] gitstatusd download failed from $url — falling back to ShellOut." >&2
+    return 0
+  fi
+
+  if ! verify_sha256 "$tmp_tar" "$expected_sha"; then
+    local actual
+    actual="$(sha256_of "$tmp_tar" 2>/dev/null || echo '<sha-failed>')"
+    echo "[warn] gitstatusd tarball sha256 mismatch for $triple:" >&2
+    echo "         expected $expected_sha" >&2
+    echo "         got      $actual" >&2
+    echo "       Refusing to install — falling back to ShellOut." >&2
+    return 0
+  fi
+
+  if ! tar -xzf "$tmp_tar" -C "$tmp_dir"; then
+    echo "[warn] failed to extract $tmp_tar — falling back to ShellOut." >&2
+    return 0
+  fi
+  local staged="$tmp_dir/$file"
+  if [ ! -f "$staged" ]; then
+    echo "[warn] extracted tarball did not contain expected file '$file' — falling back to ShellOut." >&2
+    return 0
+  fi
+  # Belt-and-braces: re-verify the inner binary against the pinned
+  # binary_sha256 even though the tarball already passed.
+  if [ -n "$binary_sha" ] && ! verify_sha256 "$staged" "$binary_sha"; then
+    local actual_bin
+    actual_bin="$(sha256_of "$staged" 2>/dev/null || echo '<sha-failed>')"
+    echo "[warn] extracted gitstatusd binary sha256 mismatch:" >&2
+    echo "         expected $binary_sha" >&2
+    echo "         got      $actual_bin" >&2
+    echo "       Refusing to install — falling back to ShellOut." >&2
+    return 0
+  fi
+  chmod 0755 "$staged"
+  # Atomic install: mv onto the final path. On the same filesystem the
+  # rename(2) is atomic; an old binary stays usable until the moment
+  # the swap completes.
+  if ! mv "$staged" "$target_path"; then
+    echo "[warn] failed to install gitstatusd at $target_path — falling back to ShellOut." >&2
+    return 0
+  fi
+  echo "[gitstatusd] installed pinned $version ($triple) at $target_path"
+  echo "[gitstatusd] verify with: p10k-rs verify"
+}
+
+install_system_gitstatusd() {
+  # Legacy symlink path. Identical to the pre-T0.5 behaviour; kept for
+  # users who explicitly opt out of the pinned download.
+  local cand
+  if command -v gitstatusd >/dev/null 2>&1; then
+    echo "[gitstatusd] system gitstatusd already on PATH — leaving alone."
+    return 0
+  fi
+  for cand in "/opt/homebrew/bin/gitstatusd" "/usr/local/bin/gitstatusd"; do
     if [ -x "$cand" ]; then
       ln -sfn "$cand" "$HOME/.cargo/bin/gitstatusd"
       echo "[gitstatusd] symlinked $cand -> ~/.cargo/bin/gitstatusd"
-      break
+      return 0
     fi
   done
-  if ! command -v gitstatusd >/dev/null 2>&1; then
-    echo "[warn] gitstatusd not found — vcs segment will use the slow shell-out fallback." >&2
-    echo "       Install one of: \`brew install gitstatusd\`, \`apt install zsh-gitstatus\`," >&2
-    echo "       or set \$P10K_RS_GITSTATUSD_BIN before sourcing the eval." >&2
-  fi
-fi
+  echo "[warn] gitstatusd not found — vcs segment will use the slow shell-out fallback." >&2
+  echo "       Install one of: \`brew install gitstatusd\`, \`apt install zsh-gitstatus\`," >&2
+  echo "       run \`./install.sh --gitstatusd=pinned\`, or set \$P10K_RS_GITSTATUSD_BIN." >&2
+}
+
+case "$GITSTATUSD_MODE" in
+  pinned) install_pinned_gitstatusd ;;
+  system) install_system_gitstatusd ;;
+  none)   echo "[gitstatusd] --gitstatusd=none — skipping; vcs segment will use ShellOut fallback." ;;
+esac
 
 # ---------- rc edit --------------------------------------------------------
 
