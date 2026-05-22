@@ -11,8 +11,8 @@ Full slice ledger: [CHANGELOG.md](CHANGELOG.md).
 
 | | |
 |---|---|
-| Current tag | `v0.1.5` (2026-05-22) |
-| Tests | 537 passing, 3 ignored |
+| Current tag | `v0.1.6` (2026-05-22) |
+| Tests | 544 passing, 3 ignored |
 | MSRV | Stable Rust **1.88** (pinned in `rust-toolchain.toml`) |
 | MSRV policy | stable − 2 |
 | License | MIT / Apache-2.0 (dual) |
@@ -62,7 +62,7 @@ Verification recipe in [SECURITY.md](SECURITY.md).
 | `gitstatusd` long-lived daemon over FIFOs (ADR-0001 hot path) | ✅ |
 | `gitstatusd` sha256-pinning + `p10k-rs verify` (T0.5) | ✅ |
 | `git` shell-out fallback with 2-second timeout, hardened env | ✅ |
-| `gix-status` pure-Rust fallback (no `git` on PATH) | ⏳ design-doc only; queued for v0.1.6 |
+| `gix-status` pure-Rust fallback (no `git` on PATH) — branch + dirty + action at ShellOut parity | ✅ v0.1.6 (phases 1+2+3+5; phases 3.5/4/6 queued for v0.1.7) |
 | Branch / cwd render-path sanitization (`SafeText`: BiDi, ZWJ, control bytes, NFC, grapheme-safe truncation) | ✅ |
 | `p10k-rs import ~/.p10k.zsh` (Powerlevel9k importer) | ✅ |
 | `show_on_command` segment gating (live `$BUFFER` via ZLE) | ✅ zsh |

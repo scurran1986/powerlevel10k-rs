@@ -8,15 +8,81 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Reserved for v0.1.6. Two design docs remain queued in
-`~/.planning/powerlevel10k-rs/research/`:
+Reserved for v0.1.7. Carry-overs:
 
-- **Slice 60** — `gix-status` correctness fallback for hosts where
-  `git` is missing from PATH (stripped containers, AI-host images).
-  ~630 LOC across 6 phases; design at
-  `slice-60-gix-status-fallback-design.md`.
-- **Slice 64** — daemon-respawn / health-check cache. Listed in
-  ADR-0001 § Follow-ups.
+- **Slice 60 follow-up phases:** 3.5 (per-category counts:
+  staged/unstaged/untracked/conflicts), 4 (ahead/behind via gix
+  revwalk — hit API discovery friction during v0.1.6), 6
+  (cross-check tests + bench against ShellOut).
+- **Slice 64** — daemon-respawn / health-check cache (ADR-0001).
+
+## [0.1.6] - 2026-05-22
+
+Theme: **pure-Rust git-status fallback (slice 60).** When neither
+the `gitstatusd` daemon nor a system `git` binary is available,
+the prompt now falls back to gitoxide-backed status reporting at
+ShellOut parity: branch name, dirty indicator, and in-progress
+action (merge/rebase/cherry-pick/revert/bisect). The intended
+user is anyone running a shell in a stripped container — AI host
+images (Claude Code, Cursor), CI runners that drop `git` to save
+space — where the prompt would previously silently lose its VCS
+indicator.
+
+Slice 60 design split into 6 phases. v0.1.6 ships **phases 1,
+2, 3, 5** (the field-coverage equivalents to ShellOut). Phases
+3.5 (per-category counts), 4 (ahead/behind), and 6 (cross-check
++ bench) are deferred to v0.1.7 — both because the gix
+`revision`-feature API needs more probing than fit a clean v0.1.6
+boundary, and because shipping ShellOut-parity is the meaningful
+user-facing milestone on its own.
+
+Test count: **544 passing**, 3 ignored (up from 537 at v0.1.5).
+
+### Slice 60 phases (4 commits)
+
+- `0ad2db1` **slice 60 phase 1** `feat(git)`: scaffold
+  `GixBackend` in the fallback chain. The pure-stub returns
+  `None`; behaviour is byte-identical to pre-slice-60 until
+  phases 2-5 populate fields.
+- `515d47c` **slice 60 phase 2** `feat(git)`: branch + HEAD
+  lookup via `gix::discover` + `repo.head_name()`. Adds the
+  `gix = "=0.83.0"` workspace dep with
+  `default-features = false, features = ["sha1"]` as the minimal
+  hash-backend enable. Empirical research flipped the design
+  doc's scoped-vs-umbrella recommendation: scoped subcrates
+  would have required a `gix-hash` workaround AND blow past +53
+  packages; umbrella matches the count without the workaround
+  and gives the high-level API. Branch bytes flow through
+  `SafeText::from_untrusted_bytes` →
+  `from_untrusted_with_cap(4 KiB)` for render-path sanitisation
+  + defensive length cap.
+- `b2a720f` **slice 60 phase 3** `feat(git)`: `dirty: bool` via
+  gix's working-tree status iterator
+  (`repo.status(...).into_index_worktree_iter(...)`). Coverage
+  matches ShellOut exactly (any modification, untracked file, or
+  conflict collapses to `dirty=true`). Adds `status` feature to
+  the gix dep.
+- `56a5612` **slice 60 phase 5** `feat(git)`: in-progress action
+  probe via `crate::detect_action(repo.git_dir())` — reuses the
+  filesystem sentinel scanner from the ShellOut path. Zero new
+  deps. Output values are consistent across all three backends.
+
+### Notes
+
+- **Two RUSTSEC advisories on initial gix bring-up.** Pinning
+  `gix = "0.66"` (the design doc's reference) triggered
+  RUSTSEC-2025-0140 (gix-date `TimeBuf::as_str` non-UTF-8) and
+  RUSTSEC-2025-0021 (gix-features SHA-1 collision detection
+  missing). Both fixed in gix 0.83+; the workspace pins
+  `=0.83.0` exact. `cargo deny check` clean.
+- **Workspace package count grew 112 → 240** (+128 packages).
+  Higher than the slice-60 design doc's "~12 scoped" estimate;
+  reality is the scoped subset is no longer ~12 either (+53
+  minimum). The minimum-features umbrella path is the floor.
+- **Phases 4 (ahead/behind) and 3.5 (per-category counts)
+  deferred** to v0.1.7. Phase 4 hit API discovery friction —
+  `head_id.ahead_behind(upstream_id)` from the design doc
+  doesn't exist on gix 0.83's `Id`; needs more probing.
 
 ## [0.1.5] - 2026-05-21
 
