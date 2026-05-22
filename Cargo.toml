@@ -60,15 +60,29 @@ anyhow = "1.0" # binary glue only — never in libraries
 # crypto-common + cpufeatures). MSRV-clean at 1.88.
 sha2 = "0.10"
 
-# Slice 60: gitoxide subset. NOT YET ADDED. Phase 1 lands as a
-# pure-stub `GixBackend` (no gitoxide dep) so the backend chain
-# is wired and the type exists. A background research note at
-# `~/.planning/powerlevel10k-rs/research/slice-60-gitoxide-api-notes.md`
-# pins the exact `gix-*` crate versions + feature flags before
-# phase 2 imports anything. gix-hash 0.25 has broken defaults
-# (Kind enum variants gated behind `sha1` / `sha256` features
-# that downstream doesn't enable) — phase 2 has to thread the
-# right feature combo carefully.
+# Slice 60: gitoxide for the pure-Rust git-status fallback.
+#
+# Empirical research (scratch project under /tmp/gix-probe at
+# slice-60 phase 2 time) settled the design-doc question of
+# "scoped subcrates vs full umbrella":
+#
+# - Scoped full set (gix-hash + gix-discover + gix-ref +
+#   gix-status + gix-revision + gix-config): +53 new packages
+#   above the workspace baseline. Requires a gix-hash workaround
+#   (its `Kind` enum has variants gated behind `sha1`/`sha256`
+#   features that downstream doesn't enable, so a transitive-only
+#   pull blows up; we'd have to add gix-hash as a direct workspace
+#   dep with `features = ["sha1"]`).
+# - Umbrella with `default-features = false`: +51 new packages,
+#   no gix-hash workaround needed, cleaner high-level API.
+#
+# Umbrella wins on both axes. Features are added per slice-60
+# phase as they're needed: phase 2 (branch + HEAD) needs nothing;
+# phase 3 (status iteration) will add `features = ["status"]`;
+# phase 4 (ahead/behind) will add `features = ["revision"]`.
+# Bumped as a single dep — gitoxide is pre-1.0 so version is
+# exact-pinned and bumps are reviewed.
+gix = { version = "=0.83.0", default-features = false, features = ["sha1"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Daily-rotating file appender + non-blocking writer for the diagnostics
