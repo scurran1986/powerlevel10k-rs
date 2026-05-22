@@ -60,11 +60,40 @@ impl Backend for GixBackend {
         // case (the most common cwd shape during prompt rendering).
         let repo = gix::discover(path).ok()?;
         let branch = branch_safetext(&repo);
+        let dirty = repo_is_dirty(&repo);
         Some(GitState {
             branch,
+            dirty,
             ..Default::default()
         })
     }
+}
+
+/// Probe the working tree for any modification, untracked file, or
+/// conflict — anything that would make `git status` report a non-empty
+/// porcelain output.
+///
+/// Mirrors [`crate::ShellOut`]'s `dirty: bool` coverage exactly. The
+/// per-category counters (`staged`, `unstaged`, `untracked`,
+/// `conflicts`) land in a follow-up phase; this one just answers the
+/// boolean.
+///
+/// Implementation: ask gix for an `index_worktree_iter` and short-circuit
+/// on the first item. Returns `false` on any error from the iterator
+/// setup — the fallback chain prefers reporting an under-state ("clean")
+/// over crashing the prompt on a transient repo issue.
+fn repo_is_dirty(repo: &gix::Repository) -> bool {
+    let Ok(platform) = repo.status(gix::progress::Discard) else {
+        return false;
+    };
+    let Ok(mut iter) = platform.into_index_worktree_iter(Vec::new()) else {
+        return false;
+    };
+    // Any successful item means the tree differs from the index. We
+    // can't tell modified-vs-untracked-vs-conflict from this loop
+    // without inspecting `Item` variants, but the boolean answer
+    // collapses all of them the same way.
+    iter.any(|item| item.is_ok())
 }
 
 /// Resolve the branch name (or detached short OID) for `repo` and
@@ -152,19 +181,67 @@ mod tests {
             !out.branch.as_str().is_empty(),
             "branch must be non-empty inside a repo"
         );
-        // Default fields stay default — phase 2 only fills branch.
-        assert!(!out.dirty, "phase 2 does not populate `dirty`");
-        assert_eq!(out.staged, 0, "phase 2 does not populate `staged`");
+        // Phase 2 fills branch; phase 3 fills dirty; phases 4-5 fill
+        // staged + action. Pin only the not-yet-populated invariants
+        // so the test doesn't lie about phase progression.
+        assert_eq!(
+            out.staged, 0,
+            "staged counter is unpopulated until phase 3.5"
+        );
         assert_eq!(
             out.action.as_str(),
             "",
-            "phase 2 does not populate `action`"
+            "in-progress-action probe is phase 5"
         );
     }
 
     /// `branch_safetext` should never panic and never produce text
     /// longer than the cap. Builds a fresh repo via `gix::init` to
     /// avoid depending on the workspace's exact branch state.
+    /// A fresh repo with no commits and no untracked files must be
+    /// reported as clean. Pins the phase 3 `dirty: bool` contract
+    /// against false-positive reports.
+    #[test]
+    fn fresh_init_repo_is_clean() {
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-clean-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        let _repo = gix::init(&scratch).expect("gix::init");
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert!(
+            !out.dirty,
+            "fresh empty repo must be reported clean, got dirty=true"
+        );
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A fresh repo with an untracked file in its working tree must
+    /// be reported as dirty. Pins the phase 3 `dirty: bool` contract
+    /// against false-negative reports.
+    #[test]
+    fn fresh_init_repo_with_untracked_is_dirty() {
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-untracked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        let _repo = gix::init(&scratch).expect("gix::init");
+        std::fs::write(scratch.join("hello.txt"), b"world\n").expect("write file");
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert!(out.dirty, "repo with untracked file must be reported dirty");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
     #[test]
     fn fresh_init_repo_has_initial_branch_name() {
         let scratch = std::env::temp_dir().join(format!(
