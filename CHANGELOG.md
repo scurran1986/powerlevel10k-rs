@@ -8,16 +8,94 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+Reserved for v0.1.6. Two design docs remain queued in
+`~/.planning/powerlevel10k-rs/research/`:
+
+- **Slice 60** — `gix-status` correctness fallback for hosts where
+  `git` is missing from PATH (stripped containers, AI-host images).
+  ~630 LOC across 6 phases; design at
+  `slice-60-gix-status-fallback-design.md`.
+- **Slice 64** — daemon-respawn / health-check cache. Listed in
+  ADR-0001 § Follow-ups.
+
+## [0.1.5] - 2026-05-21
+
+Theme: **gitstatusd supply-chain pinning (T0.5)** — the last open
+Tier-0 security item closes. `install.sh` now defaults to a
+pinned download + sha256 verification of the gitstatusd helper,
+and a new `p10k-rs verify` subcommand lets users re-run the same
+comparison at any time. SECURITY.md documents the verification
+recipe downstream packagers can mirror, and a weekly CI workflow
+opens a PR when upstream publishes a newer tag with per-triple
+binaries.
+
+Slice 60 (gix-status fallback) and slice 64 (daemon respawn) remain
+design-doc-only and are targeted for v0.1.6.
+
+Test count: **537 passing**, 3 ignored (up from 527 at v0.1.4).
+
+### Supply-chain hardening (T0.5)
+
+- `356b509` **T0.5** `feat(install)`: install.sh defaults to the
+  new `pinned` gitstatusd acquisition mode. Detects host triple,
+  downloads `gitstatusd-<triple>.tar.gz` from
+  `https://github.com/romkatv/gitstatus/releases/download/<version>/`,
+  verifies the tarball sha256 against the committed pin in
+  `crates/p10k-rs-git/data/gitstatusd-pins.toml`, and only then
+  extracts the binary into the install prefix. New flags:
+  `--gitstatusd=pinned` (default), `--gitstatusd=system` (legacy
+  symlink path for users who explicitly want their brew/apt copy),
+  `--gitstatusd=none`. Every failure path warns and falls back to
+  the ShellOut runtime path — install never hard-fails on a
+  missing optional perf optimisation. Pin entries cover all four
+  release triples (`x86_64-linux-gnu`, `aarch64-linux-gnu`,
+  `x86_64-darwin`, `aarch64-darwin`).
+- `1ef1d68` **T0.5** `feat(cli)`: `p10k-rs verify` subcommand.
+  Reads the embedded pin file, locates gitstatusd via the same
+  `$P10K_RS_GITSTATUSD_BIN` → `$PATH` probe the prompt path uses,
+  hashes the on-disk binary, and prints a stable wire line with
+  distinct exit codes: `OK <triple> <version> <sha-prefix>`
+  (exit 0), `MISMATCH expected=<hex> got=<hex>` (exit 2),
+  `NOT_FOUND <reason>` (exit 3), `UNSUPPORTED_ARCH <triple>`
+  (exit 4). New `p10k_rs_git::pins` module is the typed view over
+  the pin TOML; shared between install.sh (via `awk`) and the
+  verify command (via `include_str!`). Adds the `sha2` workspace
+  dep (RustCrypto, small transitive surface, MSRV-clean at 1.88).
+  10 new tests.
+- `15171f7` **T0.5** `ci(pins)`: weekly upstream pin-probe
+  workflow at `.github/workflows/pin-gitstatusd.yml`. Mondays at
+  14:00 UTC: probes `romkatv/gitstatus` for new releases, checks
+  per-triple binary attachment (releases that ship signatures
+  only — as upstream v1.5.5 did — are detected via `curl -fsI` and
+  skipped), and opens a PR updating `gitstatusd-pins.toml` when a
+  usable newer tag is available. Plain curl + sha256sum + gh; no
+  third-party actions beyond `actions/checkout`.
+- `57ad775` **T0.5** `docs(security)`: SECURITY.md "Verifying the
+  gitstatusd helper" section. Documents the `p10k-rs verify` wire
+  format, a reproducible bash recipe downstream packagers
+  (homebrew / AUR / nixpkgs / distro maintainers) can mirror, the
+  weekly bump cadence, and the warn-and-fallback failure
+  semantics.
+
+### Notes
+
+- **Pinned version is v1.5.4, not v1.5.5.** Upstream's v1.5.5
+  GitHub release ships only `.asc` signature files; the per-triple
+  binaries we need still point at v1.5.4 (matches what brew / apt /
+  nix all ship as of 2026-05-21). The pin-probe workflow will
+  surface a v1.5.6 (or a late-uploaded v1.5.5 binary set) the
+  moment upstream publishes one.
+
+## [0.1.4] - 2026-05-20
+
 Post-v0.1.3 slice ledger. Ships 4 of 5 sprint-memo v0.2-deferred
 items as code (T1.8, T1.10, T1.11, T1.24) plus two ROADMAP
 suggested-next slices (58, 63), the slice 61 follow-up (AI
 statusline render now wired), and an mdBook docs audit. The
 remaining T0.5 (gitstatusd sha256-pin) and slice 60 (gix-status
-correctness fallback) ship as **design docs** in
-`~/.planning/powerlevel10k-rs/research/` — implementation
-deferred to v0.1.5 per the "needs its own release" / "needs new
-dep tree" framings. Staged for v0.1.4 — draft notes at
-`.github/release-notes/v0.1.4.md`.
+correctness fallback) shipped as **design docs** in
+`~/.planning/powerlevel10k-rs/research/`; T0.5 implementation
+lands in v0.1.5. Notes at `.github/release-notes/v0.1.4.md`.
 
 Test count: **527 passing**, 3 ignored (up from 368 at v0.1.3).
 
