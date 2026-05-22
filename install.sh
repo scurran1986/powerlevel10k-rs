@@ -318,11 +318,33 @@ install_pinned_gitstatusd() {
 
   # Idempotency: if the on-disk binary already matches the pinned binary
   # sha256, skip the download.
+  #
+  # Hardening: even when the sha matches, the runtime opens the gitstatusd
+  # path with `O_NOFOLLOW` (see `locate_binary_checked` in `p10k-rs-git`)
+  # so the daemon-spawn path can't be hijacked by a symlink swap. A
+  # legacy symlink at `$target_path` matches by sha (bash follows symlinks
+  # transparently) but is refused by the runtime safe-open. Detect that
+  # case and replace the symlink with a real copy of the verified bytes
+  # so install.sh and the runtime agree on what's installable.
   local binary_sha
   binary_sha="$(read_pin_field "$pin_file" "$triple" "binary_sha256")"
   if [ -n "$binary_sha" ] && [ -x "$target_path" ] && verify_sha256 "$target_path" "$binary_sha"; then
-    echo "[gitstatusd] $target_path already at pinned sha256 ($version, ${binary_sha:0:12}…) — skipping download."
-    return 0
+    if [ -L "$target_path" ]; then
+      local resolved
+      resolved="$(readlink -f "$target_path" 2>/dev/null)"
+      if [ -n "$resolved" ] && [ -f "$resolved" ]; then
+        rm "$target_path"
+        cp "$resolved" "$target_path"
+        chmod +x "$target_path"
+        echo "[gitstatusd] $target_path was a symlink to $resolved — replaced in place with the verified bytes ($version, ${binary_sha:0:12}…). The runtime's O_NOFOLLOW open will now accept it."
+        return 0
+      fi
+      echo "[warn] $target_path is a broken symlink — falling through to fresh download." >&2
+      # fall through to the download path below
+    else
+      echo "[gitstatusd] $target_path already at pinned sha256 ($version, ${binary_sha:0:12}…) — skipping download."
+      return 0
+    fi
   fi
 
   local url="https://github.com/romkatv/gitstatus/releases/download/${version}/${file}.tar.gz"

@@ -1505,7 +1505,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "p10k-rs"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "anyhow",
  "clap",
@@ -1528,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-ai"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "p10k-rs-config",
  "p10k-rs-core",
@@ -1538,7 +1538,7 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-config"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-core"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "p10k-rs-config",
  "rustix 0.38.44",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-git"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "gix",
  "p10k-rs-core",
@@ -1571,18 +1571,18 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-ipc"
-version = "0.1.0"
+version = "0.1.7-dev"
 
 [[package]]
 name = "p10k-rs-jj"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "p10k-rs-core",
 ]
 
 [[package]]
 name = "p10k-rs-segments"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "p10k-rs-config",
  "p10k-rs-core",
@@ -1594,14 +1594,14 @@ dependencies = [
 
 [[package]]
 name = "p10k-rs-shell"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "p10k-rs-wizard"
-version = "0.1.0"
+version = "0.1.7-dev"
 dependencies = [
  "p10k-rs-config",
  "thiserror",
