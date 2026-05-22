@@ -73,7 +73,7 @@ Verification recipe in [SECURITY.md](SECURITY.md).
 | `p10k-rs configure` wizard (TUI) | ⏳ stub |
 | `bash` init script (no RPROMPT, no preexec timing, no gitstatusd, no transient) | ⚠️ best-effort |
 | `fish` init script | ⏳ stub |
-| mdBook documentation site | ✅ [published](https://scurran1986.github.io/powerlevel10k-rs/) (needs Pages source flip — see NEXT-STEPS) |
+| mdBook documentation site (source: [docs/src/](docs/src/SUMMARY.md)) | ⚠️ source ready; publishing blocked on a one-click GitHub Pages source flip |
 
 ## Workspace layout
 
@@ -91,7 +91,7 @@ crates/
   p10k-rs-ipc        # FIFO plumbing
 ```
 
-Per-crate detail in the [mdBook architecture chapter](https://scurran1986.github.io/powerlevel10k-rs/arch/crates.html)
+Per-crate detail in the [architecture chapter](docs/src/arch/crates.md)
 and [docs/adr/](docs/adr/).
 
 ## What's next

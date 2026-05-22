@@ -58,7 +58,7 @@ The translator currently has gaps for:
   land via `show_in_dir` / `show_on_command`).
 - `POWERLEVEL9K_TRANSIENT_PROMPT` modes — `p10k-rs` has its own
   four-mode `transient_prompt` setting; check
-  [the mdBook config chapter](https://scurran1986.github.io/powerlevel10k-rs/config/).
+  [the configuration chapter](docs/src/config/index.md).
 
 Unrecognised variables are printed to **stderr** so you can see
 what didn't translate:
@@ -98,8 +98,8 @@ p10k-rs config check
 ```
 
 Then `exec zsh` to see the live prompt. If something looks off,
-the mdBook user guide has the full schema — start at
-[https://scurran1986.github.io/powerlevel10k-rs/](https://scurran1986.github.io/powerlevel10k-rs/).
+the user guide has the full schema — start at
+[docs/src/SUMMARY.md](docs/src/SUMMARY.md).
 
 ## Why the importer is best-effort
 

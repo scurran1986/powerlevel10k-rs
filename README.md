@@ -6,7 +6,7 @@
 [![release](https://img.shields.io/github/v/release/scurran1986/powerlevel10k-rs?label=release&color=blueviolet)](https://github.com/scurran1986/powerlevel10k-rs/releases)
 [![ci](https://img.shields.io/github/actions/workflow/status/scurran1986/powerlevel10k-rs/ci.yml?branch=main&label=ci&logo=github)](https://github.com/scurran1986/powerlevel10k-rs/actions/workflows/ci.yml)
 [![rust](https://img.shields.io/badge/Rust-1.88+-orange?logo=rust)](https://www.rust-lang.org/)
-[![license](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
+[![license](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](LICENSE-MIT)
 
 Single static binary. Declarative TOML config. Multi-shell.
 `gitstatusd`-class git latency.
@@ -52,7 +52,7 @@ p10k-rs verify
 
 | If you want to… | Read |
 |---|---|
-| Configure the prompt (TOML schema, colours, layout) | [mdBook user guide](https://scurran1986.github.io/powerlevel10k-rs/) |
+| Configure the prompt (TOML schema, colours, layout) | [User guide](docs/src/SUMMARY.md) |
 | See what works today (segments, features, supported shells) | [STATUS.md](STATUS.md) |
 | Import an existing `~/.p10k.zsh` | [IMPORTING.md](IMPORTING.md) |
 | Verify a release signature / understand the threat model | [SECURITY.md](SECURITY.md) |
