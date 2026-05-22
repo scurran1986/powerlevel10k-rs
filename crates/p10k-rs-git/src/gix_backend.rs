@@ -61,9 +61,17 @@ impl Backend for GixBackend {
         let repo = gix::discover(path).ok()?;
         let branch = branch_safetext(&repo);
         let dirty = repo_is_dirty(&repo);
+        // Phase 5: reuse the filesystem-based in-progress-action probe
+        // from the ShellOut backend. `repo.git_dir()` gives the real
+        // `.git/` path (handling worktrees + submodules correctly via
+        // gix's own resolution), which `crate::detect_action` then
+        // checks for MERGE_HEAD / rebase-merge / CHERRY_PICK_HEAD /
+        // REVERT_HEAD / BISECT_LOG sentinels.
+        let action = crate::detect_action(repo.git_dir());
         Some(GitState {
             branch,
             dirty,
+            action,
             ..Default::default()
         })
     }
@@ -188,11 +196,10 @@ mod tests {
             out.staged, 0,
             "staged counter is unpopulated until phase 3.5"
         );
-        assert_eq!(
-            out.action.as_str(),
-            "",
-            "in-progress-action probe is phase 5"
-        );
+        // Action is populated in phase 5 — the workspace is rarely
+        // in a merge/rebase/cherry-pick when tests run, so just
+        // assert the field exists (could be empty string).
+        let _ = out.action.as_str();
     }
 
     /// `branch_safetext` should never panic and never produce text
@@ -239,6 +246,37 @@ mod tests {
             .status(&scratch)
             .expect("scratch is a repo; backend must report it");
         assert!(out.dirty, "repo with untracked file must be reported dirty");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A repo with a `MERGE_HEAD` sentinel in `.git/` must report
+    /// `action = "merge"`. Pins the phase 5 in-progress-action
+    /// probe against false negatives.
+    #[test]
+    fn fresh_init_repo_with_merge_head_reports_merge_action() {
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-merge-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        let _repo = gix::init(&scratch).expect("gix::init");
+        // gix::init places the git dir at <scratch>/.git on a
+        // non-bare repo. Plant a MERGE_HEAD sentinel inside it.
+        std::fs::write(
+            scratch.join(".git").join("MERGE_HEAD"),
+            b"0123456789abcdef0123456789abcdef01234567\n",
+        )
+        .expect("write MERGE_HEAD");
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(
+            out.action.as_str(),
+            "merge",
+            "MERGE_HEAD sentinel should map to action=merge"
+        );
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
