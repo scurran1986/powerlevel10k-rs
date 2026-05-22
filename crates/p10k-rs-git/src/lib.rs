@@ -37,6 +37,9 @@ pub use gitstatusd::{
 pub mod pins;
 pub use pins::{detect_host_triple, PinEntry, Pins, PinsError, PINS_TOML};
 
+pub mod gix_backend;
+pub use gix_backend::GixBackend;
+
 /// Wall-clock budget for the [`ShellOut`] `git status` spawn.
 ///
 /// Mirrors the [`gitstatusd::DEFAULT_TIMEOUT`] budget. A malicious `.git/`

@@ -23,8 +23,11 @@ thiserror = { workspace = true } # typed errors on the ShellOut spawn path (T0.4
 # `p10k-rs verify` shares a single source of truth with the installer.
 serde = { workspace = true }
 toml = { workspace = true }
-# `gix`, `rayon` will come back when the `gix-status` fallback lands as a
-# correctness alternative to gitstatusd. Today: not used.
+# Slice 60: gitoxide subset arrives in phase 2; phase 1 lands as a
+# pure-stub `GixBackend` so the chain is wired without exposing the
+# crate to the broken-default-features gix-hash 0.25 situation. See
+# `~/.planning/powerlevel10k-rs/research/slice-60-gitoxide-api-notes.md`
+# for the version + feature combo phase 2 will use.
 
 [lints]
 workspace = true

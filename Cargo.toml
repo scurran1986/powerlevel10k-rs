@@ -59,6 +59,16 @@ anyhow = "1.0" # binary glue only — never in libraries
 # git2-rs, etc.). Tiny transitive surface (digest + generic-array +
 # crypto-common + cpufeatures). MSRV-clean at 1.88.
 sha2 = "0.10"
+
+# Slice 60: gitoxide subset. NOT YET ADDED. Phase 1 lands as a
+# pure-stub `GixBackend` (no gitoxide dep) so the backend chain
+# is wired and the type exists. A background research note at
+# `~/.planning/powerlevel10k-rs/research/slice-60-gitoxide-api-notes.md`
+# pins the exact `gix-*` crate versions + feature flags before
+# phase 2 imports anything. gix-hash 0.25 has broken defaults
+# (Kind enum variants gated behind `sha1` / `sha256` features
+# that downstream doesn't enable) — phase 2 has to thread the
+# right feature combo carefully.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Daily-rotating file appender + non-blocking writer for the diagnostics

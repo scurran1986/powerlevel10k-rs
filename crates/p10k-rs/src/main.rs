@@ -20,7 +20,7 @@ use clap::{Parser, Subcommand};
 
 use p10k_rs_config::{Glob, ShellIntegrationMode};
 use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell as CoreShell};
-use p10k_rs_git::{Backend as GitBackend, Gitstatusd, ShellOut as GitShellOut};
+use p10k_rs_git::{Backend as GitBackend, Gitstatusd, GixBackend, ShellOut as GitShellOut};
 use p10k_rs_shell::Shell as ShellInit;
 
 /// Top-level CLI for `p10k-rs`.
@@ -1069,7 +1069,12 @@ fn git_status(path: &std::path::Path) -> Option<p10k_rs_core::GitState> {
             return d.status(path);
         }
     }
-    GitShellOut.status(path)
+    // Slice 60: backend chain becomes gitstatusd -> ShellOut -> GixBackend.
+    // GixBackend is the pure-Rust fallback for cwds where `git` is not
+    // on `$PATH` (stripped containers, AI-host images). Phase 1 stub
+    // returns `None` unconditionally, so behaviour is byte-identical
+    // to pre-slice-60 until phase 2-6 wire real reporting.
+    GitShellOut.status(path).or_else(|| GixBackend.status(path))
 }
 
 /// Probe Jujutsu state for `path`.
