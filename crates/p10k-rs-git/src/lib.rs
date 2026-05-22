@@ -34,6 +34,9 @@ pub use gitstatusd::{
     Gitstatusd, LocateError as LocateGitstatusdError,
 };
 
+pub mod pins;
+pub use pins::{detect_host_triple, PinEntry, Pins, PinsError, PINS_TOML};
+
 /// Wall-clock budget for the [`ShellOut`] `git status` spawn.
 ///
 /// Mirrors the [`gitstatusd::DEFAULT_TIMEOUT`] budget. A malicious `.git/`

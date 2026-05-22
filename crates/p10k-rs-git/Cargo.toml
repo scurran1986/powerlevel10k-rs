@@ -17,6 +17,12 @@ categories.workspace = true
 p10k-rs-core = { workspace = true }
 rustix = { workspace = true } # used by gitstatusd backend for poll-with-timeout
 thiserror = { workspace = true } # typed errors on the ShellOut spawn path (T0.4)
+# T0.5: typed view over the committed gitstatusd sha256 pin file. The
+# TOML is intentionally flat so the bash side in `install.sh` reads it
+# with `awk`; on the Rust side we deserialise it via serde+toml so
+# `p10k-rs verify` shares a single source of truth with the installer.
+serde = { workspace = true }
+toml = { workspace = true }
 # `gix`, `rayon` will come back when the `gix-status` fallback lands as a
 # correctness alternative to gitstatusd. Today: not used.
 

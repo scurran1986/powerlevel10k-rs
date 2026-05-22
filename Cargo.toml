@@ -52,6 +52,13 @@ serde_json = "1.0"
 toml = "0.8"
 thiserror = "2.0"
 anyhow = "1.0" # binary glue only — never in libraries
+# `sha2` powers the T0.5 `p10k-rs verify` subcommand — re-hashes the
+# gitstatusd helper on disk and compares against the committed pin in
+# `crates/p10k-rs-git/data/gitstatusd-pins.toml`. The RustCrypto crate
+# is the standard pure-Rust sha2 implementation (used by cargo, rustup,
+# git2-rs, etc.). Tiny transitive surface (digest + generic-array +
+# crypto-common + cpufeatures). MSRV-clean at 1.88.
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Daily-rotating file appender + non-blocking writer for the diagnostics

@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod verify;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -114,6 +116,21 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Verify the gitstatusd helper binary against the committed sha256 pin (T0.5).
+    ///
+    /// Locates gitstatusd via the same `$P10K_RS_GITSTATUSD_BIN` → `$PATH`
+    /// probe the prompt path uses, hashes the on-disk binary, and
+    /// compares to the pin embedded from
+    /// `crates/p10k-rs-git/data/gitstatusd-pins.toml`. Exit codes:
+    /// 0 (`OK`), 2 (`MISMATCH`), 3 (`NOT_FOUND`), 4 (`UNSUPPORTED_ARCH`).
+    Verify {
+        /// Optional explicit path to the gitstatusd binary. When set,
+        /// skips the auto-locate probe and hashes the given file
+        /// directly. Useful for verifying a candidate binary before
+        /// moving it into the install prefix.
+        #[arg(long)]
+        binary: Option<PathBuf>,
+    },
 }
 
 /// Subcommands under `p10k-rs config`.
@@ -217,6 +234,10 @@ fn main() -> Result<()> {
                 cmd_config_check(config.as_deref())
             }
         },
+        Command::Verify { binary } => {
+            tracing::debug!(?binary, "verify invoked");
+            verify::cmd_verify(binary.as_deref())
+        }
     }
 }
 

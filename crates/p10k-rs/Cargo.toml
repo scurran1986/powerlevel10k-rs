@@ -51,6 +51,11 @@ rustix = { workspace = true }
 # globset exactly. Keeping the dep in the binary crate only — the config
 # crate stays glob-impl-agnostic so a future swap costs one file.
 globset = "0.4"
+# T0.5: `p10k-rs verify` re-hashes the gitstatusd helper on disk and
+# compares it to the committed pin (see `crates/p10k-rs-git/data/gitstatusd-pins.toml`).
+# `sha2` from the RustCrypto suite is the standard pure-Rust SHA-256
+# implementation. Streamed hashing keeps memory flat on a multi-MB binary.
+sha2 = { workspace = true }
 
 [lints]
 workspace = true
