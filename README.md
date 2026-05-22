@@ -12,10 +12,16 @@ Single static binary. Declarative TOML config. Multi-shell.
 `gitstatusd`-class git latency.
 
 > [!WARNING]
-> **No warranty. No support. Use at your own risk.** Experimental,
-> AI-assisted hobby project. May have bugs, security issues, or stop
-> being maintained. Don't run it where it matters. See
-> [POLICIES.md](POLICIES.md).
+> **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.**
+> Free, AI-assisted hobby project. **No warranty. No support. No SLA.
+> No liability accepted.** May contain defects of any kind or stop
+> being maintained without notice. **Use entirely at your own risk.**
+> Don't run it where consequences matter.
+>
+> Full disclaimer, limitation of liability, and assumption-of-risk
+> terms in **[POLICIES.md](POLICIES.md)**. By using this software you
+> accept those terms in addition to the [MIT](LICENSE-MIT) and
+> [Apache-2.0](LICENSE-APACHE) licenses.
 
 ## Quick start
 
@@ -55,7 +61,7 @@ p10k-rs verify
 | Configure the prompt (TOML schema, colours, layout) | [User guide](docs/src/SUMMARY.md) |
 | See what works today (segments, features, supported shells) | [STATUS.md](STATUS.md) |
 | Import an existing `~/.p10k.zsh` | [IMPORTING.md](IMPORTING.md) |
-| Verify a release signature / understand the threat model | [SECURITY.md](SECURITY.md) |
+| Verify a release signature, report a defect privately | [SECURITY.md](SECURITY.md) |
 | Confirm there's no telemetry | [PRIVACY.md](PRIVACY.md) |
 | Hack on the code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Understand maintenance, AI-development model, trademarks | [POLICIES.md](POLICIES.md) |

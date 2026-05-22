@@ -5,6 +5,149 @@ the support story is, and the trademark and license notices.
 Read this **before** depending on `p10k-rs` for anything that
 matters.
 
+> **NOT LEGAL ADVICE.** This document is written in plain
+> language by the maintainer. It is not drafted, reviewed, or
+> blessed by an attorney. It exists to make the warranty and
+> liability terms of the underlying [MIT](LICENSE-MIT) and
+> [Apache-2.0](LICENSE-APACHE) licenses more conspicuous; the
+> license texts remain the controlling legal instruments. If
+> your use case has real legal, financial, regulatory, safety,
+> or commercial stakes, **consult counsel** — do not rely on
+> this document.
+
+---
+
+## Disclaimer of warranty
+
+**THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT
+WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, NONINFRINGEMENT, ACCURACY, RELIABILITY,
+AVAILABILITY, AND QUIET ENJOYMENT.**
+
+The maintainer makes **no representations and no warranties** —
+express, implied, statutory, or otherwise — about the software's
+suitability for any purpose, its correctness, its reliability,
+its availability, its compatibility with any system, its fitness
+to handle any particular workload, or its compliance with any
+standard, regulation, or law. The maintainer does **not warrant**
+that the software is free of defects or that any defects will
+be corrected.
+
+Any reliance you place on the software is **strictly at your
+own risk**.
+
+## Limitation of liability
+
+**TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW**, in no
+event shall the maintainer, contributors, copyright holders, or
+any party associated with the distribution of the software be
+liable for **any** claim, damages, losses, costs, or other
+liability of **any** kind — whether direct, indirect, incidental,
+special, exemplary, consequential, punitive, or otherwise —
+arising from, out of, or in connection with the software, its
+use, its inability to be used, its modification, its
+distribution, or its integration with any other software,
+hardware, system, or service, including without limitation:
+
+- Loss, corruption, or unauthorised disclosure of data.
+- Lost profits, lost revenue, lost savings, lost opportunity, or business interruption.
+- System downtime, system damage, hardware damage, or service degradation.
+- Cost of substitute software, services, or labour.
+- Third-party claims or demands of any nature.
+- Regulatory, compliance, or contractual penalties of any kind.
+- Personal injury, emotional distress, or reputational harm.
+
+This limitation applies **regardless of the legal theory** —
+contract, tort (including negligence), strict liability, statute,
+or otherwise — and applies **even if** the maintainer has been
+advised of the possibility of such damages and even if any
+limited remedy is found to have failed of its essential purpose.
+
+Some jurisdictions do not allow the exclusion or limitation of
+incidental or consequential damages, so the above limitation
+may not apply to you in full; in that case it applies to the
+maximum extent permitted by law in your jurisdiction.
+
+## Free service. No consideration. No contract.
+
+`p10k-rs` is distributed **at no cost**. The maintainer
+receives **no payment, no compensation, and no consideration**
+of any kind in exchange for the software, its distribution, or
+its continued maintenance. **No contract, no agreement, and no
+relationship of any kind** is created between you and the
+maintainer by your downloading, installing, modifying,
+distributing, or using the software, other than the terms set
+forth in the [MIT](LICENSE-MIT) and [Apache-2.0](LICENSE-APACHE)
+license texts you accepted when you obtained the software.
+
+**There is no service-level agreement. There is no support
+contract. There is no maintenance obligation. There is no
+upgrade obligation. There is no obligation to fix defects of
+any kind.** None of these exist explicitly, and none can be
+implied or inferred from any past activity of the maintainer,
+the existence of this repository, prior responses to issues
+or pull requests, public statements, social-media posts,
+release cadence, blog posts, or any other interaction or
+course of dealing.
+
+## Assumption of risk
+
+By downloading, installing, modifying, distributing, or using
+`p10k-rs`, you acknowledge and accept that:
+
+1. **The software may contain defects of any kind** that have not been discovered and may never be discovered.
+2. **The software is AI-assisted** ("vibe coded") and may contain plausible-looking errors that escape ordinary human review.
+3. **The software may stop being maintained** at any time, without notice, without migration guidance, and without successor.
+4. **Defects of any nature may be addressed slowly, partially, or not at all**, at the maintainer's sole discretion.
+5. **Breaking changes** to configuration schema, CLI surface, segment names, output format, or any other interface may land between any two versions before v1.0, including patch versions.
+6. **Backups, redundancy, monitoring, and incident response are your responsibility** — the software offers none of these and assumes none for you.
+7. **The maintainer's spare time, mood, life circumstances, and personal interest** are the sole determinants of project activity, and may shift without notice or explanation.
+
+If any of these consequences are unacceptable for your use case,
+**do not use this software**. Choose a commercial product backed
+by a vendor with explicit support obligations, warranty
+commitments, and indemnification, or maintain your own fork
+under terms acceptable to your organisation.
+
+## Indemnification
+
+You agree, to the fullest extent permitted by law, to
+**indemnify, defend, and hold harmless** the maintainer,
+contributors, copyright holders, and all parties associated
+with the distribution of the software from and against any and
+all claims, demands, suits, proceedings, damages, losses,
+liabilities, costs, and expenses — including reasonable
+attorneys' fees and court costs — arising out of or related to:
+
+- Your use, modification, distribution, or sublicensing of the software.
+- Your integration of the software with any other product, system, or service.
+- Any breach by you of the [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) licenses, or of this document.
+- Any claim that your use, modification, or distribution of the software infringes the intellectual-property rights of a third party.
+- Any data, content, or configuration you process through the software.
+
+This obligation survives your cessation of use of the software.
+
+## Severability
+
+If any provision of this document is held to be unenforceable
+or invalid under applicable law, that provision shall be
+construed, limited, modified, or, if necessary, severed to the
+minimum extent necessary to render the remainder enforceable.
+The unenforceability of any single provision does not affect
+the enforceability of the rest.
+
+## License authority
+
+If there is any conflict between this document and the [MIT
+license](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE)
+text under which the software is distributed, **the license
+texts control**. This document exists to make those licenses'
+warranty and liability provisions more conspicuous; it does
+not modify, expand, narrow, or supersede them.
+
+---
+
 ## TL;DR
 
 - One-person hobby project. No SLA. No support. No warranty.
@@ -28,10 +171,10 @@ time. Concretely:
 
 - **No SLA.** Issues may sit unanswered indefinitely. PRs may
   never be reviewed.
-- **No security commitment.** Vulnerabilities will be addressed
-  when and if the maintainer has time and interest. Use the
-  private vulnerability reporting channel (see
-  [SECURITY.md](SECURITY.md)) anyway — but no response time is
+- **No commitment to fix defects of any kind.** Defects will
+  be addressed when and if the maintainer has time and
+  interest. A private reporting channel is available — see
+  [SECURITY.md](SECURITY.md) — but no response time is
   promised.
 - **No backward-compatibility promise** before v1.0. Schema,
   CLI, segment names, anything may change between minor
