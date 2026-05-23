@@ -211,11 +211,23 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 ///   Full rationale in
 ///   `~/.planning/powerlevel10k-rs/research/cursor-statusline-contract.md`
 ///   — read it before "wiring up" Cursor; the absence is the contract.
+/// - [`HostKind::Goose`] — returns an empty string **by design**.
+///   Goose has no JSON-on-stdin statusline contract. Upstream's
+///   documented UX is to embed `$(goose term info)` directly in
+///   `$PS1` / `$PROMPT`, and Goose's own binary renders its session
+///   statusline fragment in-process from `$AGENT_SESSION_ID`.
+///   Re-emitting that through p10k-rs would be a wrapper around a
+///   wrapper. The `ai_host` prompt segment carries the "you are
+///   inside Goose" detection badge; users who want context-usage /
+///   model-name display compose `goose term info` into their prompt
+///   themselves. Full rationale in
+///   `~/.planning/powerlevel10k-rs/research/goose-statusline-contract.md`
+///   — read it before "wiring up" Goose; the absence is the contract.
 /// - Every other [`HostKind`] — returns an empty string. The per-host
-///   protocol for Aider / Goose / generic agents is not yet
-///   documented; rendering anything would be a guess. Empty stdout is
-///   the contract for "we don't know what to render," and the host
-///   will just see no statusline.
+///   protocol for Aider / generic agents is not yet documented;
+///   rendering anything would be a guess. Empty stdout is the
+///   contract for "we don't know what to render," and the host will
+///   just see no statusline.
 ///
 /// Crash-safe: malformed JSON returns an empty string rather than
 /// panicking. The host kills the process on every update anyway
@@ -235,17 +247,21 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
     match host {
         HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai),
-        // Every other host returns empty. Cursor's emptiness is
-        // *documented choice* — see the doc comment above and
-        // `~/.planning/powerlevel10k-rs/research/cursor-statusline-contract.md`
-        // for the full "no public contract exists" research trail.
-        // Aider / Goose / Generic are "empty until protocol is known".
-        // The dedicated test `render_statusline_cursor_is_intentionally_empty`
-        // pins the Cursor decision so a future "add Cursor support"
-        // patch has to consciously delete the assertion. Clippy
-        // flags a per-variant `HostKind::Cursor => ""` arm as
+        // Every other host returns empty. Cursor *and* Goose are
+        // empty by *documented choice* — see the doc comment above
+        // and the matching research notes
+        // (`cursor-statusline-contract.md`, `goose-statusline-contract.md`
+        // under `~/.planning/powerlevel10k-rs/research/`) for the
+        // full "no public stdin contract exists" research trail.
+        // Aider / Generic are "empty until protocol is known".
+        // Dedicated tests
+        // (`render_statusline_cursor_is_intentionally_empty`,
+        // `render_statusline_goose_is_intentionally_empty`) pin those
+        // decisions so a future "add support" patch has to
+        // consciously delete the assertion. Clippy flags a per-variant
+        // `HostKind::Cursor => ""` (or `Goose`) arm as
         // identical-to-wildcard, so the discrimination lives in the
-        // doc comment + the dedicated test rather than the match.
+        // doc comment + the dedicated tests rather than the match.
         _ => String::new(),
     }
 }
@@ -410,10 +426,10 @@ mod tests {
         // deliberately — not by accident.
         //
         // Distinct from `render_statusline_non_claude_hosts_return_empty`
-        // because Cursor is the only "empty by documented choice"
-        // host (the others are "empty until protocol is known"). When
-        // Cursor ships a contract, this test deletes; the catch-all
-        // test keeps living for Aider / Goose / Generic.
+        // because Cursor is one of two "empty by documented choice"
+        // hosts (the other is Goose; the rest are "empty until protocol
+        // is known"). When Cursor ships a contract, this test deletes;
+        // the catch-all test keeps living for Aider / Generic.
         let ai = empty_ai_config();
         // Empty input.
         assert_eq!(render_statusline(&HostKind::Cursor, b"", &ai), "");
@@ -436,6 +452,46 @@ mod tests {
         ai_with_override.context_tokens = Some(123_456);
         assert_eq!(
             render_statusline(&HostKind::Cursor, b"{}", &ai_with_override),
+            ""
+        );
+    }
+
+    #[test]
+    fn render_statusline_goose_is_intentionally_empty() {
+        // Goose has no JSON-on-stdin statusline contract — upstream's
+        // documented path is `$(goose term info)` embedded directly in
+        // `$PS1`, with Goose's own binary rendering the fragment from
+        // `$AGENT_SESSION_ID`. See
+        // `~/.planning/powerlevel10k-rs/research/goose-statusline-contract.md`
+        // for the full research trail (canonical source:
+        // `https://goose-docs.ai/docs/guides/terminal-integration/`).
+        //
+        // This test pins the "render empty by design" decision so a
+        // future patch that wires a Goose renderer (e.g. shelling out
+        // to `goose term info`) has to delete this assertion
+        // deliberately — not by accident. Mirrors the Cursor pin.
+        let ai = empty_ai_config();
+        // Empty input.
+        assert_eq!(render_statusline(&HostKind::Goose, b"", &ai), "");
+        // Minimal JSON object.
+        assert_eq!(render_statusline(&HostKind::Goose, b"{}", &ai), "");
+        // Claude-Code-shaped JSON: even if a confused host pipes us a
+        // Claude payload while declaring `--host goose`, we still emit
+        // nothing. The host kind, not the payload shape, decides.
+        let claude_shape = br#"{
+            "cwd": "/tmp",
+            "model": { "display_name": "Opus 4.7" },
+            "context_window": { "context_window_size": 200000, "used_percentage": 5.0 }
+        }"#;
+        assert_eq!(render_statusline(&HostKind::Goose, claude_shape, &ai), "");
+        // User-provided `[ai].model` override must not leak into the
+        // Goose render path either — the contract is "empty," not
+        // "empty unless the user set [ai].model".
+        let mut ai_with_override = empty_ai_config();
+        ai_with_override.model = Some("my-model".to_owned());
+        ai_with_override.context_tokens = Some(123_456);
+        assert_eq!(
+            render_statusline(&HostKind::Goose, b"{}", &ai_with_override),
             ""
         );
     }
