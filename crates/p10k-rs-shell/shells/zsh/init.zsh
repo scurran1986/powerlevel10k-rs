@@ -31,6 +31,21 @@
 # segment hidden) yields `RPROMPT=""`, which zsh treats as no right
 # prompt — i.e. the historical behaviour is preserved when users don't
 # opt in.
+#
+# Daemon respawn channel (slice 64):
+#   `_P10K_RS_GITSTATUSD_PID_FILE` — path to a 0600 file inside
+#     `_P10K_RS_FIFO_DIR` holding the daemon's PID as ASCII digits.
+#     Written once at spawn; read by the precmd liveness probe (phase 3)
+#     so a future implementation can check `kill -0` against the PID on
+#     disk rather than the cached `_P10K_RS_DAEMON_PID` shell variable.
+#   `_P10K_RS_GITSTATUSD_WEDGE` — path the Rust client (phase 2) touches
+#     on a FIFO read timeout to signal "the daemon answered slowly enough
+#     that we treat it as wedged"; the precmd hook then tears the daemon
+#     down and respawns. The file itself is NOT created at init time —
+#     only the path is exported. Both live inside the per-shell
+#     `mktemp -d` directory and inherit its `0700` mode and unpredictable
+#     name; `_p10k_rs_stop_daemon`'s `rm -rf` of that directory cleans
+#     them up alongside the FIFOs at shell exit.
 
 if [[ -n "${_P10K_RS_INSTALLED:-}" ]]; then
   return 0
@@ -155,9 +170,21 @@ _p10k_rs_start_daemon() {
   ) &!
   _P10K_RS_DAEMON_PID=$!
 
+  # Slice 64 phase 1 — daemon PID file + wedge sentinel path export.
+  # Both files live in `$dir` (the per-shell `mktemp -d` directory,
+  # mode 0700) so they inherit its unpredictable name and tight perms.
+  # The PID file is written 0600 via a `umask 077` subshell — matches
+  # the `mkfifo -m 0600` discipline above. Phase 2 (Rust client) touches
+  # the wedge file on a FIFO read timeout; phase 3 (precmd hook) consumes
+  # both to decide when to respawn a wedged daemon.
+  local pid_file="$dir/daemon.pid"
+  ( umask 077 && print -r -- "$_P10K_RS_DAEMON_PID" > "$pid_file" ) 2>/dev/null || return 1
+
   _P10K_RS_FIFO_DIR="$dir"
   export _P10K_RS_GITSTATUSD_REQ="$req"
   export _P10K_RS_GITSTATUSD_RESP="$resp"
+  export _P10K_RS_GITSTATUSD_PID_FILE="$pid_file"
+  export _P10K_RS_GITSTATUSD_WEDGE="$dir/wedge"
   return 0
 }
 
@@ -177,6 +204,11 @@ _p10k_rs_stop_daemon() {
   if [[ -n "$_P10K_RS_FIFO_DIR" && "$_P10K_RS_FIFO_DIR" == */p10k-rs.* && -d "$_P10K_RS_FIFO_DIR" ]]; then
     rm -rf -- "$_P10K_RS_FIFO_DIR"
   fi
+  # Slice 64 phase 1 — clear the daemon respawn env vars so a subsequent
+  # `_p10k_rs_start_daemon` that fails before re-export leaves no stale
+  # path pointing at a now-deleted file.
+  unset _P10K_RS_GITSTATUSD_PID_FILE
+  unset _P10K_RS_GITSTATUSD_WEDGE
 }
 
 autoload -Uz add-zsh-hook
