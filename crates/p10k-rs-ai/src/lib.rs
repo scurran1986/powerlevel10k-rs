@@ -223,11 +223,23 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 ///   themselves. Full rationale in
 ///   `~/.planning/powerlevel10k-rs/research/goose-statusline-contract.md`
 ///   — read it before "wiring up" Goose; the absence is the contract.
+/// - [`HostKind::Aider`] — returns an empty string **by design**, but
+///   for a different architectural reason than Cursor / Goose. Aider
+///   IS the terminal-side tool (the user launches `aider` from a
+///   shell; aider takes over the terminal until it exits), so there's
+///   no "shell prompt running inside an aider session" for a
+///   statusline to render against. The `$AIDER_*` env vars that
+///   `detect_from_env` keys on exist for the `ai_host` prompt segment,
+///   not for a statusline. Full rationale in
+///   `~/.planning/powerlevel10k-rs/research/aider-statusline-contract.md`
+///   — read it before "wiring up" Aider; the architectural shape
+///   inverts the host-wraps-shell model that the statusline contract
+///   assumes.
 /// - Every other [`HostKind`] — returns an empty string. The per-host
-///   protocol for Aider / generic agents is not yet documented;
-///   rendering anything would be a guess. Empty stdout is the
-///   contract for "we don't know what to render," and the host will
-///   just see no statusline.
+///   protocol for generic agents is not yet documented; rendering
+///   anything would be a guess. Empty stdout is the contract for "we
+///   don't know what to render," and the host will just see no
+///   statusline.
 ///
 /// Crash-safe: malformed JSON returns an empty string rather than
 /// panicking. The host kills the process on every update anyway
@@ -247,19 +259,22 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
     match host {
         HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai),
-        // Every other host returns empty. Cursor *and* Goose are
-        // empty by *documented choice* — see the doc comment above
-        // and the matching research notes
-        // (`cursor-statusline-contract.md`, `goose-statusline-contract.md`
-        // under `~/.planning/powerlevel10k-rs/research/`) for the
-        // full "no public stdin contract exists" research trail.
-        // Aider / Generic are "empty until protocol is known".
-        // Dedicated tests
+        // Every other host returns empty. Cursor, Goose, *and* Aider
+        // are empty by *documented choice* — see the doc comment
+        // above and the matching research notes
+        // (`cursor-statusline-contract.md`, `goose-statusline-contract.md`,
+        // `aider-statusline-contract.md` under
+        // `~/.planning/powerlevel10k-rs/research/`) for the full
+        // "no public stdin contract exists" research trail (Cursor /
+        // Goose) and the "host-wraps-shell architectural inversion"
+        // story (Aider). `Generic` falls under "empty until protocol
+        // is known". Dedicated tests
         // (`render_statusline_cursor_is_intentionally_empty`,
-        // `render_statusline_goose_is_intentionally_empty`) pin those
+        // `render_statusline_goose_is_intentionally_empty`,
+        // `render_statusline_aider_is_intentionally_empty`) pin those
         // decisions so a future "add support" patch has to
         // consciously delete the assertion. Clippy flags a per-variant
-        // `HostKind::Cursor => ""` (or `Goose`) arm as
+        // `HostKind::Cursor => ""` (or `Goose` / `Aider`) arm as
         // identical-to-wildcard, so the discrimination lives in the
         // doc comment + the dedicated tests rather than the match.
         _ => String::new(),
@@ -492,6 +507,50 @@ mod tests {
         ai_with_override.context_tokens = Some(123_456);
         assert_eq!(
             render_statusline(&HostKind::Goose, b"{}", &ai_with_override),
+            ""
+        );
+    }
+
+    #[test]
+    fn render_statusline_aider_is_intentionally_empty() {
+        // Aider has no statusline contract — and the architectural
+        // shape (aider takes over the terminal until exit; no shell
+        // prompt runs concurrently inside an aider session) makes
+        // one a category error rather than just an unfilled gap.
+        // See `~/.planning/powerlevel10k-rs/research/aider-statusline-contract.md`
+        // for the full rationale (canonical sources:
+        // `https://aider.chat/docs/usage.html` and
+        // `https://aider.chat/docs/scripting.html`).
+        //
+        // This test pins the "render empty by design" decision so a
+        // future patch that wires an Aider renderer has to delete this
+        // assertion deliberately — not by accident. Mirrors the
+        // Cursor and Goose pins. If Aider ever pivots from "takes
+        // over the terminal" to a "wraps a shell session" model, this
+        // is the assertion that should trip first and force a
+        // deliberate design conversation.
+        let ai = empty_ai_config();
+        // Empty input.
+        assert_eq!(render_statusline(&HostKind::Aider, b"", &ai), "");
+        // Minimal JSON object.
+        assert_eq!(render_statusline(&HostKind::Aider, b"{}", &ai), "");
+        // Claude-Code-shaped JSON: even if a confused host pipes us a
+        // Claude payload while declaring `--host aider`, we still emit
+        // nothing. The host kind, not the payload shape, decides.
+        let claude_shape = br#"{
+            "cwd": "/tmp",
+            "model": { "display_name": "Opus 4.7" },
+            "context_window": { "context_window_size": 200000, "used_percentage": 5.0 }
+        }"#;
+        assert_eq!(render_statusline(&HostKind::Aider, claude_shape, &ai), "");
+        // User-provided `[ai].model` override must not leak into the
+        // Aider render path either — the contract is "empty," not
+        // "empty unless the user set [ai].model".
+        let mut ai_with_override = empty_ai_config();
+        ai_with_override.model = Some("my-model".to_owned());
+        ai_with_override.context_tokens = Some(123_456);
+        assert_eq!(
+            render_statusline(&HostKind::Aider, b"{}", &ai_with_override),
             ""
         );
     }
