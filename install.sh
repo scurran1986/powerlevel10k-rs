@@ -11,11 +11,13 @@
 # line is already there.
 #
 # Usage:
-#   ./install.sh                         # zsh, full install
+#   ./install.sh                         # zsh, full install (incl. MesloLGS NF)
 #   ./install.sh --shell zsh             # explicit
 #   ./install.sh --no-rc                 # build + install binary, leave rc alone
 #   ./install.sh --no-build              # skip the cargo build step (use existing)
+#   ./install.sh --no-fonts              # skip MesloLGS NF download
 #   ./install.sh --uninstall             # reverse: remove rc line and the binary
+#                                        # (fonts are NOT removed — see message at end)
 #
 # Limitations until later slices:
 #   - Only `zsh` is wired. Fish/bash init scripts ship with their respective
@@ -31,6 +33,7 @@ LC_ALL=C
 SHELL_NAME="zsh"
 DO_BUILD=1
 DO_RC=1
+DO_FONTS=1
 UNINSTALL=0
 # T0.5: gitstatusd acquisition mode.
 #   pinned  — download + sha256-verify (default, v0.1.5)
@@ -43,6 +46,7 @@ while [ $# -gt 0 ]; do
     --shell) SHELL_NAME="$2"; shift 2 ;;
     --no-rc) DO_RC=0; shift ;;
     --no-build) DO_BUILD=0; shift ;;
+    --no-fonts) DO_FONTS=0; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     --gitstatusd=*) GITSTATUSD_MODE="${1#--gitstatusd=}"; shift ;;
     --gitstatusd) GITSTATUSD_MODE="$2"; shift 2 ;;
@@ -431,6 +435,240 @@ case "$GITSTATUSD_MODE" in
   none)   echo "[gitstatusd] --gitstatusd=none — skipping; vcs segment will use ShellOut fallback." ;;
 esac
 
+# ---------- font install (MesloLGS NF) -------------------------------------
+#
+# Default-on download of the four MesloLGS NF variants used by the wizard's
+# nerdfont/awesome-* output modes. Same defensive contract as gitstatusd:
+# this section must NEVER `exit` non-zero — fonts are a renderer concern,
+# not a functional dependency. Every failure path drops to "warn loudly,
+# continue".
+#
+# Behaviour by host:
+#   - Linux           → download to ~/.local/share/fonts/p10k-rs, run fc-cache
+#   - macOS (Darwin)  → download to ~/Library/Fonts (ATS auto-registers, no fc-cache)
+#   - WSL             → SKIP. The Linux-side font dir is invisible to the
+#                       Windows terminal. Print install instructions instead.
+#   - other           → SKIP with a warning.
+#
+# Pinned to a specific commit in romkatv/powerlevel10k-media; each file has
+# its own sha256. A mismatch refuses the install (does not overwrite any
+# existing file). See THIRD-PARTY-LICENSES.md for the MesloLGS NF section.
+
+FONTS_PIN_COMMIT="145eb9fbc2f42ee408dacd9b22d8e6e0e553f83d"
+FONTS_BASE_URL="https://raw.githubusercontent.com/romkatv/powerlevel10k-media/$FONTS_PIN_COMMIT"
+
+# Entries are "<filename><TAB><sha256>". TAB is the field separator because
+# the filenames contain spaces.
+FONTS_PINS=(
+  "MesloLGS NF Regular.ttf	d97946186e97f8d7c0139e8983abf40a1d2d086924f2c5dbf1c29bd8f2c6e57d"
+  "MesloLGS NF Bold.ttf	b6c0199cf7c7483c8343ea020658925e6de0aeb318b89908152fcb4d19226003"
+  "MesloLGS NF Italic.ttf	6f357bcbe2597704e157a915625928bca38364a89c22a4ac36e7a116dcd392ef"
+  "MesloLGS NF Bold Italic.ttf	56b4131adecec052c4b324efb818dd326d586dbc316fc68f98f1cae2eb8d1220"
+)
+
+# Echoes: linux | wsl | darwin | unsupported
+# (We distinguish WSL from native Linux because the Linux-side font dir
+# isn't visible to the Windows terminal the user is actually rendering in.)
+detect_font_host() {
+  local s
+  s="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  case "$s" in
+    darwin) echo "darwin" ;;
+    linux)
+      if [ -r /proc/sys/kernel/osrelease ] && \
+         grep -qiE 'microsoft|wsl' /proc/sys/kernel/osrelease 2>/dev/null; then
+        echo "wsl"
+      else
+        echo "linux"
+      fi
+      ;;
+    *) echo "unsupported" ;;
+  esac
+}
+
+# Returns 0 if every pinned file is already present in $1 AND its sha256
+# matches the pin. Returns 1 if any file is missing or differs.
+fonts_pins_satisfied() {
+  local dir="$1" entry name expected
+  for entry in "${FONTS_PINS[@]}"; do
+    name="${entry%%	*}"
+    expected="${entry##*	}"
+    [ -f "$dir/$name" ] || return 1
+    verify_sha256 "$dir/$name" "$expected" || return 1
+  done
+  return 0
+}
+
+# Heuristic system-wide check: are all 4 MesloLGS NF variants visible to
+# fontconfig? Lets us skip the download when a user installed the fonts
+# via package manager / oh-my-posh / a previous P10K wizard run.
+fonts_system_has_meslo() {
+  command -v fc-list >/dev/null 2>&1 || return 1
+  local hits
+  hits="$(fc-list 2>/dev/null | grep -ci 'MesloLGS NF' || true)"
+  [ "${hits:-0}" -ge 4 ]
+}
+
+# macOS equivalent: look in the user + system font dirs for any
+# MesloLGS NF *.ttf files. We don't try to match all 4 — finding any
+# MesloLGS variant means the user's set up; we don't overwrite their copy.
+fonts_darwin_has_meslo() {
+  local d
+  for d in "$HOME/Library/Fonts" "/Library/Fonts" "/System/Library/Fonts"; do
+    [ -d "$d" ] || continue
+    if ls "$d"/MesloLGS*NF*.ttf >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_fonts() {
+  if [ "$DO_FONTS" -ne 1 ]; then
+    echo "[fonts] --no-fonts — skipping MesloLGS NF install."
+    return 0
+  fi
+
+  local host
+  host="$(detect_font_host)"
+
+  case "$host" in
+    wsl)
+      cat <<'EOF'
+[fonts] WSL detected — skipping Linux-side font install.
+        Your terminal renders on the Windows side, which can't see fonts
+        installed in WSL's filesystem. Install MesloLGS NF on Windows:
+          1. Download the 4 .ttf files from
+             https://github.com/romkatv/powerlevel10k-media
+          2. Right-click each → "Install for all users"
+          3. Set your terminal font to: MesloLGS NF
+        Re-run with --no-fonts to silence this message.
+EOF
+      return 0
+      ;;
+    unsupported)
+      echo "[fonts] unsupported host ($(uname -s)) — skipping font install. Install" >&2
+      echo "        MesloLGS NF manually from https://github.com/romkatv/powerlevel10k-media" >&2
+      return 0
+      ;;
+  esac
+
+  # Preflight: download + verification helpers.
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "[warn] curl not on PATH — cannot fetch MesloLGS NF. Install manually from" >&2
+    echo "       https://github.com/romkatv/powerlevel10k-media" >&2
+    return 0
+  fi
+  if ! sha256_of /dev/null >/dev/null 2>&1; then
+    echo "[warn] no sha256 helper on PATH — cannot verify font pins. Skipping." >&2
+    return 0
+  fi
+
+  local font_dir restart_hint
+  case "$host" in
+    linux)
+      font_dir="$HOME/.local/share/fonts/p10k-rs"
+      restart_hint="restart your terminal (and any open editors)"
+      ;;
+    darwin)
+      font_dir="$HOME/Library/Fonts"
+      restart_hint="restart your terminal — macOS ATS auto-registers ~/Library/Fonts"
+      ;;
+  esac
+
+  # System-wide idempotency: if the user already has MesloLGS NF installed
+  # (any source), don't shove a second copy in our managed dir.
+  case "$host" in
+    linux)
+      if fonts_system_has_meslo; then
+        echo "[fonts] MesloLGS NF already visible to fontconfig — skipping download."
+        return 0
+      fi
+      ;;
+    darwin)
+      if fonts_darwin_has_meslo; then
+        echo "[fonts] MesloLGS NF already present in ~/Library/Fonts — skipping download."
+        return 0
+      fi
+      ;;
+  esac
+
+  mkdir -p "$font_dir"
+
+  # Per-file idempotency: if every pinned file is already at the pinned
+  # sha256 in our managed dir, skip the network entirely.
+  if fonts_pins_satisfied "$font_dir"; then
+    echo "[fonts] MesloLGS NF already at pinned sha256 in $font_dir — skipping download."
+    return 0
+  fi
+
+  local entry name expected url tmp target downloaded=0
+  for entry in "${FONTS_PINS[@]}"; do
+    name="${entry%%	*}"
+    expected="${entry##*	}"
+    target="$font_dir/$name"
+
+    if [ -f "$target" ] && verify_sha256 "$target" "$expected"; then
+      continue
+    fi
+
+    # URL-encode the spaces in the filename.
+    local enc="${name// /%20}"
+    url="$FONTS_BASE_URL/$enc"
+    tmp="$(mktemp "$font_dir/.font.XXXXXXXX")"
+
+    echo "[fonts] downloading $name"
+    if ! curl --fail --location --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --max-time 60 \
+              -o "$tmp" "$url"; then
+      echo "[warn] download failed for '$name' — leaving any prior copy alone." >&2
+      echo "       Install manually from https://github.com/romkatv/powerlevel10k-media" >&2
+      rm -f "$tmp"
+      return 0
+    fi
+
+    if ! verify_sha256 "$tmp" "$expected"; then
+      local actual
+      actual="$(sha256_of "$tmp" 2>/dev/null || echo '<sha-failed>')"
+      echo "[warn] sha256 mismatch for '$name':" >&2
+      echo "         expected $expected" >&2
+      echo "         got      $actual" >&2
+      echo "       Refusing to install — leaving any prior copy alone." >&2
+      rm -f "$tmp"
+      return 0
+    fi
+
+    chmod 0644 "$tmp"
+    if ! mv "$tmp" "$target"; then
+      echo "[warn] failed to install '$name' at $target — leaving partial state." >&2
+      rm -f "$tmp"
+      return 0
+    fi
+    downloaded=$((downloaded+1))
+  done
+
+  # fc-cache: Linux only. macOS uses ATS (auto-registers).
+  if [ "$host" = "linux" ] && [ "$downloaded" -gt 0 ]; then
+    if command -v fc-cache >/dev/null 2>&1; then
+      fc-cache -f "$font_dir" >/dev/null 2>&1 || \
+        echo "[warn] fc-cache failed — new fonts may not be visible until next login." >&2
+    else
+      echo "[warn] fc-cache not on PATH (install fontconfig: \`apt install fontconfig\`)" >&2
+      echo "       New fonts won't be picked up until you do." >&2
+    fi
+  fi
+
+  if [ "$downloaded" -eq 0 ]; then
+    echo "[fonts] all MesloLGS NF variants already at pinned sha256 — skipping."
+  else
+    echo "[fonts] installed $downloaded MesloLGS NF variant(s) in $font_dir"
+    echo "[fonts] $restart_hint, then set terminal font to: MesloLGS NF"
+  fi
+}
+
+install_fonts
+
 # ---------- rc edit --------------------------------------------------------
 
 if [ "$DO_RC" -eq 1 ]; then
@@ -471,4 +709,10 @@ Or just open a new $SHELL_NAME terminal.
 
 To uninstall:
   $SCRIPT_DIR/install.sh --uninstall
+
+The MesloLGS NF fonts (if installed) are intentionally NOT removed by
+--uninstall — other tools (oh-my-posh, vanilla P10K, editors) may rely
+on them. To remove them yourself:
+  rm -rf ~/.local/share/fonts/p10k-rs && fc-cache -f      # Linux
+  rm -f ~/Library/Fonts/'MesloLGS NF '*.ttf               # macOS
 EOF
