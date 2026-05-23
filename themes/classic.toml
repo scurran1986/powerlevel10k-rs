@@ -1,0 +1,50 @@
+# Classic — single-line with a Powerlevel10k-style chevron frame.
+#
+# Best for: anyone wanting a balanced default with some structure.
+# Uses ANSI 256 for portability across most terminals.
+#
+# Install:
+#   p10k-rs theme install classic
+
+schema_version = 1
+mode = "compatible"
+colors = "ansi256"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "background_jobs", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = 24
+
+[segment.context]
+foreground = 180
+
+[segment.dir]
+foreground = 31
+
+[segment.vcs]
+foreground = 76
+
+[segment.vcs.states.dirty]
+foreground = 178
+
+[segment.prompt_char]
+foreground = 76
+
+[segment.prompt_char.states.error]
+foreground = 160
+
+[segment.status.states.error]
+foreground = 160
+
+[segment.command_execution_time]
+foreground = 101
+
+[segment.background_jobs]
+foreground = 70
+
+[segment.time]
+foreground = 66

@@ -12,7 +12,7 @@ Full slice ledger: [CHANGELOG.md](CHANGELOG.md).
 | | |
 |---|---|
 | Current tag | `v0.1.6` (2026-05-22) |
-| Tests | 544 passing, 3 ignored |
+| Tests | 548 passing, 3 ignored |
 | MSRV | Stable Rust **1.88** (pinned in `rust-toolchain.toml`) |
 | MSRV policy | stable − 2 |
 | License | MIT / Apache-2.0 (dual) |
@@ -74,6 +74,7 @@ Verification recipe in [SECURITY.md](SECURITY.md).
 | `bash` init script (no RPROMPT, no preexec timing, no gitstatusd, no transient) | ⚠️ best-effort |
 | `fish` init script | ⏳ stub |
 | mdBook documentation site (source: [docs/src/](docs/src/SUMMARY.md)) | ⚠️ source ready; publishing blocked on a one-click GitHub Pages source flip |
+| 10 bundled themes + `p10k-rs theme {list,show,install}` subcommand | ✅ themes/ catalogue, embedded via `include_str!`; install backs up existing config |
 
 ## Workspace layout
 

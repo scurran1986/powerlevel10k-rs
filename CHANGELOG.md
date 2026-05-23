@@ -8,7 +8,25 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Reserved for v0.1.7. Carry-overs:
+Toward v0.1.7. Landed so far:
+
+- **`fix`** workspace version bumped 0.1.0 → 0.1.7-dev so the
+  binary self-reports a non-stale version field. install.sh now
+  detects-and-replaces legacy symlinked gitstatusd binaries at
+  the install prefix so they survive the runtime's `O_NOFOLLOW`
+  safe-open.
+- **`feat(themes)`** ten bundled prompt themes committed at
+  `themes/` (lean, classic, rainbow, pure, catppuccin-mocha,
+  tokyo-night, gruvbox-dark, nord, solarized-dark, dracula),
+  embedded into the binary via `include_str!`. New
+  `p10k-rs theme {list, show, install}` subcommand: `list`
+  prints the catalogue, `show` dumps the TOML to stdout for
+  inspection, `install` writes it to `~/.config/p10k-rs/config.toml`
+  (backing up existing config to `<path>.bak` unless `--force`).
+  5 new unit tests (every theme parses, names unique, find
+  round-trips, count pin, backup path derivation).
+
+Carry-overs queued:
 
 - **Slice 60 follow-up phases:** 3.5 (per-category counts:
   staged/unstaged/untracked/conflicts), 4 (ahead/behind via gix

@@ -1,0 +1,48 @@
+# Solarized Dark — classic Ethan Schoonover palette.
+# Palette source: https://ethanschoonover.com/solarized/
+#
+# Best for: long-time Solarized users. Works fine without truecolor
+# (palette maps cleanly to ANSI 16 too).
+#
+# Install:
+#   p10k-rs theme install solarized-dark
+
+schema_version = 1
+mode = "compatible"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#268bd2"      # blue
+
+[segment.context]
+foreground = "#b58900"      # yellow
+
+[segment.dir]
+foreground = "#268bd2"
+
+[segment.vcs]
+foreground = "#859900"      # green
+
+[segment.vcs.states.dirty]
+foreground = "#b58900"
+
+[segment.prompt_char]
+foreground = "#859900"
+
+[segment.prompt_char.states.error]
+foreground = "#dc322f"      # red
+
+[segment.status.states.error]
+foreground = "#dc322f"
+
+[segment.command_execution_time]
+foreground = "#cb4b16"      # orange
+
+[segment.time]
+foreground = "#586e75"      # base01

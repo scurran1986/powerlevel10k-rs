@@ -1,0 +1,62 @@
+# Rainbow — colourful powerline-style ribbons with backgrounds.
+#
+# Best for: anyone with a Nerd Font + truecolor terminal who wants the
+# upstream P10K rainbow look. The default chip backgrounds visually
+# separate identity / cwd / vcs / status.
+#
+# Install:
+#   p10k-rs theme install rainbow
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "always"
+
+[layout]
+left = ["os_icon", "context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "background_jobs", "time"]
+
+[segment.os_icon]
+foreground = "#000000"
+background = "#ffffff"
+padding = { left = 1, right = 1 }
+
+[segment.context]
+foreground = "#ffffff"
+background = "#5f00af"
+padding = { left = 1, right = 1 }
+
+[segment.dir]
+foreground = "#ffffff"
+background = "#005faf"
+padding = { left = 1, right = 1 }
+
+[segment.vcs]
+foreground = "#ffffff"
+background = "#5f8700"
+padding = { left = 1, right = 1 }
+
+[segment.vcs.states.dirty]
+background = "#af5f00"
+
+[segment.prompt_char]
+foreground = "#ffffff"
+
+[segment.status.states.error]
+foreground = "#ffffff"
+background = "#af0000"
+
+[segment.command_execution_time]
+foreground = "#000000"
+background = "#d7af00"
+padding = { left = 1, right = 1 }
+
+[segment.background_jobs]
+foreground = "#000000"
+background = "#5fd700"
+padding = { left = 1, right = 1 }
+
+[segment.time]
+foreground = "#ffffff"
+background = "#262626"
+padding = { left = 1, right = 1 }

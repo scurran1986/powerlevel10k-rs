@@ -1,0 +1,48 @@
+# Catppuccin Mocha — soothing pastel palette.
+# Palette source: https://github.com/catppuccin/catppuccin
+#
+# Best for: anyone using a Catppuccin-themed terminal who wants the
+# prompt to match. Requires a truecolor terminal.
+#
+# Install:
+#   p10k-rs theme install catppuccin-mocha
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#89b4fa"      # Blue
+
+[segment.context]
+foreground = "#fab387"      # Peach
+
+[segment.dir]
+foreground = "#89b4fa"      # Blue
+
+[segment.vcs]
+foreground = "#a6e3a1"      # Green
+
+[segment.vcs.states.dirty]
+foreground = "#f9e2af"      # Yellow
+
+[segment.prompt_char]
+foreground = "#a6e3a1"
+
+[segment.prompt_char.states.error]
+foreground = "#f38ba8"      # Red
+
+[segment.status.states.error]
+foreground = "#f38ba8"
+
+[segment.command_execution_time]
+foreground = "#fab387"      # Peach
+
+[segment.time]
+foreground = "#7f849c"      # Overlay1

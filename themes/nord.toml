@@ -1,0 +1,47 @@
+# Nord — arctic cool palette.
+# Palette source: https://www.nordtheme.com/
+#
+# Best for: people who like blues and greys. Truecolor recommended.
+#
+# Install:
+#   p10k-rs theme install nord
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#88c0d0"      # frost 2
+
+[segment.context]
+foreground = "#ebcb8b"      # aurora yellow
+
+[segment.dir]
+foreground = "#88c0d0"
+
+[segment.vcs]
+foreground = "#a3be8c"      # aurora green
+
+[segment.vcs.states.dirty]
+foreground = "#ebcb8b"
+
+[segment.prompt_char]
+foreground = "#a3be8c"
+
+[segment.prompt_char.states.error]
+foreground = "#bf616a"      # aurora red
+
+[segment.status.states.error]
+foreground = "#bf616a"
+
+[segment.command_execution_time]
+foreground = "#d08770"      # aurora orange
+
+[segment.time]
+foreground = "#4c566a"      # polar night 4

@@ -1,0 +1,48 @@
+# Gruvbox Dark — retro warm palette.
+# Palette source: https://github.com/morhetz/gruvbox
+#
+# Best for: anyone wanting the iconic earthy Gruvbox feel. Truecolor
+# strongly recommended.
+#
+# Install:
+#   p10k-rs theme install gruvbox-dark
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#83a598"      # blue
+
+[segment.context]
+foreground = "#fabd2f"      # yellow
+
+[segment.dir]
+foreground = "#83a598"
+
+[segment.vcs]
+foreground = "#b8bb26"      # green
+
+[segment.vcs.states.dirty]
+foreground = "#fabd2f"
+
+[segment.prompt_char]
+foreground = "#b8bb26"
+
+[segment.prompt_char.states.error]
+foreground = "#fb4934"      # red
+
+[segment.status.states.error]
+foreground = "#fb4934"
+
+[segment.command_execution_time]
+foreground = "#fe8019"      # orange
+
+[segment.time]
+foreground = "#928374"      # grey

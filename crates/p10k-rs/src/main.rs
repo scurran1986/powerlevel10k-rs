@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod themes;
 mod verify;
 
 use std::cell::RefCell;
@@ -116,6 +117,17 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Manage bundled prompt themes — list, show, or install.
+    ///
+    /// Themes are committed at `themes/<name>.toml` and embedded into
+    /// the binary at build time via `include_str!`, so a `cargo install`d
+    /// build can install a theme without the source tree on disk. See
+    /// `themes/README.md` for the catalogue.
+    Theme {
+        /// Which `theme` action to run.
+        #[command(subcommand)]
+        command: ThemeCommand,
+    },
     /// Verify the gitstatusd helper binary against the committed sha256 pin (T0.5).
     ///
     /// Locates gitstatusd via the same `$P10K_RS_GITSTATUSD_BIN` → `$PATH`
@@ -130,6 +142,33 @@ enum Command {
         /// moving it into the install prefix.
         #[arg(long)]
         binary: Option<PathBuf>,
+    },
+}
+
+/// Subcommands under `p10k-rs theme`.
+///
+/// `theme list` prints the bundled catalogue; `theme show <name>`
+/// dumps a theme's TOML to stdout (good for diffing or hand-editing
+/// before install); `theme install <name>` copies the theme to the
+/// user's config path, backing up any existing file as
+/// `config.toml.bak` unless `--force` is passed.
+#[derive(Debug, Subcommand)]
+enum ThemeCommand {
+    /// Print the bundled theme catalogue (`<name>  <description>`).
+    List,
+    /// Print a theme's TOML to stdout. Errors if no such theme exists.
+    Show {
+        /// Theme name (e.g. `lean`, `rainbow`, `catppuccin-mocha`).
+        name: String,
+    },
+    /// Install a theme as the active config. Backs up an existing
+    /// config to `<path>.bak` unless `--force` is set.
+    Install {
+        /// Theme name (e.g. `lean`, `rainbow`, `catppuccin-mocha`).
+        name: String,
+        /// Overwrite an existing config without a backup.
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -234,6 +273,14 @@ fn main() -> Result<()> {
                 cmd_config_check(config.as_deref())
             }
         },
+        Command::Theme { command } => {
+            tracing::debug!(?command, "theme invoked");
+            match command {
+                ThemeCommand::List => themes::cmd_list(),
+                ThemeCommand::Show { name } => themes::cmd_show(&name),
+                ThemeCommand::Install { name, force } => themes::cmd_install(&name, force),
+            }
+        }
         Command::Verify { binary } => {
             tracing::debug!(?binary, "verify invoked");
             verify::cmd_verify(binary.as_deref())

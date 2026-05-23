@@ -1,0 +1,36 @@
+# Pure — inspired by sindresorhus/pure-zsh.
+#
+# Minimal two-line: cwd + vcs on top, lone ❯ on the bottom. No frame
+# glyph, no chips, no powerline. The `transient_prompt = "always"`
+# collapses old prompts to a bare ❯ so your terminal history stays
+# scannable.
+#
+# Install:
+#   p10k-rs theme install pure
+
+schema_version = 1
+mode = "compatible"
+colors = "follow_terminal"
+transient_prompt = "always"
+
+[layout]
+left = ["dir", "vcs", "prompt_char"]
+right = ["command_execution_time"]
+
+[segment.dir]
+foreground = "blue"
+
+[segment.vcs]
+foreground = 8        # grey
+
+[segment.vcs.states.dirty]
+foreground = "yellow"
+
+[segment.prompt_char]
+foreground = "magenta"
+
+[segment.prompt_char.states.error]
+foreground = "red"
+
+[segment.command_execution_time]
+foreground = 8        # grey

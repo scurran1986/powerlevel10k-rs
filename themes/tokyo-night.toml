@@ -1,0 +1,48 @@
+# Tokyo Night — cool nightscape palette.
+# Palette source: https://github.com/enkia/tokyo-night-vscode-theme
+#
+# Best for: night sessions, matches popular Tokyo Night terminal +
+# editor schemes.
+#
+# Install:
+#   p10k-rs theme install tokyo-night
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#7aa2f7"
+
+[segment.context]
+foreground = "#ff9e64"
+
+[segment.dir]
+foreground = "#7aa2f7"
+
+[segment.vcs]
+foreground = "#9ece6a"
+
+[segment.vcs.states.dirty]
+foreground = "#e0af68"
+
+[segment.prompt_char]
+foreground = "#9ece6a"
+
+[segment.prompt_char.states.error]
+foreground = "#f7768e"
+
+[segment.status.states.error]
+foreground = "#f7768e"
+
+[segment.command_execution_time]
+foreground = "#ff9e64"
+
+[segment.time]
+foreground = "#565f89"
