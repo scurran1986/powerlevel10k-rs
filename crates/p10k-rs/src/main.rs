@@ -298,7 +298,7 @@ fn main() -> Result<()> {
         }
         Command::DaemonHealth => {
             tracing::debug!("daemon-health invoked");
-            let exit = daemon_health::cmd_daemon_health()?;
+            let exit = daemon_health::cmd_daemon_health();
             std::process::exit(exit);
         }
     }

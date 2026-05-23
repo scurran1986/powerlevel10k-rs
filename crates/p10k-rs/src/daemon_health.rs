@@ -3,7 +3,7 @@
 //! Diagnostic surface for the slice 64 daemon-respawn channel. Reports
 //! whether the per-shell gitstatusd daemon is healthy, wedged, or
 //! dead — useful when a user notices the prompt feels slow and wants
-//! to confirm whether they're paying the ShellOut fallback cost
+//! to confirm whether they're paying the `ShellOut` fallback cost
 //! because the daemon got into a bad state.
 //!
 //! Output is one stable line per outcome with distinct exit codes so
@@ -26,8 +26,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-
-use anyhow::Result;
 
 /// Env var holding the per-shell daemon PID file path (phase 1).
 const PID_FILE_ENV: &str = "_P10K_RS_GITSTATUSD_PID_FILE";
@@ -156,9 +154,14 @@ fn wedge_age(path: &Path, now: SystemTime) -> std::result::Result<Option<Duratio
 /// the binary crate. The fork+exec cost (~ms) is invisible against a
 /// diagnostic command the user runs manually.
 fn pid_is_alive_default(pid: i32) -> bool {
+    // Silence stderr so a dead-pid probe doesn't print "kill: (X): No
+    // such process" onto the user's terminal — they're running this
+    // command to *diagnose* a dead daemon, not to see /bin/kill's
+    // editorial on the situation.
     std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
+        .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
@@ -166,11 +169,14 @@ fn pid_is_alive_default(pid: i32) -> bool {
 
 /// `p10k-rs daemon-health` entry point — wired from `main.rs`. Prints
 /// the one-line outcome to stdout and returns the corresponding exit
-/// code via `std::process::exit` from the caller.
+/// code. The caller is responsible for `std::process::exit` dispatch
+/// so this stays testable; we return the `i32` rather than calling
+/// `exit` ourselves.
 ///
-/// The caller is responsible for the exit-code dispatch so this stays
-/// testable; we return an `i32` rather than calling `exit` ourselves.
-pub(crate) fn cmd_daemon_health() -> Result<i32> {
+/// Infallible by construction — every path through `probe` lands on a
+/// `DaemonHealth` variant (including the `Error` variant for I/O
+/// failures), so there's nothing to surface upward as a `Result`.
+pub(crate) fn cmd_daemon_health() -> i32 {
     let pid_path = std::env::var_os(PID_FILE_ENV).map(PathBuf::from);
     let wedge_path = std::env::var_os(WEDGE_ENV).map(PathBuf::from);
     let outcome = probe(
@@ -180,7 +186,7 @@ pub(crate) fn cmd_daemon_health() -> Result<i32> {
         SystemTime::now(),
     );
     println!("{}", outcome.render());
-    Ok(outcome.exit_code())
+    outcome.exit_code()
 }
 
 #[cfg(test)]
