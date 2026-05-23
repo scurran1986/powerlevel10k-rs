@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod daemon_health;
 mod themes;
 mod verify;
 
@@ -143,6 +144,16 @@ enum Command {
         #[arg(long)]
         binary: Option<PathBuf>,
     },
+    /// Report daemon health: alive, wedged, dead, or channel not wired (slice 64 phase 4).
+    ///
+    /// Reads `$_P10K_RS_GITSTATUSD_PID_FILE` and
+    /// `$_P10K_RS_GITSTATUSD_WEDGE` (exported by the zsh init script at
+    /// daemon spawn) and prints a one-line status. Exit codes:
+    /// 0 (`OK`), 2 (`WEDGED`), 3 (`DEAD`), 4 (`NOT_WIRED`), 5 (`ERROR`).
+    /// Run from inside a zsh that sourced `p10k-rs init zsh`; outside
+    /// that context both env vars are unset and the subcommand
+    /// correctly reports `NOT_WIRED`.
+    DaemonHealth,
 }
 
 /// Subcommands under `p10k-rs theme`.
@@ -284,6 +295,11 @@ fn main() -> Result<()> {
         Command::Verify { binary } => {
             tracing::debug!(?binary, "verify invoked");
             verify::cmd_verify(binary.as_deref())
+        }
+        Command::DaemonHealth => {
+            tracing::debug!("daemon-health invoked");
+            let exit = daemon_health::cmd_daemon_health()?;
+            std::process::exit(exit);
         }
     }
 }
