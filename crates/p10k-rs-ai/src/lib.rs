@@ -203,8 +203,16 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 ///   live JSON values so the user can override the host's reported
 ///   labels (useful when running a model fine-tune that reports a
 ///   different `display_name` than the user thinks of it as).
+/// - [`HostKind::Cursor`] — returns an empty string **by design**.
+///   Cursor publishes no statusline contract (no stdin schema, no IPC,
+///   no documented env-var payload beyond the opaque `CURSOR_TRACE_ID`
+///   / `CURSOR_SESSION_ID` fingerprints we already key detection off).
+///   The `ai_host` prompt segment carries Cursor visibility instead.
+///   Full rationale in
+///   `~/.planning/powerlevel10k-rs/research/cursor-statusline-contract.md`
+///   — read it before "wiring up" Cursor; the absence is the contract.
 /// - Every other [`HostKind`] — returns an empty string. The per-host
-///   protocol for Cursor / Aider / Goose / generic agents is not yet
+///   protocol for Aider / Goose / generic agents is not yet
 ///   documented; rendering anything would be a guess. Empty stdout is
 ///   the contract for "we don't know what to render," and the host
 ///   will just see no statusline.
@@ -227,6 +235,17 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
     match host {
         HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai),
+        // Every other host returns empty. Cursor's emptiness is
+        // *documented choice* — see the doc comment above and
+        // `~/.planning/powerlevel10k-rs/research/cursor-statusline-contract.md`
+        // for the full "no public contract exists" research trail.
+        // Aider / Goose / Generic are "empty until protocol is known".
+        // The dedicated test `render_statusline_cursor_is_intentionally_empty`
+        // pins the Cursor decision so a future "add Cursor support"
+        // patch has to consciously delete the assertion. Clippy
+        // flags a per-variant `HostKind::Cursor => ""` arm as
+        // identical-to-wildcard, so the discrimination lives in the
+        // doc comment + the dedicated test rather than the match.
         _ => String::new(),
     }
 }
@@ -376,6 +395,47 @@ mod tests {
         assert_eq!(render_statusline(&HostKind::Cursor, b"{}", &ai), "");
         assert_eq!(
             render_statusline(&HostKind::Generic("custom".into()), b"{}", &ai),
+            ""
+        );
+    }
+
+    #[test]
+    fn render_statusline_cursor_is_intentionally_empty() {
+        // Cursor has no public statusline contract (no stdin JSON
+        // schema, no IPC, no documented payload). See
+        // `~/.planning/powerlevel10k-rs/research/cursor-statusline-contract.md`
+        // for the full research trail. This test pins the "render
+        // empty by design" decision so a future patch that wires a
+        // real Cursor renderer has to delete this assertion
+        // deliberately — not by accident.
+        //
+        // Distinct from `render_statusline_non_claude_hosts_return_empty`
+        // because Cursor is the only "empty by documented choice"
+        // host (the others are "empty until protocol is known"). When
+        // Cursor ships a contract, this test deletes; the catch-all
+        // test keeps living for Aider / Goose / Generic.
+        let ai = empty_ai_config();
+        // Empty input.
+        assert_eq!(render_statusline(&HostKind::Cursor, b"", &ai), "");
+        // Minimal JSON object.
+        assert_eq!(render_statusline(&HostKind::Cursor, b"{}", &ai), "");
+        // Claude-Code-shaped JSON: even if a confused host pipes us a
+        // Claude payload while declaring `--host cursor`, we still emit
+        // nothing. The host kind, not the payload shape, decides.
+        let claude_shape = br#"{
+            "cwd": "/tmp",
+            "model": { "display_name": "Opus 4.7" },
+            "context_window": { "context_window_size": 200000, "used_percentage": 5.0 }
+        }"#;
+        assert_eq!(render_statusline(&HostKind::Cursor, claude_shape, &ai), "");
+        // User-provided `[ai].model` override must not leak into the
+        // Cursor render path either — the contract is "empty," not
+        // "empty unless the user set [ai].model".
+        let mut ai_with_override = empty_ai_config();
+        ai_with_override.model = Some("my-model".to_owned());
+        ai_with_override.context_tokens = Some(123_456);
+        assert_eq!(
+            render_statusline(&HostKind::Cursor, b"{}", &ai_with_override),
             ""
         );
     }
