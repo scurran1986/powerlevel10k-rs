@@ -8,10 +8,13 @@
 //!
 //! ## Status
 //!
-//! **Phase 2.** Branch + HEAD lookup wired. Status iteration
-//! (staged / unstaged / untracked / conflicts) is phase 3; ahead /
-//! behind walk is phase 4; in-progress action probing is phase 5;
-//! cross-check tests against the other backends are phase 6.
+//! Phases 2–5 are shipped: branch / HEAD, dirty boolean (phase 3),
+//! per-category counts (phase 3.5: staged / unstaged / untracked /
+//! conflicts), ahead / behind via [`gix::Repository::rev_walk`]
+//! (phase 4), and the in-progress-action probe via the shared
+//! filesystem sentinel scan (phase 5). Only phase 6 — cross-check
+//! tests against the `ShellOut` + `Gitstatusd` backends plus a
+//! criterion bench on a kernel-class repo — is still open.
 //!
 //! ## Dep choice
 //!
@@ -61,6 +64,7 @@ impl Backend for GixBackend {
         let repo = gix::discover(path).ok()?;
         let branch = branch_safetext(&repo);
         let counts = compute_status(&repo);
+        let (ahead, behind) = compute_ahead_behind(&repo);
         // Phase 5: reuse the filesystem-based in-progress-action probe
         // from the ShellOut backend. `repo.git_dir()` gives the real
         // `.git/` path (handling worktrees + submodules correctly via
@@ -75,6 +79,8 @@ impl Backend for GixBackend {
             unstaged: counts.unstaged,
             untracked: counts.untracked,
             has_conflicts: counts.has_conflicts,
+            ahead,
+            behind,
             action,
             ..Default::default()
         })
@@ -181,6 +187,83 @@ fn compute_status(repo: &gix::Repository) -> StatusCounts {
         }
     }
     out
+}
+
+/// Count commits ahead of and behind the configured upstream
+/// tracking branch — the equivalent of `git rev-list --count
+/// HEAD ^@{upstream}` and `git rev-list --count @{upstream} ^HEAD`.
+///
+/// Returns `(0, 0)` for every "no answer possible" case:
+///
+/// - Detached HEAD (no symbolic ref to look up `branch.<n>.remote`)
+/// - Unborn branch (no commit on HEAD yet)
+/// - No upstream configured for the current branch
+/// - Upstream tracking ref doesn't exist locally (never fetched)
+/// - Any error reading refs or walking commits
+///
+/// This is deliberately silent on partial-state cases — a fresh
+/// branch without an upstream is the normal git workflow, not a bug,
+/// and the prompt should render the same shape as `git status` does
+/// for the same repo (no `↑`/`↓` decorations when there's no
+/// upstream to compare against).
+///
+/// Algorithm: `Platform::with_hidden(tips)` is the gix-traverse
+/// equivalent of `^B` in `git rev-list A ^B`. We don't need a
+/// merge base — the hidden-set machinery already paints commits
+/// reachable from the upstream as "wanted: false," so the count
+/// of the remaining yielded commits is the asymmetric difference.
+/// Two walks (one per direction) gives both numbers. This means
+/// we don't need to pull the `revision` gix feature in for
+/// merge-base, which keeps the dep surface tight.
+///
+/// We use `remote::Direction::Fetch` — ahead/behind tracks what
+/// we *receive* from, not what we push to (which can differ when
+/// `branch.<n>.pushRemote` is set; `git status` reports against
+/// the fetch side).
+///
+/// Counts saturate at [`u32::MAX`] to match the field type on
+/// [`GitState`] and defend against pathological histories.
+fn compute_ahead_behind(repo: &gix::Repository) -> (u32, u32) {
+    let Ok(local_id) = repo.head_id() else {
+        return (0, 0);
+    };
+    let local_oid = local_id.detach();
+
+    let Ok(Some(head_ref)) = repo.head_ref() else {
+        return (0, 0);
+    };
+    let Some(Ok(upstream_name)) = head_ref.remote_tracking_ref_name(gix::remote::Direction::Fetch)
+    else {
+        return (0, 0);
+    };
+    let Ok(mut upstream_ref) = repo.find_reference(upstream_name.as_ref()) else {
+        return (0, 0);
+    };
+    let Ok(upstream_id) = upstream_ref.peel_to_id() else {
+        return (0, 0);
+    };
+    let upstream_oid = upstream_id.detach();
+
+    let ahead = count_walk(repo, local_oid, upstream_oid);
+    let behind = count_walk(repo, upstream_oid, local_oid);
+    (ahead, behind)
+}
+
+/// Count commits reachable from `tip` but not from `hidden`. Errors
+/// during the walk truncate the count rather than propagating —
+/// see [`compute_ahead_behind`] for the rationale.
+fn count_walk(repo: &gix::Repository, tip: gix::ObjectId, hidden: gix::ObjectId) -> u32 {
+    let Ok(iter) = repo.rev_walk([tip]).with_hidden([hidden]).all() else {
+        return 0;
+    };
+    let mut count: u32 = 0;
+    for item in iter {
+        if item.is_err() {
+            break;
+        }
+        count = count.saturating_add(1);
+    }
+    count
 }
 
 /// Resolve the branch name (or detached short OID) for `repo` and
@@ -402,6 +485,137 @@ mod tests {
         );
         assert!(!out.has_conflicts, "no conflicts expected");
         assert!(out.dirty, "staged change → dirty");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Initialise a scratch repo with 3 commits on `main` and a fully
+    /// wired `origin` remote — including the fetch refspec, which is
+    /// what gix needs to resolve `branch.main.remote` into a
+    /// `refs/remotes/origin/*` tracking ref. The URL is `none://` so
+    /// nothing actually network-touches; gix only inspects the config.
+    fn setup_repo_with_origin(scratch: &std::path::Path) {
+        std::fs::create_dir_all(scratch).expect("mkdir scratch");
+        // `-b main` for deterministic branch name; CLAUDE.md requires
+        // git >= 2.35.2 so `-b` is always available.
+        assert!(
+            git_setup(scratch, &["init", "-q", "-b", "main"]),
+            "git init failed"
+        );
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(scratch.join(name), name.as_bytes()).expect("write fixture");
+            assert!(git_setup(scratch, &["add", name]), "git add failed");
+            assert!(
+                git_setup(scratch, &["commit", "-q", "-m", name]),
+                "git commit failed"
+            );
+        }
+        // gix's `branch_remote_tracking_ref_name` returns `None` if the
+        // remote has no fetch refspecs — set the URL + fetch refspec
+        // alongside the branch.<n>.{remote,merge} pair. The URL value
+        // is opaque to our test path; gix never resolves it.
+        for cfg in [
+            ("remote.origin.url", "none://placeholder"),
+            ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+            ("branch.main.remote", "origin"),
+            ("branch.main.merge", "refs/heads/main"),
+        ] {
+            assert!(
+                git_setup(scratch, &["config", cfg.0, cfg.1]),
+                "git config {} failed",
+                cfg.0
+            );
+        }
+    }
+
+    /// A repo whose local branch has `N` commits that aren't on the
+    /// configured upstream tracking ref must report `ahead == N` and
+    /// `behind == 0`. Setup uses `git update-ref` to pin the upstream
+    /// at HEAD~N so we don't need a second on-disk clone.
+    #[test]
+    fn repo_ahead_of_upstream_reports_ahead() {
+        if !have_git() {
+            return;
+        }
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-ahead-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        setup_repo_with_origin(&scratch);
+        // Pin upstream at the first commit — local is now 2 ahead.
+        assert!(
+            git_setup(
+                &scratch,
+                &["update-ref", "refs/remotes/origin/main", "HEAD~2"]
+            ),
+            "git update-ref failed"
+        );
+
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(out.ahead, 2, "expected 2 commits ahead of upstream");
+        assert_eq!(out.behind, 0, "expected 0 commits behind upstream");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A repo whose upstream has `N` commits that the local branch
+    /// doesn't must report `behind == N` and `ahead == 0`. Pin the
+    /// upstream at the third commit, then reset local back two.
+    #[test]
+    fn repo_behind_upstream_reports_behind() {
+        if !have_git() {
+            return;
+        }
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-behind-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        setup_repo_with_origin(&scratch);
+        assert!(
+            git_setup(
+                &scratch,
+                &["update-ref", "refs/remotes/origin/main", "HEAD"]
+            ),
+            "git update-ref failed"
+        );
+        assert!(
+            git_setup(&scratch, &["reset", "--hard", "-q", "HEAD~2"]),
+            "git reset --hard failed"
+        );
+
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(out.ahead, 0, "expected 0 commits ahead of upstream");
+        assert_eq!(out.behind, 2, "expected 2 commits behind upstream");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A fresh repo with no upstream configured must report
+    /// `ahead == 0` and `behind == 0` (rather than erroring or
+    /// reporting nonsense). Pins the "no upstream → silent zero"
+    /// contract.
+    #[test]
+    fn fresh_init_repo_reports_zero_ahead_behind() {
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-noupstream-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        let _repo = gix::init(&scratch).expect("gix::init");
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(out.ahead, 0, "no upstream → ahead must be 0");
+        assert_eq!(out.behind, 0, "no upstream → behind must be 0");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
