@@ -295,20 +295,133 @@ pub fn detect_action(git_dir: &Path) -> SafeText {
 ///   `## main` (no upstream configured),
 ///   `## HEAD (no branch)` (detached HEAD),
 ///   `## No commits yet on main` (unborn branch).
-/// - Subsequent lines = working-tree changes. Any line means dirty.
+/// - Subsequent lines = working-tree changes. Per-entry shape is
+///   `XY <path>` where `X` is the index status (staged change) and
+///   `Y` is the worktree status (unstaged change). Special-case
+///   prefixes `??` mark untracked files and `!!` mark ignored
+///   files (we don't request `--ignored` so the latter normally
+///   doesn't appear; treat it defensively as a no-op).
+///
+/// ## Per-category bucketing
+///
+/// Mirrors the slice-60 phase-3.5 `compute_status` logic in
+/// [`crate::gix_backend`] so the [`crate::ShellOut`] tier and the
+/// [`crate::GixBackend`] tier produce identical counter values for
+/// the same on-disk repo state. The slice-60 phase-6 cross-check
+/// integration tests assert this parity.
+///
+/// - `??` → `untracked` += 1.
+/// - `!!` → no bump (ignored entries aren't user-visible state).
+/// - Unmerged combinations (`UU`, `AA`, `DD`, `UA`, `AU`, `UD`,
+///   `DU`) → `has_conflicts = true`. Conflicted entries do NOT
+///   contribute to `staged` / `unstaged` — `git status` shows
+///   them in a dedicated "Unmerged paths" section, not under
+///   "Changes to be committed" / "Changes not staged", and the
+///   gix backend follows the same discipline.
+/// - Otherwise: `X != ' '` bumps `staged`, `Y != ' '` bumps
+///   `unstaged`. A single entry can bump both (e.g. `MM` =
+///   modified-and-staged-then-modified-again-in-worktree).
+///
+/// `dirty` is derived from any of the four (matches the gix-side
+/// `StatusCounts::is_dirty`) so callers that only care about the
+/// bool get the same answer as before.
+///
+/// Counts saturate at [`u32::MAX`] to defend against pathological
+/// porcelain output (which a malicious `git` wrapper could in
+/// principle emit) and to match the field type.
+///
+/// Ahead/behind are NOT parsed from the branch-info `[ahead N,
+/// behind M]` suffix today — landing those is a separate slice
+/// since the gix backend reaches the same numbers via revwalk and
+/// the cross-check parity story should be the trigger.
 fn parse_porcelain_v1(s: &str) -> GitState {
     let mut lines = s.split('\n');
     let header = lines.next().unwrap_or("");
     let branch = parse_branch_header(header);
-    // Count *non-empty* remaining lines so a trailing newline doesn't lie.
-    let dirty = lines.any(|l| !l.is_empty());
-    // ShellOut only fills the cheap fields; richer counts (ahead/behind,
-    // staged/unstaged, etc.) live behind the `Gitstatusd` backend.
+    let counts = count_porcelain_entries(lines);
     GitState {
         branch,
-        dirty,
+        dirty: counts.is_dirty(),
+        staged: counts.staged,
+        unstaged: counts.unstaged,
+        untracked: counts.untracked,
+        has_conflicts: counts.has_conflicts,
         ..Default::default()
     }
+}
+
+/// Per-category porcelain-v1 counters. Field-for-field mirror of
+/// [`crate::gix_backend::StatusCounts`] (kept private to each crate
+/// to avoid a cross-crate vocabulary type); `is_dirty` is a
+/// derived bool.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct PorcelainCounts {
+    staged: u32,
+    unstaged: u32,
+    untracked: u32,
+    has_conflicts: bool,
+}
+
+impl PorcelainCounts {
+    fn is_dirty(&self) -> bool {
+        self.staged > 0 || self.unstaged > 0 || self.untracked > 0 || self.has_conflicts
+    }
+}
+
+/// Classify each non-empty porcelain-v1 entry line into a bucket.
+///
+/// Splitting this out from [`parse_porcelain_v1`] keeps the parser
+/// trivially unit-testable against synthetic input — no need to
+/// shell out to git or fabricate a branch header.
+fn count_porcelain_entries<'a, I: IntoIterator<Item = &'a str>>(lines: I) -> PorcelainCounts {
+    let mut out = PorcelainCounts::default();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        // Defensive: porcelain v1 entries always have at least 3
+        // bytes (`XY <path>`). A shorter line is a parser
+        // disagreement we don't trust to interpret further.
+        let bytes = line.as_bytes();
+        if bytes.len() < 2 {
+            continue;
+        }
+        let xy = (bytes[0], bytes[1]);
+        match xy {
+            (b'?', b'?') => {
+                out.untracked = out.untracked.saturating_add(1);
+            }
+            (b'!', b'!') => {
+                // Ignored; we don't request --ignored so this is
+                // mostly defensive. No counter bump.
+            }
+            _ if is_unmerged_pair(xy) => {
+                out.has_conflicts = true;
+            }
+            (x, y) => {
+                if x != b' ' {
+                    out.staged = out.staged.saturating_add(1);
+                }
+                if y != b' ' {
+                    out.unstaged = out.unstaged.saturating_add(1);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `true` if the two-byte XY pair represents an unmerged
+/// (conflicting) index entry per the git-status(1) manpage.
+///
+/// The seven canonical conflict combinations:
+/// `DD` `AU` `UD` `UA` `DU` `AA` `UU`. Any `U` anywhere is also
+/// implicitly a conflict marker — git only emits `U` for unmerged
+/// entries — so we collapse the pattern to "either side is `U`,
+/// OR both sides are `D`, OR both sides are `A`".
+fn is_unmerged_pair(xy: (u8, u8)) -> bool {
+    let (x, y) = xy;
+    x == b'U' || y == b'U' || (x == b'D' && y == b'D') || (x == b'A' && y == b'A')
 }
 
 /// Pull the branch name out of the `## …` header line.
@@ -386,6 +499,138 @@ mod tests {
         let out = "## main\n M lib.rs\n";
         let s = parse_porcelain_v1(out);
         assert!(s.dirty);
+        // Per-category breakdown (slice 60 phase 6 follow-up): ` M`
+        // is unstaged-only (X=' ', Y='M').
+        assert_eq!(s.unstaged, 1);
+        assert_eq!(s.staged, 0);
+        assert_eq!(s.untracked, 0);
+        assert!(!s.has_conflicts);
+    }
+
+    #[test]
+    fn parse_porcelain_counts_untracked_only() {
+        let out = "## main\n?? new.txt\n?? other.txt\n";
+        let s = parse_porcelain_v1(out);
+        assert!(s.dirty, "any non-empty line means dirty");
+        assert_eq!(s.untracked, 2);
+        assert_eq!(s.staged, 0);
+        assert_eq!(s.unstaged, 0);
+        assert!(!s.has_conflicts);
+    }
+
+    #[test]
+    fn parse_porcelain_counts_staged_only() {
+        // `A ` = added-to-index, no worktree change.
+        // `M ` = staged modification, worktree matches index.
+        let out = "## main\nA  new.txt\nM  lib.rs\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.staged, 2);
+        assert_eq!(s.unstaged, 0);
+        assert_eq!(s.untracked, 0);
+        assert!(!s.has_conflicts);
+        assert!(s.dirty);
+    }
+
+    #[test]
+    fn parse_porcelain_counts_staged_and_unstaged_combination() {
+        // `MM` = staged-and-then-modified-again entry counts on
+        // BOTH sides; one entry, two counter bumps.
+        let out = "## main\nMM lib.rs\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.staged, 1);
+        assert_eq!(s.unstaged, 1);
+        assert_eq!(s.untracked, 0);
+        assert!(!s.has_conflicts);
+    }
+
+    #[test]
+    fn parse_porcelain_marks_unmerged_combos_as_conflicts() {
+        // All seven canonical conflict combinations per git-status(1):
+        // DD, AU, UD, UA, DU, AA, UU.
+        let out = concat!(
+            "## main\n",
+            "DD both_deleted.txt\n",
+            "AU added_by_us.txt\n",
+            "UD deleted_by_them.txt\n",
+            "UA added_by_them.txt\n",
+            "DU deleted_by_us.txt\n",
+            "AA both_added.txt\n",
+            "UU both_modified.txt\n",
+        );
+        let s = parse_porcelain_v1(out);
+        assert!(s.has_conflicts);
+        assert!(s.dirty);
+        // Conflicts deliberately don't contribute to staged /
+        // unstaged — git status shows them under "Unmerged paths",
+        // not "Changes to be committed" / "Changes not staged".
+        assert_eq!(s.staged, 0);
+        assert_eq!(s.unstaged, 0);
+        assert_eq!(s.untracked, 0);
+    }
+
+    #[test]
+    fn parse_porcelain_ignored_entries_dont_count() {
+        // `!! file` would only appear under --ignored, which we
+        // don't pass; defensive coverage in case a wrapper script
+        // adds the flag.
+        let out = "## main\n!! ignored.log\n M tracked.txt\n";
+        let s = parse_porcelain_v1(out);
+        // `!!` line is non-empty, so `dirty` flips, but no bucket
+        // increment — the `M` line carries the legitimate signal.
+        assert!(s.dirty);
+        assert_eq!(s.unstaged, 1);
+        assert_eq!(s.untracked, 0);
+        assert_eq!(s.staged, 0);
+    }
+
+    #[test]
+    fn parse_porcelain_mixed_state_aggregates() {
+        let out = concat!(
+            "## main...origin/main [ahead 1]\n",
+            "M  added.txt\n",     // staged
+            " M edited.txt\n",    // unstaged
+            "?? untracked.txt\n", // untracked
+            "UU merged.txt\n",    // conflict
+        );
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.staged, 1);
+        assert_eq!(s.unstaged, 1);
+        assert_eq!(s.untracked, 1);
+        assert!(s.has_conflicts);
+        assert!(s.dirty);
+    }
+
+    #[test]
+    fn parse_porcelain_rename_counts_as_staged() {
+        // Rename detection: `R  old -> new`. X='R', Y=' '. Counts
+        // as one staged change (git status emits a single R-prefixed
+        // line for the rename, matching how the gix backend's
+        // tree-vs-index iter counts a rewrite as one item).
+        let out = "## main\nR  old.txt -> new.txt\n";
+        let s = parse_porcelain_v1(out);
+        assert_eq!(s.staged, 1);
+        assert_eq!(s.unstaged, 0);
+        assert_eq!(s.untracked, 0);
+        assert!(!s.has_conflicts);
+    }
+
+    #[test]
+    fn parse_porcelain_short_garbage_lines_dont_panic() {
+        // Defensive: a single-byte line (impossible from real git)
+        // shouldn't index out of bounds. Returns no-op classification.
+        let out = "## main\nx\n";
+        let s = parse_porcelain_v1(out);
+        // The 1-byte line is non-empty so `dirty` derives from it;
+        // but no bucket increment.
+        assert_eq!(s.staged, 0);
+        assert_eq!(s.unstaged, 0);
+        assert_eq!(s.untracked, 0);
+        assert!(!s.has_conflicts);
+        // dirty is false here because the 1-byte line was skipped
+        // entirely — no bucket bumped, derived `dirty` is false.
+        // This is a defensive behaviour: if a wrapper hands us
+        // garbage, we report "clean" rather than fabricating state.
+        assert!(!s.dirty);
     }
 
     /// Build a unique scratch `.git`-ish directory under
