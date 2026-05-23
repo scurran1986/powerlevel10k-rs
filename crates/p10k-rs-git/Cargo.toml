@@ -29,5 +29,19 @@ toml = { workspace = true }
 # 3-4 will add `status` and `revision` features incrementally.
 gix = { workspace = true }
 
+[dev-dependencies]
+# Slice 60 phase 6: criterion bench comparing GixBackend vs ShellOut
+# latency on the workspace itself. `html_reports` comes through the
+# workspace-pinned feature set; the bench harness itself is the
+# standard `criterion_main!` skeleton (see `benches/git_backend.rs`).
+criterion = { workspace = true }
+
+[[bench]]
+name = "git_backend"
+# `harness = false` is criterion's required incantation — its own
+# `criterion_main!` macro provides the entry point in place of
+# libtest's default harness.
+harness = false
+
 [lints]
 workspace = true
