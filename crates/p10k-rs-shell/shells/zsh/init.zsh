@@ -211,6 +211,53 @@ _p10k_rs_stop_daemon() {
   unset _P10K_RS_GITSTATUSD_WEDGE
 }
 
+# Slice 64 phase 3 — daemon health check + respawn on wedge.
+#
+# Runs as a precmd hook BEFORE `_p10k_rs_precmd` so that if the daemon
+# died or wedged on the previous prompt, the next prompt's render gets
+# a freshly-spawned daemon to talk to (or the slow ShellOut fallback,
+# if respawn fails — never worse than the wedge it's recovering from).
+#
+# Healthy iff all three are true:
+#   - The PID file phase 1 wrote at spawn is readable.
+#   - `kill -0 $pid` succeeds (process exists, signalable by this UID).
+#   - The wedge sentinel phase 2's Rust client touches on FIFO timeout
+#     does NOT exist.
+#
+# Any other state → tear down via `_p10k_rs_stop_daemon` (which `rm -rf`s
+# the per-shell FIFO dir, taking the stale PID file + wedge sentinel
+# with it) and rebuild via `_p10k_rs_start_daemon` (which spawns the
+# daemon, writes a new PID file, re-exports the env vars). The wedge
+# cleanup is therefore implicit; no explicit `rm -f` needed.
+#
+# Cost on the happy path: one `[[ -r ]]`, one `kill -0`, one `[[ -e ]]`.
+# All three are stat()-cheap; combined budget is well under 1 ms even
+# on slow filesystems.
+#
+# No-op cases (return 0 silently):
+#   - `_P10K_RS_DAEMON_PID == 0` → daemon was never spawned (gitstatusd
+#     binary missing or `_p10k_rs_start_daemon` failed at init). The
+#     runtime is already on the ShellOut tier; nothing to respawn.
+#   - Either env var unset → same shape; phase 1 didn't run, so the
+#     liveness contract isn't in effect.
+_p10k_rs_health_check() {
+  (( _P10K_RS_DAEMON_PID > 0 )) || return 0
+
+  local pid_file="${_P10K_RS_GITSTATUSD_PID_FILE:-}"
+  local wedge="${_P10K_RS_GITSTATUSD_WEDGE:-}"
+  [[ -n "$pid_file" && -n "$wedge" ]] || return 0
+
+  local pid=
+  [[ -r "$pid_file" ]] && pid="$(<"$pid_file")"
+
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && [[ ! -e "$wedge" ]]; then
+    return 0
+  fi
+
+  _p10k_rs_stop_daemon
+  _p10k_rs_start_daemon
+}
+
 autoload -Uz add-zsh-hook
 
 # Wall-clock seconds at the start of the current foreground command. Set in
@@ -418,6 +465,11 @@ _p10k_rs_precmd() {
 }
 
 add-zsh-hook preexec _p10k_rs_preexec
+# Slice 64 phase 3 — health check runs BEFORE the prompt-render precmd so
+# a wedged or dead daemon is replaced before this prompt's render touches
+# the FIFOs. Registration order is precmd_functions order; precmd hooks
+# run in the order they were added.
+add-zsh-hook precmd _p10k_rs_health_check
 add-zsh-hook precmd _p10k_rs_precmd
 add-zsh-hook zshexit _p10k_rs_stop_daemon
 
