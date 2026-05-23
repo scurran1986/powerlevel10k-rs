@@ -59,6 +59,7 @@ p10k-rs verify
 | If you want to… | Read |
 |---|---|
 | Configure the prompt (TOML schema, colours, layout) | [User guide](docs/src/SUMMARY.md) |
+| Pick a bundled theme and switch to it in one command | [themes/](themes/README.md) |
 | See what works today (segments, features, supported shells) | [STATUS.md](STATUS.md) |
 | Import an existing `~/.p10k.zsh` | [IMPORTING.md](IMPORTING.md) |
 | Verify a release signature, report a defect privately | [SECURITY.md](SECURITY.md) |

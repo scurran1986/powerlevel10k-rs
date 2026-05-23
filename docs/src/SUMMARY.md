@@ -10,6 +10,7 @@
 - [Configuration](./config/index.md)
 - [Segments](./segments/index.md)
 - [Theming and layout](./theming.md)
+- [Bundled themes](./themes.md)
 
 # Architecture
 

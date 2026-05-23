@@ -99,7 +99,15 @@ p10k-rs config check
 
 Then `exec zsh` to see the live prompt. If something looks off,
 the user guide has the full schema — start at
-[docs/src/SUMMARY.md](docs/src/SUMMARY.md).
+[docs/src/SUMMARY.md](docs/src/SUMMARY.md), or skip the import
+entirely and start from one of the ten bundled themes:
+
+```bash
+p10k-rs theme list
+p10k-rs theme install nord    # or whichever you like
+```
+
+The catalogue lives at [themes/README.md](themes/README.md).
 
 ## Why the importer is best-effort
 
