@@ -26,9 +26,10 @@
 #![allow(clippy::result_large_err)]
 
 use std::fs::OpenOptions;
+use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::AsFd;
@@ -64,6 +65,23 @@ const S_IFMT: u32 = 0o170_000;
 /// POSIX `S_IFIFO` — masked-mode value identifying a FIFO.
 #[cfg(unix)]
 const S_IFIFO: u32 = 0o010_000;
+
+/// POSIX `S_IFREG` — masked-mode value identifying a regular file. Used by
+/// the wedge-sentinel path to refuse anything that isn't a plain file
+/// (directories, FIFOs, sockets, devices, …) under the same security
+/// discipline as the FIFO open.
+#[cfg(unix)]
+const S_IFREG: u32 = 0o100_000;
+
+/// Freshness window for the wedge sentinel. If the previous prompt observed
+/// a daemon `poll(2)` timeout it touches the sentinel file; the next prompt
+/// that lands within this window skips the FIFO open entirely and falls
+/// straight through to `ShellOut`, sparing the user a second back-to-back
+/// 2 s wedge before the shell's `precmd` hook has a chance to respawn the
+/// daemon. 100 ms is the value recommended by the slice-64 design doc — it
+/// covers the "user typed before precmd ran" race without keeping the
+/// daemon offline across long pauses (laptop sleep, etc.).
+const SENTINEL_MAX_AGE: Duration = Duration::from_millis(100);
 
 /// Long-lived gitstatusd backend. Talks to a daemon spawned by the shell
 /// init script via two FIFO paths.
@@ -105,6 +123,23 @@ impl Gitstatusd {
 
 impl Backend for Gitstatusd {
     fn status(&self, path: &Path) -> Option<GitState> {
+        // Wedge fast-bail (slice 64 phase 2). If a previous prompt observed
+        // a poll timeout it touched the sentinel pointed to by
+        // `_P10K_RS_GITSTATUSD_WEDGE`. Anything within `SENTINEL_MAX_AGE`
+        // means the daemon is still wedged (the shell's precmd hook hasn't
+        // respawned it yet) and the FIFO open would just burn another 2 s
+        // before timing out. Skip straight to `ShellOut`.
+        //
+        // Fail-open: an unset env var, a stat error, a wrong owner, etc.
+        // all return `false` from `sentinel_is_fresh`, leaving the normal
+        // FIFO open path intact. Worst case: we lose the optimisation, not
+        // the prompt.
+        if let Some(sentinel) = sentinel_path() {
+            if sentinel_is_fresh(&sentinel, SENTINEL_MAX_AGE) {
+                return None;
+            }
+        }
+
         // Open both FIFOs. The shell holds R/W fds on each (kept alive for
         // process lifetime), so neither open should block — the daemon is
         // already on the other end.
@@ -132,9 +167,26 @@ impl Backend for Gitstatusd {
         // Open resp and read until \x1E with a poll-driven deadline. If
         // the daemon doesn't respond by deadline we return None and the
         // binary falls back to ShellOut.
+        //
+        // The `ReadOutcome` split exists so we can distinguish a genuine
+        // `poll(2)` deadline (daemon is wedged — touch the sentinel so
+        // the next prompt fast-bails) from a HUP/EOF (daemon died — that's
+        // already fast-detected at the syscall level, no sentinel needed).
         let resp = open_fifo_safely(&self.resp_fifo, FifoMode::Read)?;
-        let record = read_until_with_deadline(&resp, RS, self.timeout)?;
-        parse_response(&record)
+        match read_until_with_deadline(&resp, RS, self.timeout) {
+            ReadOutcome::Got(record) => parse_response(&record),
+            ReadOutcome::Timeout => {
+                // Best-effort sentinel write. A missing env var or a
+                // failed write just means the next prompt eats another
+                // 2 s — not catastrophic. We never propagate the IO
+                // error.
+                if let Some(sentinel) = sentinel_path() {
+                    let _ = touch_sentinel(&sentinel);
+                }
+                None
+            }
+            ReadOutcome::Hup | ReadOutcome::Error => None,
+        }
     }
 }
 
@@ -205,12 +257,32 @@ fn open_fifo_safely(_path: &Path, _mode: FifoMode) -> Option<std::fs::File> {
     None
 }
 
+/// Outcome of [`read_until_with_deadline`]. Distinguishes the fast
+/// "daemon died" cases (`Hup`, `Error`, immediate-EOF) from the slow
+/// "daemon wedged" case (`Timeout`) so the caller can touch the wedge
+/// sentinel only when it actually matters. `Backend::status` collapses
+/// the three failure variants back to `None`.
+#[derive(Debug)]
+enum ReadOutcome {
+    /// Delimiter reached. Inner buffer does not include the delimiter.
+    Got(Vec<u8>),
+    /// `poll(2)` returned 0 within the deadline — daemon never wrote
+    /// anything. This is the wedge case; caller should touch the sentinel.
+    Timeout,
+    /// FIFO hung up (POLLHUP without pending data, or read returned 0).
+    /// Daemon is dead. The fall-through to `ShellOut` is already cheap;
+    /// don't touch the sentinel.
+    Hup,
+    /// `poll` or `read` returned an `errno`. Treated like Hup by the
+    /// caller — no sentinel touch.
+    Error,
+}
+
 /// Read from `f` into a buffer until `delim` appears or the deadline elapses.
 ///
-/// Uses `poll(2)` with the remaining timeout on each loop. Returns `None`
-/// on timeout, EOF before delimiter, or read error. The returned buffer
-/// does **not** include the delimiter byte.
-fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Option<Vec<u8>> {
+/// Uses `poll(2)` with the remaining timeout on each loop. The returned
+/// buffer (in the `Got` arm) does **not** include the delimiter byte.
+fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> ReadOutcome {
     let mut record = Vec::with_capacity(4096);
     let mut buf = [0u8; 4096];
     let deadline = Instant::now() + timeout;
@@ -218,7 +290,7 @@ fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Opti
     loop {
         let now = Instant::now();
         if now >= deadline {
-            return None;
+            return ReadOutcome::Timeout;
         }
         let remaining = deadline - now;
         // poll's i32 ms argument: clamp to i32::MAX (~24 days). Way past
@@ -226,28 +298,31 @@ fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Opti
         let ms = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
         let mut fds = [PollFd::new(f, PollFlags::IN)];
         let revents = match poll(&mut fds, ms) {
-            Ok(0) | Err(_) => return None, // timeout or poll error
+            Ok(0) => return ReadOutcome::Timeout,
+            Err(_) => return ReadOutcome::Error,
             Ok(_) => fds[0].revents(),
         };
         if revents.contains(PollFlags::HUP) && !revents.contains(PollFlags::IN) {
             // Hangup with nothing to read.
-            return None;
+            return ReadOutcome::Hup;
         }
         // POLLIN says data is available; read won't block.
-        let n = rustix::io::read(f, &mut buf).ok()?;
+        let Ok(n) = rustix::io::read(f, &mut buf) else {
+            return ReadOutcome::Error;
+        };
         if n == 0 {
             // EOF before delimiter.
-            return None;
+            return ReadOutcome::Hup;
         }
         // Cap before extending so a misbehaving daemon can't force
         // unbounded heap growth before a `\x1E` ever arrives.
         if record.len().saturating_add(n) > MAX_RESPONSE_LEN {
-            return None;
+            return ReadOutcome::Error;
         }
         record.extend_from_slice(&buf[..n]);
         if let Some(pos) = record.iter().position(|&b| b == delim) {
             record.truncate(pos);
-            return Some(record);
+            return ReadOutcome::Got(record);
         }
     }
 }
@@ -371,6 +446,118 @@ fn is_fifo(p: &Path) -> bool {
     }
     let me = rustix::process::geteuid().as_raw();
     md.uid() == me
+}
+
+/// Env var the shell init script exports to point both the daemon-spawn
+/// helpers and the Rust client at the per-shell wedge sentinel file. Phase 1
+/// of slice 64 (separate change in `init.zsh`) creates the file at
+/// `$_P10K_RS_FIFO_DIR/wedge` — a per-shell location inside an already-0700
+/// directory. The Rust side READS the variable; it never sets it.
+const WEDGE_ENV: &str = "_P10K_RS_GITSTATUSD_WEDGE";
+
+/// Resolve the wedge-sentinel path from the environment, or `None` if the
+/// shell init script hasn't exported it (older shell version, non-zsh, or
+/// the user is invoking `p10k-rs prompt` by hand). A `None` here means the
+/// fast-bail optimisation is silently disabled — the rest of the backend
+/// still works, just without the extra back-to-back wedge guard.
+fn sentinel_path() -> Option<PathBuf> {
+    std::env::var_os(WEDGE_ENV).map(PathBuf::from)
+}
+
+/// Return `true` if `path` exists, is a regular file owned by our effective
+/// uid, has not been tampered with via symlink, and its mtime is within
+/// `max_age` of `SystemTime::now()`.
+///
+/// The security posture mirrors `is_fifo` and the FIFO-open discipline:
+///
+/// - `symlink_metadata` (lstat), never `metadata` (stat) — a swapped
+///   symlink at the sentinel path is refused outright. The shell side
+///   creates the file with `O_NOFOLLOW`-equivalent flags so a symlink
+///   here would always indicate tampering.
+/// - File type must be `S_IFREG`. Anything else (FIFO, directory, socket,
+///   device) is refused.
+/// - Owner UID must equal our effective UID. A co-tenant pre-planting a
+///   file at our path is rejected.
+/// - Future mtimes (clock skew on shared NFS, etc.) also fail the
+///   `now.duration_since(mtime)` check and trip the fail-open path.
+///
+/// Any error along the way returns `false` (fail-open). The cost of a
+/// false negative is a single 2 s wedge on the next prompt instead of an
+/// instant fall-through; the cost of a false positive would be skipping
+/// the daemon on a perfectly healthy install, which is worse.
+#[cfg(unix)]
+fn sentinel_is_fresh(path: &Path, max_age: Duration) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(md) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    #[allow(clippy::useless_conversion)]
+    let mode_bits: u32 = u32::from(md.mode());
+    if mode_bits & S_IFMT != S_IFREG {
+        return false;
+    }
+    if md.uid() != rustix::process::geteuid().as_raw() {
+        return false;
+    }
+    let Ok(mtime) = md.modified() else {
+        return false;
+    };
+    let Ok(age) = SystemTime::now().duration_since(mtime) else {
+        // Future mtime (clock skew). Treat as not-fresh — we'd rather
+        // hit the daemon than disable it based on a bad clock.
+        return false;
+    };
+    age < max_age
+}
+
+#[cfg(not(unix))]
+fn sentinel_is_fresh(_path: &Path, _max_age: Duration) -> bool {
+    false
+}
+
+/// Create or truncate the wedge sentinel at `path` with mode `0600`,
+/// `O_NOFOLLOW`, zero bytes of content. The only field we care about is
+/// the resulting mtime — [`sentinel_is_fresh`] consults that, not the
+/// contents.
+///
+/// Inherits the FIFO discipline: `O_NOFOLLOW` so a symlink at the
+/// sentinel path is refused at `open(2)` time (returns `ELOOP`); mode
+/// `0600` so a co-tenant can't read the marker out from under us.
+///
+/// Best-effort by contract: the caller in [`Backend::status`] ignores
+/// any returned error because a missing sentinel just means the next
+/// prompt eats the full 2 s wedge instead of fast-bailing — annoying,
+/// not catastrophic. The `io::Result` exists for tests and for any
+/// future call site that wants to surface the failure reason.
+///
+/// # Errors
+///
+/// Propagates any `io::Error` from `open(2)`. Common cases: parent
+/// directory missing (env-var points at a stale shell session),
+/// `EACCES` (permissions), `ELOOP` (symlink swap attempt), `ENOSPC`.
+#[cfg(unix)]
+fn touch_sentinel(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true).mode(0o600);
+    #[allow(clippy::cast_possible_wrap)]
+    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
+    opts.custom_flags(nofollow);
+    // Open + drop is sufficient. `O_TRUNC` (set via `.truncate(true)`)
+    // bumps mtime on existing files; the bare create handles the
+    // first-time case. We deliberately write zero bytes — content is
+    // unused, and skipping the write keeps the syscall budget at one
+    // open + one close.
+    let _f = opts.open(path)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn touch_sentinel(_path: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "wedge sentinel is unix-only",
+    ))
 }
 
 /// Errors produced by [`locate_binary_checked`] when a probed gitstatusd
@@ -908,7 +1095,10 @@ mod tests {
         let result = read_until_with_deadline(&rfd, RS, Duration::from_secs(5));
         drop(rfd); // unblock the writer thread via EPIPE
         writer.join().unwrap();
-        assert!(result.is_none(), "expected None when stream exceeds cap");
+        assert!(
+            matches!(result, ReadOutcome::Error),
+            "expected Error when stream exceeds cap, got {result:?}"
+        );
     }
 
     // ---------- T1.17: foreign-owned gitstatusd binary refusal ----------
@@ -1035,5 +1225,189 @@ mod tests {
         let got = result.expect("user-owned env-pointed binary must pass");
         assert_eq!(got, p);
         rm_rf(&dir);
+    }
+
+    // ---------- slice 64 phase 2: wedge sentinel ----------
+
+    /// Manipulate the sentinel's mtime via rustix's `utimensat` so we
+    /// don't need to add `filetime` just for tests. Sub-second precision
+    /// (Timespec is nanos) so we can synthesise both fresh and stale
+    /// markers off a single `SystemTime::now()` baseline.
+    fn set_mtime(path: &Path, offset_back: Duration) {
+        let target = SystemTime::now() - offset_back;
+        let dur = target
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("target time before UNIX epoch");
+        #[allow(clippy::cast_possible_wrap)]
+        let secs = dur.as_secs() as i64;
+        let nsecs = i64::from(dur.subsec_nanos());
+        let ts = rustix::fs::Timestamps {
+            last_access: rustix::fs::Timespec {
+                tv_sec: secs,
+                tv_nsec: nsecs,
+            },
+            last_modification: rustix::fs::Timespec {
+                tv_sec: secs,
+                tv_nsec: nsecs,
+            },
+        };
+        rustix::fs::utimensat(
+            rustix::fs::CWD,
+            path,
+            &ts,
+            rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn sentinel_path_returns_none_when_env_unset() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prev = std::env::var_os(WEDGE_ENV);
+        std::env::remove_var(WEDGE_ENV);
+        let got = sentinel_path();
+        if let Some(p) = prev {
+            std::env::set_var(WEDGE_ENV, p);
+        }
+        assert!(got.is_none(), "expected None when env unset, got {got:?}");
+    }
+
+    #[test]
+    fn sentinel_path_returns_some_when_env_set() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prev = std::env::var_os(WEDGE_ENV);
+        std::env::set_var(WEDGE_ENV, "/tmp/dummy-wedge");
+        let got = sentinel_path();
+        if let Some(p) = prev {
+            std::env::set_var(WEDGE_ENV, p);
+        } else {
+            std::env::remove_var(WEDGE_ENV);
+        }
+        assert_eq!(got.as_deref(), Some(Path::new("/tmp/dummy-wedge")));
+    }
+
+    #[test]
+    fn sentinel_fresh_recently_touched_is_true() {
+        let dir = scratch_dir("sentinel-fresh");
+        let p = dir.join("wedge");
+        touch_sentinel(&p).unwrap();
+        // Generous window so test timing jitter (CI under load) doesn't
+        // turn this into a flake. The production constant is 100 ms; here
+        // we just need to verify the freshness arithmetic works.
+        assert!(sentinel_is_fresh(&p, Duration::from_secs(1)));
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn sentinel_stale_old_mtime_is_false() {
+        let dir = scratch_dir("sentinel-stale");
+        let p = dir.join("wedge");
+        touch_sentinel(&p).unwrap();
+        // Rewind mtime 5 s into the past. Production window is 100 ms;
+        // anything > 100 ms must be reported stale.
+        set_mtime(&p, Duration::from_secs(5));
+        assert!(!sentinel_is_fresh(&p, Duration::from_millis(100)));
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn sentinel_rejects_symlink() {
+        // Even if the symlink target is a perfectly fresh sentinel we own,
+        // `symlink_metadata` (lstat) reports the symlink itself, whose
+        // file type is not `S_IFREG` → refused. Defends against an attacker
+        // swapping our sentinel path for a symlink to their own marker
+        // (e.g. a long-lived file they keep `touch`ing to wedge us
+        // permanently into ShellOut).
+        let dir = scratch_dir("sentinel-symlink");
+        let real = dir.join("real-wedge");
+        touch_sentinel(&real).unwrap();
+        let link = dir.join("link-wedge");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(!sentinel_is_fresh(&link, Duration::from_secs(1)));
+        rm_rf(&dir);
+    }
+
+    #[test]
+    fn sentinel_rejects_directory() {
+        // S_IFREG check catches anything that isn't a regular file. We
+        // exercise the directory branch as a stand-in for any non-regular
+        // file (FIFO, socket, device). A real co-tenant attack would more
+        // likely use a FIFO they can keep `touch`ing, but mkfifo + chown
+        // requires capabilities we don't have in CI.
+        let dir = scratch_dir("sentinel-dir");
+        assert!(!sentinel_is_fresh(&dir, Duration::from_secs(1)));
+        rm_rf(&dir);
+    }
+
+    // Note: `sentinel_rejects_wrong_owner_uid` is intentionally omitted.
+    // Creating a file owned by a different UID requires `CAP_CHOWN` (or
+    // root), which CI runners and most dev environments don't grant. The
+    // owner-UID branch is exercised by the same code path that gates the
+    // FIFO open — see `open_fifo_safely`'s uid check and the unit tests in
+    // `p10k-rs-core::safety` where `SafetyError::ForeignOwner` is asserted
+    // directly.
+
+    #[test]
+    fn touch_sentinel_creates_file_with_0600_mode() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = scratch_dir("sentinel-mode");
+        let p = dir.join("wedge");
+        touch_sentinel(&p).unwrap();
+        let md = std::fs::symlink_metadata(&p).unwrap();
+        // Mask to permission bits — the file-type bits are guaranteed to
+        // be S_IFREG since we just created it via `open(O_CREAT)`.
+        let perm = md.mode() & 0o777;
+        rm_rf(&dir);
+        assert_eq!(
+            perm, 0o600,
+            "expected mode 0600, got {perm:o} — process umask may be tighter than 0o077"
+        );
+    }
+
+    #[test]
+    fn touch_sentinel_refuses_symlink_swap() {
+        // O_NOFOLLOW on touch means if an attacker pre-plants a symlink at
+        // our sentinel path, the touch fails with ELOOP rather than
+        // updating mtime on their target file.
+        let dir = scratch_dir("sentinel-touch-symlink");
+        let real = dir.join("attacker-controlled");
+        std::fs::write(&real, b"").unwrap();
+        let link = dir.join("wedge");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = touch_sentinel(&link).unwrap_err();
+        rm_rf(&dir);
+        // ELOOP / "too many symbolic links" — the exact errno surfaces as
+        // `io::ErrorKind::FilesystemLoop` on modern Rust, but on 1.88
+        // stable it's still `Other`. Match on rawer signals.
+        let raw = err.raw_os_error();
+        assert!(
+            raw == Some(libc_eloop()),
+            "expected ELOOP on symlink swap, got {err:?} (raw_os_error: {raw:?})"
+        );
+    }
+
+    /// `libc::ELOOP` — hand-rolled rather than pulling `libc` into the
+    /// crate just for one constant. Value is the same across Linux,
+    /// macOS, and the BSDs (40, 62, and 62 respectively, but Linux/glibc
+    /// is what CI runs).
+    #[cfg(target_os = "linux")]
+    fn libc_eloop() -> i32 {
+        40
+    }
+
+    #[cfg(target_os = "macos")]
+    fn libc_eloop() -> i32 {
+        62
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn libc_eloop() -> i32 {
+        // Other unixes vary; if this test ever runs there, update the
+        // table. For now make it loud rather than silently passing.
+        -1
     }
 }
