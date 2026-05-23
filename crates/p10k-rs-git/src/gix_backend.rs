@@ -60,7 +60,7 @@ impl Backend for GixBackend {
         // case (the most common cwd shape during prompt rendering).
         let repo = gix::discover(path).ok()?;
         let branch = branch_safetext(&repo);
-        let dirty = repo_is_dirty(&repo);
+        let counts = compute_status(&repo);
         // Phase 5: reuse the filesystem-based in-progress-action probe
         // from the ShellOut backend. `repo.git_dir()` gives the real
         // `.git/` path (handling worktrees + submodules correctly via
@@ -70,38 +70,117 @@ impl Backend for GixBackend {
         let action = crate::detect_action(repo.git_dir());
         Some(GitState {
             branch,
-            dirty,
+            dirty: counts.is_dirty(),
+            staged: counts.staged,
+            unstaged: counts.unstaged,
+            untracked: counts.untracked,
+            has_conflicts: counts.has_conflicts,
             action,
             ..Default::default()
         })
     }
 }
 
-/// Probe the working tree for any modification, untracked file, or
-/// conflict — anything that would make `git status` report a non-empty
-/// porcelain output.
+/// Per-category status counts for a working tree.
 ///
-/// Mirrors [`crate::ShellOut`]'s `dirty: bool` coverage exactly. The
-/// per-category counters (`staged`, `unstaged`, `untracked`,
-/// `conflicts`) land in a follow-up phase; this one just answers the
-/// boolean.
+/// Mirrors the [`GitState`] counters exactly. `dirty` on the public
+/// type is derived from any of these being non-zero / true, kept as a
+/// separate field on `GitState` because the daemon backend can return
+/// it without paying for the per-category breakdown.
+#[derive(Debug, Default, Clone, Copy)]
+struct StatusCounts {
+    staged: u32,
+    unstaged: u32,
+    untracked: u32,
+    has_conflicts: bool,
+}
+
+impl StatusCounts {
+    /// Whether the working tree has any kind of change relative to
+    /// `HEAD` or the index.
+    fn is_dirty(&self) -> bool {
+        self.staged > 0 || self.unstaged > 0 || self.untracked > 0 || self.has_conflicts
+    }
+}
+
+/// Walk the repo's combined status iterator and bucket each item
+/// into the four `GitState` categories.
 ///
-/// Implementation: ask gix for an `index_worktree_iter` and short-circuit
-/// on the first item. Returns `false` on any error from the iterator
-/// setup — the fallback chain prefers reporting an under-state ("clean")
-/// over crashing the prompt on a transient repo issue.
-fn repo_is_dirty(repo: &gix::Repository) -> bool {
+/// `gix::status::Platform::into_iter` returns items of two outer
+/// shapes:
+///
+/// - [`Item::TreeIndex`] — a `HEAD^{tree}` ↔ index difference. Any
+///   variant of the inner `gix_diff::index::Change` (Addition,
+///   Deletion, Modification, Rewrite) counts as one staged change.
+///   Renames are reported as a single change here, matching
+///   `git status --porcelain`'s single `R`-prefixed line.
+/// - [`Item::IndexWorktree`] — an index ↔ working-tree difference,
+///   split further by the inner [`index_worktree::Item`] variant:
+///   - `Modification { status: Conflict { .. }, .. }` flips
+///     `has_conflicts`. Conflicted entries are deliberately NOT
+///     counted as `unstaged` — `git status` shows them in their
+///     own "unmerged paths" section, not under "changes to be
+///     committed" or "changes not staged."
+///   - `Modification { status: Change(_), .. }` and
+///     `Modification { status: IntentToAdd, .. }` count as one
+///     unstaged change each (intent-to-add is a tracked entry
+///     whose content lives in the worktree, not the index).
+///   - `Modification { status: NeedsUpdate(_), .. }` is a
+///     stat-cache refresh — gix is telling us the entry didn't
+///     change but its mtime/size cache is stale. Ignored; not a
+///     user-visible diff.
+///   - `DirectoryContents { entry, .. }` where
+///     `entry.status == Untracked` counts as one untracked file.
+///     Ignored / tracked / pruned dirwalk hits are excluded.
+///   - `Rewrite { .. }` (rename or copy between index and worktree)
+///     counts as one unstaged change; the `copy` distinction
+///     doesn't matter for the count.
+///
+/// Errors from gix collapse to "report what we counted so far." The
+/// fallback chain prefers a possibly-incomplete answer over crashing
+/// the prompt on a transient repo issue — same posture as the prior
+/// `dirty: bool` implementation.
+///
+/// Counts saturate at [`u32::MAX`] to defend against pathological
+/// repos with billions of entries; the prompt will display the cap
+/// rather than wrap to zero.
+fn compute_status(repo: &gix::Repository) -> StatusCounts {
+    use gix::status::index_worktree::Item as IwItem;
+    use gix::status::plumbing::index_as_worktree::EntryStatus;
+    use gix::status::Item;
+
+    let mut out = StatusCounts::default();
+
     let Ok(platform) = repo.status(gix::progress::Discard) else {
-        return false;
+        return out;
     };
-    let Ok(mut iter) = platform.into_index_worktree_iter(Vec::new()) else {
-        return false;
+    let Ok(iter) = platform.into_iter(Vec::new()) else {
+        return out;
     };
-    // Any successful item means the tree differs from the index. We
-    // can't tell modified-vs-untracked-vs-conflict from this loop
-    // without inspecting `Item` variants, but the boolean answer
-    // collapses all of them the same way.
-    iter.any(|item| item.is_ok())
+
+    for item in iter.filter_map(Result::ok) {
+        match item {
+            Item::TreeIndex(_) => {
+                out.staged = out.staged.saturating_add(1);
+            }
+            Item::IndexWorktree(IwItem::Modification { status, .. }) => match status {
+                EntryStatus::Conflict { .. } => out.has_conflicts = true,
+                EntryStatus::Change(_) | EntryStatus::IntentToAdd => {
+                    out.unstaged = out.unstaged.saturating_add(1);
+                }
+                EntryStatus::NeedsUpdate(_) => {}
+            },
+            Item::IndexWorktree(IwItem::DirectoryContents { entry, .. }) => {
+                if matches!(entry.status, gix::dir::entry::Status::Untracked) {
+                    out.untracked = out.untracked.saturating_add(1);
+                }
+            }
+            Item::IndexWorktree(IwItem::Rewrite { .. }) => {
+                out.unstaged = out.unstaged.saturating_add(1);
+            }
+        }
+    }
+    out
 }
 
 /// Resolve the branch name (or detached short OID) for `repo` and
@@ -189,17 +268,16 @@ mod tests {
             !out.branch.as_str().is_empty(),
             "branch must be non-empty inside a repo"
         );
-        // Phase 2 fills branch; phase 3 fills dirty; phases 4-5 fill
-        // staged + action. Pin only the not-yet-populated invariants
-        // so the test doesn't lie about phase progression.
-        assert_eq!(
-            out.staged, 0,
-            "staged counter is unpopulated until phase 3.5"
+        // Per-category counts (phase 3.5) and action (phase 5) depend
+        // on the maintainer's working-tree state — pin only that the
+        // fields are *queryable*, not their values.
+        let _ = (
+            out.staged,
+            out.unstaged,
+            out.untracked,
+            out.has_conflicts,
+            out.action.as_str(),
         );
-        // Action is populated in phase 5 — the workspace is rarely
-        // in a merge/rebase/cherry-pick when tests run, so just
-        // assert the field exists (could be empty string).
-        let _ = out.action.as_str();
     }
 
     /// `branch_safetext` should never panic and never produce text
@@ -229,8 +307,10 @@ mod tests {
     }
 
     /// A fresh repo with an untracked file in its working tree must
-    /// be reported as dirty. Pins the phase 3 `dirty: bool` contract
-    /// against false-negative reports.
+    /// be reported as dirty *and* have exactly one untracked counted
+    /// (and zero of the other three categories). Pins both the phase
+    /// 3 `dirty: bool` contract and the phase 3.5 per-category
+    /// breakdown for the untracked bucket.
     #[test]
     fn fresh_init_repo_with_untracked_is_dirty() {
         let scratch = std::env::temp_dir().join(format!(
@@ -246,6 +326,119 @@ mod tests {
             .status(&scratch)
             .expect("scratch is a repo; backend must report it");
         assert!(out.dirty, "repo with untracked file must be reported dirty");
+        assert_eq!(out.untracked, 1, "exactly one untracked file expected");
+        assert_eq!(out.staged, 0, "no staged changes in a fresh init");
+        assert_eq!(out.unstaged, 0, "no tracked-file changes");
+        assert!(!out.has_conflicts, "no conflict on a fresh init");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Run a git command inside `dir` with a hermetic env so co-tenant
+    /// global / system git config can't bleed into test setup. Returns
+    /// `false` if git isn't on PATH or the command fails — used to
+    /// gracefully skip tests that need git for state setup (the
+    /// runtime path under test is pure gix; git is only here to
+    /// stage / commit fixtures).
+    fn git_setup(dir: &std::path::Path, args: &[&str]) -> bool {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("HOME", dir)
+            .env("GIT_AUTHOR_NAME", "p10krs test")
+            .env("GIT_AUTHOR_EMAIL", "test@p10krs.local")
+            .env("GIT_COMMITTER_NAME", "p10krs test")
+            .env("GIT_COMMITTER_EMAIL", "test@p10krs.local");
+        cmd.status().is_ok_and(|s| s.success())
+    }
+
+    /// `true` if `git --version` succeeds. Tests that need git for
+    /// fixture setup skip silently on hosts without git — they still
+    /// exercise the read path under test in CI, which always has git.
+    fn have_git() -> bool {
+        std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// A repo where one file is in the index but the worktree is
+    /// otherwise empty of differences must be reported with
+    /// `staged == 1` and zero of everything else.
+    ///
+    /// Setup uses `git add` rather than gix's plumbing because
+    /// gix's high-level add API isn't trivially callable; the
+    /// runtime path under test is still pure gix. Skips on hosts
+    /// without `git` on PATH.
+    #[test]
+    fn repo_with_staged_file_counts_one_staged() {
+        if !have_git() {
+            return;
+        }
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-staged-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        std::fs::create_dir_all(&scratch).expect("mkdir scratch");
+        assert!(git_setup(&scratch, &["init", "-q"]), "git init failed");
+        std::fs::write(scratch.join("a.txt"), b"hello\n").expect("write a.txt");
+        assert!(
+            git_setup(&scratch, &["add", "a.txt"]),
+            "git add a.txt failed"
+        );
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(out.staged, 1, "exactly one staged change expected");
+        assert_eq!(out.unstaged, 0, "no unstaged tracked changes expected");
+        assert_eq!(
+            out.untracked, 0,
+            "no untracked files expected (a.txt is staged)"
+        );
+        assert!(!out.has_conflicts, "no conflicts expected");
+        assert!(out.dirty, "staged change → dirty");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A repo with a tracked file modified in the worktree (but
+    /// nothing newly staged on top) must report `unstaged == 1`
+    /// and zero of the other three categories.
+    #[test]
+    fn repo_with_modified_tracked_file_counts_one_unstaged() {
+        if !have_git() {
+            return;
+        }
+        let scratch = std::env::temp_dir().join(format!(
+            "p10krs-gix-modified-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        ));
+        std::fs::create_dir_all(&scratch).expect("mkdir scratch");
+        assert!(git_setup(&scratch, &["init", "-q"]), "git init failed");
+        std::fs::write(scratch.join("a.txt"), b"hello\n").expect("write a.txt");
+        assert!(git_setup(&scratch, &["add", "a.txt"]), "git add failed");
+        assert!(
+            git_setup(&scratch, &["commit", "-q", "-m", "init"]),
+            "git commit failed"
+        );
+        // Modify the now-tracked file. Worktree diverges from index;
+        // index still matches HEAD.
+        std::fs::write(scratch.join("a.txt"), b"world\n").expect("modify a.txt");
+        let out = GixBackend
+            .status(&scratch)
+            .expect("scratch is a repo; backend must report it");
+        assert_eq!(out.unstaged, 1, "exactly one unstaged change expected");
+        assert_eq!(out.staged, 0, "nothing new staged on top");
+        assert_eq!(out.untracked, 0, "no untracked files");
+        assert!(!out.has_conflicts, "no conflicts");
+        assert!(out.dirty, "modified tracked file → dirty");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
