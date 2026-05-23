@@ -14,12 +14,12 @@
 //! [`gix::Repository::rev_walk`] (phase 4), the in-progress-action
 //! probe via the shared filesystem sentinel scan (phase 5), and
 //! cross-check tests + a criterion bench (phase 6). See
-//! `tests/cross_check.rs` for the ShellOut↔GixBackend parity tests
-//! and `benches/git_backend.rs` for the per-call latency
-//! comparison; `cargo bench -p p10k-rs-git --bench git_backend`
-//! shows GixBackend at ~12× the throughput of ShellOut on the
-//! workspace itself thanks to skipping the per-prompt `git`
-//! subprocess spawn.
+//! `tests/cross_check.rs` for the [`crate::ShellOut`] ↔
+//! [`GixBackend`] parity tests and `benches/git_backend.rs` for
+//! the per-call latency comparison; `cargo bench -p p10k-rs-git
+//! --bench git_backend` shows [`GixBackend`] at ~12× the
+//! throughput of [`crate::ShellOut`] on the workspace itself
+//! thanks to skipping the per-prompt `git` subprocess spawn.
 //!
 //! ## Dep choice
 //!
