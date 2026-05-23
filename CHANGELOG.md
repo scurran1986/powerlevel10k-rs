@@ -8,14 +8,105 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Toward v0.1.7. Landed so far:
+Toward v0.1.8. Carry-overs queued:
 
-- **`fix`** workspace version bumped 0.1.0 → 0.1.7-dev so the
-  binary self-reports a non-stale version field. install.sh now
-  detects-and-replaces legacy symlinked gitstatusd binaries at
-  the install prefix so they survive the runtime's `O_NOFOLLOW`
-  safe-open.
-- **`feat(themes)`** ten bundled prompt themes committed at
+- **Per-host statusline contracts** — `cursor`, `aider`, `goose`
+  return `""` from `render_statusline` today. Pattern documented
+  in `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`.
+- **T1.8 follow-up** — real `UniqueDir` history semantics
+  (currently aliased to `SameDir`). Needs cross-prompt cwd
+  history machinery in `init.zsh`.
+- **Slice 64** — daemon-respawn / health-check cache (ADR-0001
+  § Follow-ups). Still design-doc-only.
+- **ShellOut per-category counts** — porcelain v1 parser only
+  fills `dirty: bool` today; lifting it to populate
+  staged/unstaged/untracked/has_conflicts would tighten the
+  slice 60 phase 6 cross-check tests.
+
+## [0.1.7] - 2026-05-22
+
+Theme: **closing out slice 60 + ergonomic installer.** GixBackend
+reaches full feature parity with the gitstatusd backend (adds
+per-category counts and ahead/behind on top of v0.1.6's
+branch/dirty/action) and the slice 60 phase-6 cross-check tests
++ criterion bench lock that parity in going forward. As a
+convenience slice, `install.sh` now downloads MesloLGS NF fonts
+by default (sha256-pinned, WSL-aware, idempotent).
+
+Test count: **559 passing**, 3 ignored (up from 544 at v0.1.6).
+
+### Slice 60 closure (3 commits)
+
+- `7345651` **slice 60 phase 3.5** `feat(git)`: per-category
+  counts in GixBackend. Replaces the previous `dirty: bool`-only
+  coverage with a four-bucket breakdown (`staged`, `unstaged`,
+  `untracked`, `has_conflicts`); `dirty` is derived from any of
+  them being non-zero / true. Single combined-iter pass via
+  `Platform::into_iter` — one buffer fill on our non-`parallel`
+  build but the prompt's fallback path is the slow tier by
+  design, and we'd much rather take one walk than re-discover
+  the repo twice. Item bucketing rules are in the
+  `compute_status` doccomment: `EntryStatus::Conflict` flips
+  the conflict flag rather than counting (matches `git status`'s
+  unmerged-paths section); `NeedsUpdate` is a stat-cache refresh
+  and ignored; `IntentToAdd` counts as unstaged because the
+  content isn't actually in the index. Counts saturate at
+  `u32::MAX` against pathological repos. Three new tests:
+  staged-only, modified-only, untracked-only.
+- `4b58a85` **slice 60 phase 4** `feat(git)`: ahead/behind in
+  GixBackend via `repo.rev_walk(tips).with_hidden(others)` — the
+  gix-traverse equivalent of `git rev-list A ^B` in both
+  directions. No merge-base needed; the hidden-set machinery
+  paints upstream-reachable commits as "unwanted" so the yield
+  is the asymmetric difference directly. That keeps us off the
+  gix `revision` feature (the higher-level `merge_base` APIs are
+  behind that flag) and avoids any new transitive deps. Every
+  "no answer possible" case (detached HEAD, unborn branch, no
+  upstream config, missing tracking ref, walk error) collapses
+  silently to `(0, 0)` — same shape `git status` renders when
+  there's nothing to compare against. Three new tests; one
+  caught the trap that gix's `branch_remote_tracking_ref_name`
+  requires the remote to have fetch refspecs configured (not
+  just `branch.<n>.{remote,merge}`).
+- `b2ac756` **slice 60 phase 6** `feat(git)`: cross-check tests
+  + criterion bench, closing out slice 60. Six integration tests
+  at `crates/p10k-rs-git/tests/cross_check.rs` assert
+  `ShellOut.status(p) == GixBackend.status(p)` on the fields
+  ShellOut populates (branch + dirty). The detached-HEAD case
+  is the documented known divergence — ShellOut returns the
+  literal `"HEAD"`, gix returns the short OID — and the test
+  explicitly asserts the divergence shape so a future ShellOut
+  rewrite trips it instead of silently agreeing. Criterion
+  bench at `crates/p10k-rs-git/benches/git_backend.rs` shows
+  GixBackend at ~2.1 ms per call vs ShellOut at ~26.7 ms on
+  the workspace itself (~12× faster, dominated by the per-
+  prompt `fork`/`execve` savings).
+
+### Installer ergonomics
+
+- `1bb54ea` **`feat(install)`**: MesloLGS NF font download
+  (default-on, WSL-aware). `install.sh` now fetches the four
+  MesloLGS NF variants from `romkatv/powerlevel10k-media` at
+  pinned commit `145eb9fbc2f42ee408dacd9b22d8e6e0e553f83d`,
+  per-file sha256-verified, into `~/.local/share/fonts/p10k-rs`
+  (Linux, with `fc-cache -f`) or `~/Library/Fonts` (macOS, ATS
+  auto-registers). WSL detection via `/proc/sys/kernel/osrelease`
+  auto-skips with explicit Windows-side install instructions —
+  the Linux-side font dir is invisible to the Windows terminal
+  that actually renders the prompt, so silently installing
+  there would do the wrong thing for most WSL users.
+  Idempotent: skips download if `fc-list` already shows
+  MesloLGS NF (any source) or if every pinned file is already
+  on disk at the expected sha256. `--no-fonts` opts out entirely.
+  Every failure path (network down, sha mismatch, missing
+  `curl` / sha helper) warns and continues — fonts never break
+  the installer. `THIRD-PARTY-LICENSES.md` documents the
+  Apache-2.0 (Meslo LG) + MIT (Nerd Fonts patches) license split
+  and the fetch-don't-bundle stance.
+
+### Bundled themes + theme CLI (carried into the release)
+
+- `73988f8` **`feat(themes)`**: ten bundled prompt themes at
   `themes/` (lean, classic, rainbow, pure, catppuccin-mocha,
   tokyo-night, gruvbox-dark, nord, solarized-dark, dracula),
   embedded into the binary via `include_str!`. New
@@ -23,16 +114,44 @@ Toward v0.1.7. Landed so far:
   prints the catalogue, `show` dumps the TOML to stdout for
   inspection, `install` writes it to `~/.config/p10k-rs/config.toml`
   (backing up existing config to `<path>.bak` unless `--force`).
-  5 new unit tests (every theme parses, names unique, find
-  round-trips, count pin, backup path derivation).
+  5 new unit tests including `every_bundled_theme_parses` —
+  caught three schema mismatches (ColorMode kebab/snake casing,
+  Mode variant naming, Padding being a struct not a string).
 
-Carry-overs queued:
+### Defect fix carried into the release
 
-- **Slice 60 follow-up phases:** 3.5 (per-category counts:
-  staged/unstaged/untracked/conflicts), 4 (ahead/behind via gix
-  revwalk — hit API discovery friction during v0.1.6), 6
-  (cross-check tests + bench against ShellOut).
-- **Slice 64** — daemon-respawn / health-check cache (ADR-0001).
+- `1fbb35e` **`fix`**: workspace version bumped 0.1.0 → 0.1.7-dev
+  so the binary self-reports a non-stale version field (the
+  v0.1.6 cut didn't bump the workspace `version` along with the
+  tag). `install.sh` now detects-and-replaces legacy symlinked
+  gitstatusd binaries at the install prefix so they survive the
+  runtime's `O_NOFOLLOW` safe-open.
+
+### Docs
+
+- `7f37293` **`docs`**: themes chapter in the mdBook + planning
+  refresh capturing the v0.1.6 → v0.1.7-dev handoff for fresh
+  sessions.
+
+### Notes
+
+- **Bench result.** GixBackend per-call latency on the workspace
+  is ~2.1 ms vs ShellOut's ~26.7 ms (~12× faster), as measured by
+  the new criterion bench. Most of the gap is the per-prompt
+  `fork`/`execve` cost ShellOut pays to spawn `git`. Kernel-class
+  repos are intentionally out of scope for CI (cloning the kernel
+  blows the runtime budget); the bench harness is parameterised on
+  `CARGO_MANIFEST_DIR` for local benchmarking against heavier
+  trees.
+- **No new gix features.** Phase 4 (ahead/behind) uses
+  `Repository::rev_walk(...).with_hidden(...)`, which lives in the
+  base feature set. The `revision` feature is required for
+  `merge_base` family APIs; we didn't need them, so the gix
+  feature set stays `["sha1", "status"]` and the transitive
+  package count doesn't grow.
+- **`criterion` dev-dep claimed.** Already declared in
+  `[workspace.dependencies]` since the spike days; slice 60
+  phase 6 finally uses it.
 
 ## [0.1.6] - 2026-05-22
 
