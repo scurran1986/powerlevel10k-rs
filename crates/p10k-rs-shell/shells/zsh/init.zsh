@@ -128,6 +128,14 @@ typeset -g _P10K_RS_FIFO_DIR=""
 typeset -gi _P10K_RS_FIFO_REQ_FD=0
 typeset -gi _P10K_RS_FIFO_RESP_FD=0
 typeset -gi _P10K_RS_DAEMON_PID=0
+# T1.8 follow-up — per-shell NUL-separated cwd-history file for the
+# binary's `unique-dir` transient mode. Lives inside `$_P10K_RS_FIFO_DIR`
+# so it inherits the slice-9 0700 perms + gets cleaned by stop_daemon's
+# `rm -rf`. Empty when the daemon never started (gitstatusd missing); the
+# zle widget skips the `--prompt-cwd-history-file` arg in that case and
+# the binary falls back to empty-history behaviour (functionally identical
+# to `same-dir` for single-shell sessions).
+typeset -g _P10K_RS_CWD_HISTORY_FILE=""
 
 _p10k_rs_start_daemon() {
   [[ -n "$_P10K_RS_GITSTATUSD_BIN" && -x "$_P10K_RS_GITSTATUSD_BIN" ]] || return 1
@@ -185,6 +193,11 @@ _p10k_rs_start_daemon() {
   export _P10K_RS_GITSTATUSD_RESP="$resp"
   export _P10K_RS_GITSTATUSD_PID_FILE="$pid_file"
   export _P10K_RS_GITSTATUSD_WEDGE="$dir/wedge"
+  # T1.8 follow-up — cwd-history file path. No `export`: the binary
+  # consumes it via `--prompt-cwd-history-file`, not env. Lives inside
+  # `$dir` so the slice-9 mktemp dir's 0700 perms protect it and
+  # stop_daemon's `rm -rf` cleans it up at shell exit.
+  _P10K_RS_CWD_HISTORY_FILE="$dir/cwd-history"
   return 0
 }
 
@@ -209,6 +222,11 @@ _p10k_rs_stop_daemon() {
   # path pointing at a now-deleted file.
   unset _P10K_RS_GITSTATUSD_PID_FILE
   unset _P10K_RS_GITSTATUSD_WEDGE
+  # T1.8 follow-up — same reasoning for the cwd-history file path. The
+  # `rm -rf $_P10K_RS_FIFO_DIR` above already deleted the file itself;
+  # clearing the variable name keeps a failed respawn from leaving a
+  # dangling path that the zle widget would otherwise try to read from.
+  _P10K_RS_CWD_HISTORY_FILE=""
 }
 
 # Slice 64 phase 3 — daemon health check + respawn on wedge.
@@ -451,6 +469,21 @@ _p10k_rs_precmd() {
   mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs" 2>/dev/null
   PROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side left --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" --dump "$_p10k_rs_dump" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log") "
   RPROMPT="$("$_P10K_RS_BIN" prompt --shell zsh --render-side right --last-status $rs --last-duration-ms $elapsed_ms --upcoming-command "$upcoming" 2>>"${XDG_STATE_HOME:-$HOME/.local/state}/p10k-rs/diagnostics.log")"
+  # T1.8 follow-up — append the OUTGOING prev cwd to the per-shell
+  # history file BEFORE the slot shift overwrites it. The binary's
+  # `unique-dir` transient mode reads this file to evaluate
+  # `prev ∈ {cwd} ∪ history`. NUL-separated so cwds containing newlines
+  # (POSIX-legal, vanishingly rare) survive the round-trip intact.
+  # The Rust parser caps history at the last 64 entries on read, so the
+  # file grows unbounded per session without affecting decision latency.
+  # Skip silently when the history-file path isn't set (daemon didn't
+  # start) or the outgoing prev slot is empty (first precmd of session).
+  if [[ -n "$_P10K_RS_CWD_HISTORY_FILE" && -n "$_P10K_RS_PREV_PROMPT_CWD" ]]; then
+    {
+      print -nr -- "$_P10K_RS_PREV_PROMPT_CWD"
+      printf '\0'
+    } >> "$_P10K_RS_CWD_HISTORY_FILE" 2>/dev/null
+  fi
   # T1.8 — shift the cwd-history slots forward. `_P10K_RS_PREV_PROMPT_CWD`
   # is the cwd where the prompt-above-the-current one was rendered;
   # `_P10K_RS_CURR_PROMPT_CWD` is the cwd of the prompt we just emitted.
@@ -493,12 +526,21 @@ add-zsh-hook zshexit _p10k_rs_stop_daemon
 # off/always and doesn't need it) — the binary then treats that as an
 # unknown previous cwd and the SameDir/UniqueDir branches naturally
 # fall to KeepPrompt.
+#
+# `--prompt-cwd-history-file` (T1.8 follow-up) points at the per-shell
+# NUL-separated history file the precmd appends to. The binary only
+# consults it under `unique-dir` mode; missing / empty file → empty
+# history → behaves like `same-dir`. Skipped when the daemon never
+# started (no `$_P10K_RS_FIFO_DIR`).
 _p10k_rs_zle_line_finish() {
   local transient rc
   local -a args
   args=( prompt --shell zsh --render-side transient )
   if [[ -n "$_P10K_RS_PREV_PROMPT_CWD" ]]; then
     args+=( --last-prompt-cwd "$_P10K_RS_PREV_PROMPT_CWD" )
+  fi
+  if [[ -n "$_P10K_RS_CWD_HISTORY_FILE" && -s "$_P10K_RS_CWD_HISTORY_FILE" ]]; then
+    args+=( --prompt-cwd-history-file "$_P10K_RS_CWD_HISTORY_FILE" )
   fi
   transient="$("$_P10K_RS_BIN" "${args[@]}" 2>/dev/null)"
   rc=$?

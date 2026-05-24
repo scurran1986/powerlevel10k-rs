@@ -643,6 +643,12 @@ mod transient_decision_tests {
     }
 }
 
+/// Maximum number of history entries returned to `decide_transient`.
+/// The zsh init appends per-prompt and never truncates the file (zsh
+/// NUL-aware truncation is fiddly); the parser caps on read so latency
+/// stays O(64) regardless of session length.
+const CWD_HISTORY_CAP: usize = 64;
+
 /// Read a NUL-separated cwd-history file and return the entries as a
 /// `Vec<PathBuf>`. Empty entries are filtered out. Missing file, I/O
 /// error, or empty file all yield an empty vector — the prompt path is
@@ -654,6 +660,10 @@ mod transient_decision_tests {
 /// `decide_transient` see history as "cwds strictly older than the
 /// immediate previous prompt" without the init having to dance around
 /// two separate file regions.
+///
+/// Capped to the most-recent [`CWD_HISTORY_CAP`] entries after the
+/// defensive drop, so the membership test in `decide_transient` stays
+/// constant-cost as the per-session file grows.
 fn parse_cwd_history_file(
     path: &std::path::Path,
     last_prompt_cwd: Option<&std::path::Path>,
@@ -671,10 +681,15 @@ fn parse_cwd_history_file(
             entries.pop();
         }
     }
+    if entries.len() > CWD_HISTORY_CAP {
+        let drop = entries.len() - CWD_HISTORY_CAP;
+        entries.drain(..drop);
+    }
     entries
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod cwd_history_file_tests {
     use super::parse_cwd_history_file;
     use std::io::Write;
@@ -751,6 +766,25 @@ mod cwd_history_file_tests {
             v,
             vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn caps_history_at_cap_constant() {
+        // Write 100 entries; parser must return only the most-recent
+        // CWD_HISTORY_CAP (= 64). Confirms the file can grow unbounded
+        // in the zsh side without bloating decide_transient's input.
+        let mut blob = Vec::new();
+        for i in 0..100 {
+            blob.extend_from_slice(format!("/dir-{i}").as_bytes());
+            blob.push(0);
+        }
+        let path = write_temp("cap", &blob);
+        let v = parse_cwd_history_file(&path, None);
+        assert_eq!(v.len(), super::CWD_HISTORY_CAP);
+        // Oldest kept is `/dir-36` (100 - 64); newest is `/dir-99`.
+        assert_eq!(v.first().unwrap(), &PathBuf::from("/dir-36"));
+        assert_eq!(v.last().unwrap(), &PathBuf::from("/dir-99"));
         let _ = std::fs::remove_file(&path);
     }
 
