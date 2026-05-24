@@ -31,6 +31,7 @@ impl AiHost {
             HostKind::ClaudeCode => Some("claude-code"),
             HostKind::Aider => Some("aider"),
             HostKind::Cursor => Some("cursor"),
+            HostKind::Goose => Some("goose"),
             // `HostKind` is `#[non_exhaustive]` — covers both `None` and
             // any future variant cross-crate.
             _ => None,
@@ -141,5 +142,13 @@ mod tests {
         let env = EnvSnapshot::default();
         let out = AiHost.render(&ctx(&cfg, &env, HostKind::Cursor));
         assert!(out.text.contains("cursor"));
+    }
+
+    #[test]
+    fn renders_goose_label() {
+        let cfg = Config::default();
+        let env = EnvSnapshot::default();
+        let out = AiHost.render(&ctx(&cfg, &env, HostKind::Goose));
+        assert!(out.text.contains("goose"));
     }
 }
