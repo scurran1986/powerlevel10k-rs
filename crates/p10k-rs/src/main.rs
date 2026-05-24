@@ -434,9 +434,11 @@ const TRANSIENT_KEEP_PROMPT_EXIT_CODE: i32 = 2;
 ///
 /// Pure: takes the mode, the current cwd, the previous prompt's cwd
 /// (`None` when the shell didn't pass `--last-prompt-cwd`, e.g. the
-/// first prompt of a session), and the renderer's already-computed
-/// transient string. Returns the wire decision; the caller writes it
-/// to stdout and exits.
+/// first prompt of a session), the cwd history of all prompts strictly
+/// older than the immediate previous prompt (used by `UniqueDir`; pass
+/// an empty slice for all other modes), and the renderer's
+/// already-computed transient string. Returns the wire decision; the
+/// caller writes it to stdout and exits.
 ///
 /// The mode semantics:
 ///
@@ -446,16 +448,17 @@ const TRANSIENT_KEEP_PROMPT_EXIT_CODE: i32 = 2;
 /// - `SameDir`: collapse only when this prompt's cwd matches the
 ///   previous prompt's cwd. On mismatch (or unknown previous cwd),
 ///   keep the full prompt.
-/// - `UniqueDir`: aliased to `SameDir` for now. The "collapse all but
-///   the most recent prompt at each unique directory" semantic needs
-///   cross-prompt history tracking that lands in a follow-up slice.
-///   Today the variant is preserved in the schema so users can opt
-///   into it without a breaking-config rename when the real semantic
-///   ships.
+/// - `UniqueDir`: collapse iff the previous prompt's cwd appears in
+///   `{cwd} ∪ prompt_cwd_history`. History is maintained by the zsh
+///   init and forwarded via `--prompt-cwd-history-file`. This is a
+///   documented approximation; the strict "most recent at each unique
+///   dir" needs per-prompt-line-position scrollback rewriting (deferred
+///   multi-slice ZLE engineering).
 fn decide_transient(
     mode: p10k_rs_config::TransientPromptMode,
     cwd: &std::path::Path,
     last_prompt_cwd: Option<&std::path::Path>,
+    prompt_cwd_history: &[std::path::PathBuf],
     transient_render: Option<&str>,
 ) -> TransientDecision {
     use p10k_rs_config::TransientPromptMode as Mode;
@@ -463,8 +466,14 @@ fn decide_transient(
     match mode {
         Mode::Off => TransientDecision::Emit(String::new()),
         Mode::Always => TransientDecision::Emit(collapsed.to_owned()),
-        Mode::SameDir | Mode::UniqueDir => match last_prompt_cwd {
+        Mode::SameDir => match last_prompt_cwd {
             Some(prev) if prev == cwd => TransientDecision::Emit(collapsed.to_owned()),
+            _ => TransientDecision::KeepPrompt,
+        },
+        Mode::UniqueDir => match last_prompt_cwd {
+            Some(prev) if prev == cwd || prompt_cwd_history.iter().any(|h| h.as_path() == prev) => {
+                TransientDecision::Emit(collapsed.to_owned())
+            }
             _ => TransientDecision::KeepPrompt,
         },
     }
@@ -485,7 +494,7 @@ mod transient_decision_tests {
     fn off_emits_empty_regardless_of_render() {
         // Byte-identical to pre-T1.8 behaviour: Off ignores the render
         // result and emits "", which the shell assigns as PROMPT="".
-        let d = decide_transient(Mode::Off, &cwd(), None, Some("\u{276F}"));
+        let d = decide_transient(Mode::Off, &cwd(), None, &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::Emit(String::new()));
     }
 
@@ -494,7 +503,7 @@ mod transient_decision_tests {
         // `--last-prompt-cwd` must NOT influence Off — the mode is the
         // policy source of truth.
         let prev = cwd();
-        let d = decide_transient(Mode::Off, &cwd(), Some(&prev), Some("\u{276F}"));
+        let d = decide_transient(Mode::Off, &cwd(), Some(&prev), &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::Emit(String::new()));
     }
 
@@ -502,7 +511,7 @@ mod transient_decision_tests {
     fn always_emits_render_ignoring_prev_cwd() {
         // Always doesn't consult `--last-prompt-cwd` (the shell can
         // skip the flag entirely; the binary must not require it).
-        let d = decide_transient(Mode::Always, &cwd(), None, Some("\u{276F}"));
+        let d = decide_transient(Mode::Always, &cwd(), None, &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
     }
 
@@ -511,21 +520,21 @@ mod transient_decision_tests {
         // Defensive: if the layout has no `prompt_char`, the renderer
         // emits no transient. Always-mode still exits 0 with empty
         // stdout — the shell collapses to PROMPT="".
-        let d = decide_transient(Mode::Always, &cwd(), None, None);
+        let d = decide_transient(Mode::Always, &cwd(), None, &[], None);
         assert_eq!(d, TransientDecision::Emit(String::new()));
     }
 
     #[test]
     fn same_dir_emits_when_cwds_match() {
         let prev = cwd();
-        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), Some("\u{276F}"));
+        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
     }
 
     #[test]
     fn same_dir_keeps_prompt_when_cwds_differ() {
         let prev = PathBuf::from("/elsewhere");
-        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), Some("\u{276F}"));
+        let d = decide_transient(Mode::SameDir, &cwd(), Some(&prev), &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::KeepPrompt);
     }
 
@@ -535,31 +544,87 @@ mod transient_decision_tests {
         // `_P10K_RS_PREV_PROMPT_CWD` yet so it skips the flag, the
         // binary sees None. KeepPrompt is the conservative call —
         // we can't prove this is a "same-dir streak" yet.
-        let d = decide_transient(Mode::SameDir, &cwd(), None, Some("\u{276F}"));
+        let d = decide_transient(Mode::SameDir, &cwd(), None, &[], Some("\u{276F}"));
         assert_eq!(d, TransientDecision::KeepPrompt);
     }
 
     #[test]
-    fn unique_dir_aliases_to_same_dir_today() {
-        // UniqueDir's history-aware semantic isn't implemented yet —
-        // it acts as SameDir. Pin this so the alias is visible in
-        // tests; the follow-up slice will replace these assertions
-        // with the real "collapse all but most-recent at each dir"
-        // behaviour.
-        let prev_same = cwd();
-        let prev_diff = PathBuf::from("/elsewhere");
-        assert_eq!(
-            decide_transient(Mode::UniqueDir, &cwd(), Some(&prev_same), Some("\u{276F}")),
-            TransientDecision::Emit("\u{276F}".to_owned())
+    fn same_dir_ignores_history() {
+        // SameDir's decision is purely cwd vs last_prompt_cwd —
+        // prompt_cwd_history must have no effect regardless of content.
+        let prev = PathBuf::from("/elsewhere");
+        let history = vec![prev.clone(), cwd()];
+        // Even though `/elsewhere` appears in history, SameDir still
+        // KeepPrompts because it only compares last_prompt_cwd == cwd.
+        let d = decide_transient(
+            Mode::SameDir,
+            &cwd(),
+            Some(&prev),
+            &history,
+            Some("\u{276F}"),
         );
-        assert_eq!(
-            decide_transient(Mode::UniqueDir, &cwd(), Some(&prev_diff), Some("\u{276F}")),
-            TransientDecision::KeepPrompt
+        assert_eq!(d, TransientDecision::KeepPrompt);
+    }
+
+    #[test]
+    fn unique_dir_emits_when_prev_cwd_equals_current() {
+        // prev_cwd == current_cwd, empty history → Emit.
+        let prev = cwd();
+        let d = decide_transient(Mode::UniqueDir, &cwd(), Some(&prev), &[], Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
+    }
+
+    #[test]
+    fn unique_dir_emits_when_prev_cwd_in_history() {
+        // prev_cwd != current_cwd, but prev_cwd appears in history → Emit.
+        let prev = PathBuf::from("/elsewhere");
+        let history = vec![prev.clone(), PathBuf::from("/another")];
+        let d = decide_transient(
+            Mode::UniqueDir,
+            &cwd(),
+            Some(&prev),
+            &history,
+            Some("\u{276F}"),
         );
-        assert_eq!(
-            decide_transient(Mode::UniqueDir, &cwd(), None, Some("\u{276F}")),
-            TransientDecision::KeepPrompt
+        assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
+    }
+
+    #[test]
+    fn unique_dir_keeps_prompt_when_prev_cwd_not_in_history() {
+        // prev_cwd != current_cwd, prev_cwd not in history → KeepPrompt.
+        let prev = PathBuf::from("/elsewhere");
+        let history = vec![PathBuf::from("/another"), PathBuf::from("/third")];
+        let d = decide_transient(
+            Mode::UniqueDir,
+            &cwd(),
+            Some(&prev),
+            &history,
+            Some("\u{276F}"),
         );
+        assert_eq!(d, TransientDecision::KeepPrompt);
+    }
+
+    #[test]
+    fn unique_dir_keeps_prompt_when_no_last_prompt_cwd() {
+        // prev_cwd None, non-empty history → KeepPrompt (first prompt of session).
+        let history = vec![PathBuf::from("/another")];
+        let d = decide_transient(Mode::UniqueDir, &cwd(), None, &history, Some("\u{276F}"));
+        assert_eq!(d, TransientDecision::KeepPrompt);
+    }
+
+    #[test]
+    fn unique_dir_emits_with_matching_cwd_and_other_history() {
+        // prev_cwd == current_cwd AND history contains other paths → Emit (sanity).
+        let prev = cwd();
+        let history = vec![PathBuf::from("/another"), PathBuf::from("/third")];
+        let d = decide_transient(
+            Mode::UniqueDir,
+            &cwd(),
+            Some(&prev),
+            &history,
+            Some("\u{276F}"),
+        );
+        assert_eq!(d, TransientDecision::Emit("\u{276F}".to_owned()));
     }
 }
 
@@ -654,6 +719,7 @@ fn cmd_prompt(
                 cfg.transient_prompt,
                 cwd.as_path(),
                 last_prompt_cwd,
+                &[],
                 prompt.transient.as_deref(),
             ) {
                 TransientDecision::Emit(s) => print!("{s}"),
