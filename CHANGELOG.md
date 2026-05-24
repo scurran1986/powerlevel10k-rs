@@ -8,8 +8,11 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Toward v0.1.8. Theme so far: **daemon health hardening + per-host
-statusline contracts pinned + ShellOut counts at GixBackend parity.**
+## [0.1.8] - 2026-05-24
+
+Theme: **daemon health hardening + per-host AI statusline contracts
+pinned + ShellOut counts at GixBackend parity + `unique-dir`
+history-aware approximation.**
 
 ### Slice 64 — daemon-respawn / health-check cache
 
