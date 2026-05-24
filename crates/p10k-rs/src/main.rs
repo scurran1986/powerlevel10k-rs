@@ -13,6 +13,7 @@ mod verify;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -91,6 +92,17 @@ enum Command {
         /// it. Only consulted when `--render-side transient`.
         #[arg(long)]
         last_prompt_cwd: Option<PathBuf>,
+        /// Path to a NUL-separated file of cwds for all prompts strictly
+        /// older than the immediate previous prompt. Used by
+        /// `unique-dir` transient mode to evaluate
+        /// `last_prompt_cwd ∈ ({cwd} ∪ history)`. The zsh init
+        /// maintains the file under `$XDG_RUNTIME_DIR/p10k-rs/`
+        /// (per-shell, capped). Missing / unreadable / empty file is
+        /// treated as empty history — the prompt path never panics on
+        /// best-effort signals. Only consulted when `--render-side
+        /// transient` and the user picked `unique-dir`.
+        #[arg(long)]
+        prompt_cwd_history_file: Option<PathBuf>,
     },
     /// Print the per-shell init script. `eval` / `source` from your rc file.
     Init {
@@ -230,6 +242,7 @@ fn main() -> Result<()> {
             render_side,
             upcoming_command,
             last_prompt_cwd,
+            prompt_cwd_history_file,
         } => {
             tracing::debug!(
                 shell,
@@ -240,6 +253,7 @@ fn main() -> Result<()> {
                 render_side,
                 upcoming_command,
                 ?last_prompt_cwd,
+                ?prompt_cwd_history_file,
                 "prompt invoked"
             );
             if json {
@@ -254,6 +268,7 @@ fn main() -> Result<()> {
                 side,
                 &upcoming_command,
                 last_prompt_cwd.as_deref(),
+                prompt_cwd_history_file.as_deref(),
             )
         }
         Command::Init { shell } => {
@@ -628,8 +643,132 @@ mod transient_decision_tests {
     }
 }
 
+/// Read a NUL-separated cwd-history file and return the entries as a
+/// `Vec<PathBuf>`. Empty entries are filtered out. Missing file, I/O
+/// error, or empty file all yield an empty vector — the prompt path is
+/// best-effort and never fails over a transient signal.
+///
+/// Defensive: if `last_prompt_cwd` is supplied AND the file's last
+/// entry equals it, the last entry is dropped. The zsh init appends a
+/// single growing list per shell; this drop lets the binary's
+/// `decide_transient` see history as "cwds strictly older than the
+/// immediate previous prompt" without the init having to dance around
+/// two separate file regions.
+fn parse_cwd_history_file(
+    path: &std::path::Path,
+    last_prompt_cwd: Option<&std::path::Path>,
+) -> Vec<PathBuf> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<PathBuf> = bytes
+        .split(|b| *b == 0)
+        .filter(|chunk| !chunk.is_empty())
+        .map(|chunk| PathBuf::from(std::ffi::OsStr::from_bytes(chunk)))
+        .collect();
+    if let (Some(last), Some(prev)) = (entries.last(), last_prompt_cwd) {
+        if last.as_path() == prev {
+            entries.pop();
+        }
+    }
+    entries
+}
+
+#[cfg(test)]
+mod cwd_history_file_tests {
+    use super::parse_cwd_history_file;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn write_temp(name: &str, bytes: &[u8]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("p10k-rs-cwd-history-test-{name}"));
+        let mut f = std::fs::File::create(&path).expect("create temp");
+        f.write_all(bytes).expect("write temp");
+        path
+    }
+
+    #[test]
+    fn missing_file_yields_empty() {
+        let path = std::env::temp_dir().join("p10k-rs-cwd-history-test-definitely-not-there");
+        let _ = std::fs::remove_file(&path);
+        assert!(parse_cwd_history_file(&path, None).is_empty());
+    }
+
+    #[test]
+    fn empty_file_yields_empty() {
+        let path = write_temp("empty", b"");
+        assert!(parse_cwd_history_file(&path, None).is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn single_entry_with_trailing_nul() {
+        let path = write_temp("single", b"/home/user/work\0");
+        let v = parse_cwd_history_file(&path, None);
+        assert_eq!(v, vec![PathBuf::from("/home/user/work")]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn multiple_entries_with_trailing_nul() {
+        let path = write_temp("multi", b"/a\0/b\0/c\0");
+        let v = parse_cwd_history_file(&path, None);
+        assert_eq!(
+            v,
+            vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_chunks_between_nuls_are_dropped() {
+        // Tolerate stray double-NULs (a sloppy appender wouldn't break the parser).
+        let path = write_temp("empty-chunks", b"/a\0\0/b\0");
+        let v = parse_cwd_history_file(&path, None);
+        assert_eq!(v, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn defensive_drops_last_entry_when_equal_to_prev() {
+        // The zsh init writes a single growing list per shell; the last
+        // entry is the immediate previous prompt's cwd, which the binary
+        // already gets via `--last-prompt-cwd`. Drop it so `decide_transient`
+        // sees only "strictly older than prev" entries.
+        let path = write_temp("defensive-drop", b"/a\0/b\0/prev\0");
+        let prev = PathBuf::from("/prev");
+        let v = parse_cwd_history_file(&path, Some(prev.as_path()));
+        assert_eq!(v, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn defensive_does_not_drop_when_last_differs_from_prev() {
+        let path = write_temp("defensive-keep", b"/a\0/b\0/c\0");
+        let prev = PathBuf::from("/prev");
+        let v = parse_cwd_history_file(&path, Some(prev.as_path()));
+        assert_eq!(
+            v,
+            vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_last_prompt_cwd_skips_defensive_drop() {
+        // No --last-prompt-cwd means we have no anchor to compare against;
+        // pass through unchanged even if the trailing entry looks like a prev.
+        let path = write_temp("no-anchor", b"/a\0/b\0");
+        let v = parse_cwd_history_file(&path, None);
+        assert_eq!(v, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+}
+
 /// Render the prompt: discover the user's TOML config, fall back to a
 /// hardcoded factory default if anything goes wrong.
+#[allow(clippy::too_many_arguments)] // every arg is a distinct invocation channel; bundling adds no clarity
 fn cmd_prompt(
     shell: &str,
     last_status: i32,
@@ -638,6 +777,7 @@ fn cmd_prompt(
     side: RenderSide,
     upcoming_command: &str,
     last_prompt_cwd: Option<&std::path::Path>,
+    prompt_cwd_history_file: Option<&std::path::Path>,
 ) -> Result<()> {
     let core_shell = parse_core_shell(shell)?;
     let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
@@ -715,11 +855,23 @@ fn cmd_prompt(
         RenderSide::Left => print!("{}", prompt.left),
         RenderSide::Right => print!("{}", prompt.right),
         RenderSide::Transient => {
+            // Unique-dir mode is the only consumer; read the file only
+            // when the user opted into that mode. Other modes get an
+            // empty slice and skip the (best-effort) I/O entirely.
+            let history: Vec<PathBuf> = match (
+                cfg.transient_prompt,
+                prompt_cwd_history_file,
+            ) {
+                (p10k_rs_config::TransientPromptMode::UniqueDir, Some(p)) => {
+                    parse_cwd_history_file(p, last_prompt_cwd)
+                }
+                _ => Vec::new(),
+            };
             match decide_transient(
                 cfg.transient_prompt,
                 cwd.as_path(),
                 last_prompt_cwd,
-                &[],
+                &history,
                 prompt.transient.as_deref(),
             ) {
                 TransientDecision::Emit(s) => print!("{s}"),
