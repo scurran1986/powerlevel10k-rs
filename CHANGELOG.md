@@ -8,20 +8,119 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-Toward v0.1.8. Carry-overs queued:
+Toward v0.1.8. Theme so far: **daemon health hardening + per-host
+statusline contracts pinned + ShellOut counts at GixBackend parity.**
 
-- **Per-host statusline contracts** — `cursor`, `aider`, `goose`
-  return `""` from `render_statusline` today. Pattern documented
-  in `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`.
-- **T1.8 follow-up** — real `UniqueDir` history semantics
-  (currently aliased to `SameDir`). Needs cross-prompt cwd
-  history machinery in `init.zsh`.
-- **Slice 64** — daemon-respawn / health-check cache (ADR-0001
-  § Follow-ups). Still design-doc-only.
-- **ShellOut per-category counts** — porcelain v1 parser only
-  fills `dirty: bool` today; lifting it to populate
-  staged/unstaged/untracked/has_conflicts would tighten the
-  slice 60 phase 6 cross-check tests.
+### Slice 64 — daemon-respawn / health-check cache
+
+Closes ADR-0001 § Follow-ups: a wedged or crashed `gitstatusd`
+daemon no longer forces every subsequent prompt onto the slow
+ShellOut path for the rest of the shell's life. Four phases:
+
+- `9c7f038` **phase 1** `feat(shell)`: daemon PID file + wedge
+  sentinel env vars (`_P10K_RS_DAEMON_PID`, wedge marker). Per-shell
+  mktemp dir vs. per-UID path was chosen pre-spawn (multiple
+  concurrent shells under one UID would race on a shared sentinel).
+- `50cea1a` **phase 2** `feat(git)`: wedge sentinel fast-bail in the
+  client read path so a known-bad daemon doesn't waste a FIFO read
+  before falling through to ShellOut.
+- `4688c9c` **phase 3** `feat(shell)`: `_p10k_rs_health_check` precmd
+  hook runs BEFORE the prompt-render precmd; `kill -0 $pid` detects
+  a dead daemon (~1ms cost), and `_p10k_rs_stop_daemon` +
+  `_p10k_rs_start_daemon` respawns. Registration order matters.
+- `bc73452` + `32144f4` **phase 4** `feat(cli)`: new `p10k-rs
+  daemon-health` diagnostic subcommand. One stable line per outcome
+  with distinct exit codes so shell scripts can branch without
+  parsing text: `OK pid=<n> wedge=none` (0), `WEDGED pid=<n>
+  wedge_age_ms=<n>` (2), `DEAD pid=<n>` (3), `NOT_WIRED` (4),
+  `ERROR <reason>` (5). Reads `_P10K_RS_GITSTATUSD_PID_FILE` and
+  `_P10K_RS_GITSTATUSD_WEDGE` exported by the zsh init at daemon
+  spawn; outside an interactive `p10k-rs init zsh` shell both env
+  vars are unset and the subcommand correctly reports `NOT_WIRED`.
+  Clippy + stderr nits cleaned up in the follow-up commit.
+
+Test count rose 570 → 588 over this slice and the ShellOut counts
+that followed it.
+
+### ShellOut per-category counts
+
+- `70ffb62` `feat(git)`: porcelain v1 parser now populates
+  `staged` / `unstaged` / `untracked` / `has_conflicts` instead of
+  the previous `dirty: bool`-only coverage. Brings ShellOut to
+  GixBackend parity on the count axis and tightens the slice 60
+  phase 6 cross-check tests — both backends now produce identical
+  count tuples against the same repo state.
+
+### Per-host AI statusline contracts (documented absence)
+
+A 3-agent swarm pinned the render-path contract for the three
+hosts that still return `""`:
+
+- `76fdf46` `docs(ai)`: cursor statusline contract — documented
+  absence. Cursor has no published render-time signal; the test
+  pin asserts empty output until upstream exposes one.
+- `aa70b80` `docs(research)`: goose statusline contract —
+  documented absence. Same pattern.
+- `96638e2` `feat(ai)`: aider statusline contract — architectural
+  absence. Aider's `--show-model` / env surface doesn't include a
+  render-time channel; pinned as empty + research note filed.
+- `0137db3` `fix(git)`: backtick `GixBackend` / `ShellOut` in
+  `gix_backend.rs` header (cosmetic).
+
+The render path is wired and the test pins are in place; flipping
+any of these on is "pure additive" once the upstream exposes a
+contract.
+
+### T1.8 follow-up — `unique-dir` history-aware approximation
+
+`unique-dir` transient mode no longer aliases to `same-dir`. The
+binary now evaluates `last_prompt_cwd ∈ {cwd} ∪ history` using a
+per-shell NUL-separated cwd-history file maintained by the zsh
+init. Approximation of the strict "collapse all but the most
+recent prompt at each unique directory" rule — the strict version
+needs per-prompt-line-position scrollback rewriting (multi-slice
+ZLE engineering, deferred). The approximation collapses strictly
+more than `same-dir` (every same-dir match plus every revisit)
+without ever incorrectly collapsing a prompt at a truly-unique
+cwd. Four phase commits (one squash):
+
+- `06840d3` **phases 1+2** `feat(cli)`: `decide_transient` threads
+  a `prompt_cwd_history: &[PathBuf]` param + the new `UniqueDir`
+  branch with the membership-test semantic. Five new unique-dir
+  tests plus a `same_dir_ignores_history` regression guard so
+  `SameDir`'s contract stays isolated from the new param.
+- `45c7548` **phase 3** `feat(cli)`: `--prompt-cwd-history-file`
+  flag + `parse_cwd_history_file` helper. Reads the NUL-separated
+  file, filters empties, defensively drops the trailing entry
+  when it equals `--last-prompt-cwd` (lets the init keep a single
+  append-only file). Eight parser tests cover the wire contract.
+  Only `unique-dir` triggers the read; other modes skip the I/O.
+- `245da56` **phase 4** `feat(shell)`: zsh init wiring. The
+  history file lives inside `$_P10K_RS_FIFO_DIR` (the slice-9
+  mktemp dir, 0700) so it inherits perms and `_p10k_rs_stop_daemon`'s
+  `rm -rf` cleans it up at shell exit — no separate lifecycle.
+  `_p10k_rs_precmd` appends the outgoing prev cwd before the slot
+  shift; `_p10k_rs_zle_line_finish` forwards
+  `--prompt-cwd-history-file` when the file is non-empty. The
+  Rust parser caps history at 64 entries on read so the file can
+  grow unbounded without affecting decision latency.
+- `7ca0935` **phase 5** `docs`: rewrite the `TransientPromptMode`
+  doc-comment and the `unique-dir` row in `docs/src/reference/schema.md`;
+  add a schema-reference pointer to the `themes.md` inline TOML
+  comment.
+
+Test count rose 589 → 603.
+
+### Carry-overs queued
+
+- **Per-host statusline contracts (render side)** — `cursor`,
+  `aider`, `goose` still return `""` until upstream protocols
+  exist. Pattern documented in
+  `~/.planning/powerlevel10k-rs/research/claude-code-statusline-contract.md`.
+- **Strict `unique-dir` semantic** — the per-prompt-line-position
+  scrollback rewrite (upstream p10k's `same-dir`/`unique`-style
+  rule) needs ZLE machinery that addresses arbitrary prior
+  prompts in scrollback, not just the immediately-prior one. Deferred.
 
 ## [0.1.7] - 2026-05-22
 
