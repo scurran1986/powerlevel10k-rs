@@ -22,3 +22,4 @@
 
 - [Schema (full)](./reference/schema.md)
 - [Per-shell init](./reference/shell.md)
+- [daemon-health subcommand](./reference/daemon-health.md)
