@@ -126,7 +126,7 @@ Untagged enum — TOML accepts four shapes:
 | `off` | Transient prompt disabled. Every prompt stays at full width in scrollback. Default. |
 | `always` | Every accepted command collapses the preceding prompt to a single chevron. |
 | `same-dir` | Collapse only when the next prompt is in the same directory as the previous one. Full ribbon is kept in scrollback when you `cd`. Uses an exit-code-2 wire protocol between the binary and the zsh init (T1.8). |
-| `unique-dir` | Intended to collapse all but the most recent prompt at each unique directory. Currently aliased to `same-dir` — the cross-prompt history needed for true unique-dir semantics is not yet implemented. The variant is in the schema so the config key will not need renaming when the follow-up lands. |
+| `unique-dir` | Collapse the previous prompt iff its cwd appears in `{cwd} ∪ history`, where `history` is the cwds of all prompts strictly older than the immediate previous prompt in this shell session. The zsh init maintains a per-shell NUL-separated history file inside the slice-9 mktemp dir and forwards it via `--prompt-cwd-history-file`. Approximation of the strict "collapse all but the most recent prompt at each unique directory" rule — the strict version needs per-prompt-line-position scrollback rewriting (multi-slice ZLE engineering, deferred). The approximation collapses strictly more than `same-dir` (every same-dir match plus every revisit) without incorrectly collapsing a prompt at a truly-unique cwd. |
 
 ## `AiConfig` — `[ai]`
 

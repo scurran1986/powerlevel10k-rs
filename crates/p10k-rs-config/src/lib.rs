@@ -667,12 +667,19 @@ pub enum InstantPromptMode {
 ///   the previous prompt's cwd. The zsh init forwards the previous
 ///   cwd via `--last-prompt-cwd`; on mismatch the binary exits 2 and
 ///   the shell leaves the full ribbon intact in scrollback.
-/// - [`Self::UniqueDir`] — same wire behaviour as [`Self::SameDir`]
-///   today. The intended "collapse all but the most recent prompt at
-///   each unique directory" semantic needs cross-prompt history state
-///   that has not yet landed. The variant is preserved in the schema
-///   so users can opt into it now without a breaking-config rename
-///   when the real semantic ships.
+/// - [`Self::UniqueDir`] — collapse the previous prompt iff its cwd
+///   appears in `{cwd} ∪ history`, where `history` is the cwds of all
+///   prompts strictly older than the immediate previous prompt in
+///   this shell session. The zsh init maintains a per-shell
+///   NUL-separated history file inside the slice-9 mktemp dir and
+///   forwards it via `--prompt-cwd-history-file`. This is an
+///   approximation of the strict "collapse all but the most recent
+///   prompt at each unique directory" semantic — the strict version
+///   needs per-prompt-line-position scrollback rewriting (multi-slice
+///   ZLE engineering, deferred). The approximation collapses
+///   strictly more than [`Self::SameDir`] (every same-dir match plus
+///   every revisit) without ever incorrectly collapsing a prompt at
+///   a truly-unique cwd.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransientPromptMode {
@@ -685,9 +692,10 @@ pub enum TransientPromptMode {
     /// prompt's cwd. Renders `❯` + exit 0 on match; exit 2 (skip the
     /// `PROMPT` swap) on mismatch.
     SameDir,
-    /// Reserved for "collapse all but the most recent prompt at each
-    /// unique directory." Currently aliased to [`Self::SameDir`] —
-    /// the history-aware semantic lands in a follow-up slice.
+    /// Collapse the previous prompt iff its cwd appears in
+    /// `{cwd} ∪ history`, using the per-shell cwd-history file the
+    /// zsh init maintains. Approximation of the strict
+    /// "most-recent-per-unique-dir" rule — see the enum-level docs.
     UniqueDir,
 }
 

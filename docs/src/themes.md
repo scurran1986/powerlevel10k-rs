@@ -54,7 +54,7 @@ like:
 schema_version = 1
 mode = "compatible"           # ascii / awesome / nerd-font-v2 / nerd-font-v3 / compatible
 colors = "ansi256"            # ansi8 / ansi256 / true-color / follow_terminal
-transient_prompt = "same-dir" # off / always / same-dir / unique-dir
+transient_prompt = "same-dir" # off / always / same-dir / unique-dir — see reference/schema.md#transientpromptmode
 
 [layout]
 left = ["dir", "vcs", "prompt_char"]
