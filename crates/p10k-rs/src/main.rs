@@ -175,6 +175,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Print binary + bundled-gitstatusd + target-triple diagnostics
+    /// (slice "v0.2.0 cycle opener").
+    ///
+    /// Multi-line plain text by default. clap also auto-generates
+    /// `p10k-rs --version` for the bare version string; this
+    /// subcommand exists for the deeper "what versions of what is
+    /// this binary actually shipping with?" question. Useful for
+    /// bug reports and install-script diagnostics.
+    Version,
 }
 
 /// Subcommands under `p10k-rs theme`.
@@ -325,7 +334,47 @@ fn main() -> Result<()> {
             let exit = daemon_health::cmd_daemon_health(json);
             std::process::exit(exit);
         }
+        Command::Version => {
+            tracing::debug!("version invoked");
+            cmd_version()
+        }
     }
+}
+
+/// `p10k-rs version` — print binary + bundled-gitstatusd + detected
+/// triple information. Multi-line plain text. Always exits 0; if the
+/// embedded pins file fails to parse the gitstatusd line collapses to
+/// `gitstatusd: <unparseable>` rather than erroring (the version
+/// subcommand is for diagnostics and should never itself fail).
+///
+/// Returns `Result<()>` to match the other `cmd_*` dispatch arms even
+/// though every path lands on `Ok(())` — the consistent signature
+/// keeps the `main` match block uniform; the `#[allow]` is the
+/// idiomatic answer to clippy's `unnecessary_wraps` lint when a
+/// signature is deliberately matched for symmetry.
+#[allow(clippy::unnecessary_wraps)]
+fn cmd_version() -> Result<()> {
+    println!("p10k-rs {}", env!("CARGO_PKG_VERSION"));
+    match p10k_rs_git::Pins::load_embedded() {
+        Ok(pins) => {
+            println!("gitstatusd pin: {}", pins.version);
+            match p10k_rs_git::detect_host_triple() {
+                Some(triple) => match pins.for_triple(triple) {
+                    Ok(entry) => {
+                        // First 12 hex chars of the binary sha256 is plenty for
+                        // a glance-fingerprint; the full hash lives in `p10k-rs
+                        // verify` output for anyone who actually needs to compare.
+                        let short = entry.binary_sha256.get(..12).unwrap_or(&entry.binary_sha256);
+                        println!("gitstatusd triple: {triple} (sha256: {short}…)");
+                    }
+                    Err(_) => println!("gitstatusd triple: {triple} (no pin entry)"),
+                },
+                None => println!("gitstatusd triple: <unsupported host>"),
+            }
+        }
+        Err(e) => println!("gitstatusd: <unparseable: {e}>"),
+    }
+    Ok(())
 }
 
 /// `p10k-rs config check [--config <path>]` — parse the TOML config and
