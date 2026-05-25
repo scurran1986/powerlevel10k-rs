@@ -8,6 +8,108 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-25
+
+Theme: **`p10k-rs doctor` + Windows release matrix.** New runtime
+diagnostic subcommand surfaces the common fresh-install snags as
+structured `OK` / `WARN` / `ERROR` / `SKIP` checks. The release pipeline
+gains `x86_64-pc-windows-msvc` + `aarch64-pc-windows-msvc` targets to
+unblock the Scoop manifest that's been sitting since the v0.2 cycle
+opened.
+
+### `p10k-rs doctor [--json]`
+
+Nine probes against the environmental snags users hit on a fresh
+install: missing Nerd Font glyphs, missing `gitstatusd`, broken /
+unparseable config, shell init not sourced, stale instant-prompt cache
+permissions, OSC 7 unsupported terminals, WSL + Windows font gap. Each
+check reports `OK` / `WARN` / `ERROR` / `SKIP`; exit code aggregates to
+the worst severity (`0` / `1` / `2`).
+
+```sh
+$ p10k-rs doctor
+[OK   ] gitstatusd_binary: found at /usr/local/bin/gitstatusd
+[WARN ] shell_init_sourced: no `_P10K_RS_GITSTATUSD_*` env vars — …
+[SKIP ] osc7_supported: TERM_PROGRAM not set; …
+doctor: warnings present (exit 1)
+```
+
+`--json` emits a `p10krs.doctor/v1` envelope for tooling — fourth
+diagnostic subcommand to join the `daemon-health` / `version` /
+`verify` JSON family. Same wire-stability discipline (snake_case field
+names, additive evolution only).
+
+### Windows release matrix
+
+`.github/workflows/release.yml` now builds for both `x86_64-pc-windows-msvc`
+and `aarch64-pc-windows-msvc`. Both Windows arches build on
+`windows-latest`; aarch64 cross-compiles cleanly via `rustup target add`
+without an external toolchain. Packaging splits per-OS: unix keeps
+`.tar.gz` + `sha256` sidecar; Windows produces `.zip` via
+`Compress-Archive` and a matching `sha256` sidecar via `Get-FileHash`.
+Sigstore signing routes through `shell: bash` (Git Bash) so the same
+heredoc syntax works across all runners.
+
+Pairs with the Scoop manifest scaffold at `packaging/scoop/p10k-rs.json`
+(committed in `cc317bb`). First Windows tag run will exercise
+`Compress-Archive` layout, the sha256 sidecar's
+`<hex>  <file>\n` format, and `actions/attest-build-provenance` with a
+`.exe` subject path end-to-end.
+
+### Per-segment mdBook pages
+
+14 dedicated docs pages for the always-on and auto-detected segment
+set: `ai_host`, `ai_status`, `anaconda`, `aws`, `background_jobs`,
+`command_execution_time`, `context`, `dir`, `docker_context`, `fnm`,
+`jj`, `kubecontext`, `mise`, `node_version`. Each page documents
+render shape, per-state palette, full config schema, and the gotchas
+specific to the segment. Wired under `Segments` in the mdBook
+sidebar; pages reference future companions (`vcs`, `virtualenv`,
+`pyenv`, `nodenv`, `pixi`, `root_indicator`, `troubleshooting`) that
+land in a follow-up cycle.
+
+### Bug fixes
+
+- **Build break** restored on `main`. The Warp first-class detection
+  commit missed a wildcard arm on the `#[non_exhaustive] HostKind`
+  match in `crates/p10k-rs-ai/src/lib.rs::host_config_aliases` — cross-
+  crate matches need a wildcard. Default for unknown future hosts is
+  no aliases (same shape as `Generic` / `None`).
+- **`cargo doc -D warnings`** restored. Four broken intra-doc links
+  from the v0.2 commits: three private-item links in
+  `crates/p10k-rs-segments/src/ai_status.rs` (`MAX_AGE_SECS`,
+  `MAX_FILE_BYTES`) inlined as plain code spans with the numeric
+  default; one unresolved field link in `crates/p10k-rs/src/prompt_json.rs`
+  qualified to `PromptJson::left`.
+- **`cargo clippy -D warnings`** restored. 11 lints across `p10k-rs-ai`
+  (`match_same_arms` from the wildcard fix above, `map_unwrap_or`),
+  `p10k-rs-segments` (`doc_markdown` on `KiB` / `XDG_RUNTIME_DIR`,
+  `cast_possible_truncation` on `MAX_FILE_BYTES as usize` resolved by
+  switching the const to `usize`, `if_not_else`, `format_push_string`),
+  and `p10k-rs` (`unnested_or_patterns`, `match_same_arms` in the
+  doctor exit-code aggregator, `manual_let_else`, `doc_markdown` on
+  `ENV_LOCK` / `ShellOut` / `GixBackend` / `snake_case`,
+  `too_many_lines` on `main` with an `#[allow]` rationale).
+
+Three regressions sat on `main` for a session because cargo's
+incremental cache returned exit 0 from cached compile output AND
+the gate runner's `cargo X | tail` invocation masked cargo's exit
+code (STATE.md gotcha #1). Lesson filed: trust
+`cargo clean && cargo X --workspace --locked` with stdout redirected
+to a file, not piped, on session entry.
+
+### Internal: bench tooling
+
+`bench/compare_criterion.sh` joins the existing manual bench harness
+alongside `aggregate.sh` / `run_baseline.sh` / `fetch_fixtures.sh`.
+Walks `<dir>/<group>/<bench>/new/estimates.json` in both baseline and
+current trees, computes percentage change off criterion's
+`mean.point_estimate`, and emits a markdown table on stdout plus
+GitHub workflow annotations on stderr. Thresholds via env
+(`PERF_WARN_PCT` default 10, `PERF_FAIL_PCT` default 25); exit codes
+0/1/2. `bash 4+`, `awk`; no `jq` dep. Standalone for now — not wired
+into any workflow.
+
 ## [0.2.2] - 2026-05-25
 
 Theme: **`verify --json` completes the diagnostic-JSON trilogy.**
