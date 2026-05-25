@@ -1,5 +1,19 @@
 name: docs
 
+# Builds the mdBook site under `docs/` and publishes it to the
+# `gh-pages` branch on every push to `main` (and on tag pushes).
+#
+# Pages settings:
+#   Source: Deploy from a branch
+#   Branch: gh-pages
+#   Folder: / (root)
+#
+# (The `actions/deploy-pages` flow this workflow used to use
+# requires Pages source = "GitHub Actions", a separate settings
+# option from "Deploy from a branch". The gh-pages-branch
+# approach plays nicer with the default branch-deploy UI most
+# repos start with — a one-click switch from any other branch.)
+
 on:
   push:
     branches: [main]
@@ -7,17 +21,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write   # gh-pages branch push
 
 concurrency:
-  group: pages
+  group: gh-pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: build mdbook
+  build-and-publish:
+    name: build mdbook + push to gh-pages
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -31,19 +43,13 @@ jobs:
       - name: build site
         run: mdbook build docs
 
-      - name: upload artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+      - name: publish to gh-pages
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
-          path: docs/book
-
-  deploy:
-    name: deploy to github pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: deploy
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/book
+          publish_branch: gh-pages
+          force_orphan: true   # one-commit history on gh-pages — keeps the branch slim
+          commit_message: "docs: publish ${{ github.sha }}"
+          user_name: 'github-actions[bot]'
+          user_email: '41898282+github-actions[bot]@users.noreply.github.com'
