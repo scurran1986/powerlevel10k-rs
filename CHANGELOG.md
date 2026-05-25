@@ -8,6 +8,27 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+### `ci(docs)` Pages publish via gh-pages branch
+
+The v0.1.8 docs deploy failed with `HttpError: Not Found`
+because the workflow used `actions/upload-pages-artifact` +
+`actions/deploy-pages`, which require Pages source =
+"GitHub Actions" — a separate settings option from the more
+common "Deploy from a branch" UI most repos default to.
+Switched the workflow to `peaceiris/actions-gh-pages` which
+pushes the built mdBook output to a `gh-pages` branch
+(`60480d3`). To complete the fix, set repo Pages settings to:
+
+```
+Source: Deploy from a branch
+Branch: gh-pages
+Folder: / (root)
+```
+
+No mdBook content changes; this is a delivery-channel switch
+only. `force_orphan: true` keeps the gh-pages branch as a
+single commit so history doesn't accumulate weight.
+
 ## [0.1.8] - 2026-05-24
 
 Theme: **daemon health hardening + per-host AI statusline contracts
