@@ -341,6 +341,7 @@ fn host_config_aliases(host: &HostKind) -> &'static [&'static str] {
         HostKind::Cursor => &["cursor"],
         HostKind::Warp => &["warp"],
         HostKind::Generic(_) | HostKind::None => &[],
+        _ => &[],
     }
 }
 
