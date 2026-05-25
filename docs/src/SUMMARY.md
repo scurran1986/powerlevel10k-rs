@@ -38,5 +38,6 @@
 - [Schema (full)](./reference/schema.md)
 - [Per-shell init](./reference/shell.md)
 - [daemon-health subcommand](./reference/daemon-health.md)
+- [doctor subcommand](./reference/doctor.md)
 - [ai_status sidecar contract](./reference/ai-status.md)
 - [prompt --json schema](./reference/prompt-json.md)

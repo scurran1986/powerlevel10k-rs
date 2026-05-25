@@ -154,6 +154,14 @@ fn json_escape(s: &str) -> String {
     out
 }
 
+/// Crate-public alias for [`sha256_of_path`] so sibling modules
+/// (notably `doctor`) can re-use the stream-hasher without duplicating
+/// the buffer-sizing rationale. The `pub` is `pub(crate)`; the wire
+/// surface is unchanged.
+pub(crate) fn sha256_of_path_pub(path: &Path) -> std::io::Result<String> {
+    sha256_of_path(path)
+}
+
 /// Stream-hash `path` with SHA-256 and return the 64-char lowercase
 /// hex digest.
 ///

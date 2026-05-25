@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 mod daemon_health;
+mod doctor;
 mod prompt_json;
 mod themes;
 mod verify;
@@ -180,6 +181,19 @@ enum Command {
         /// vs `OK pid=12345 wedge=none`. Useful when scripting
         /// branching on the channel state from a non-shell consumer
         /// (Python, Go, a Prometheus textfile collector, etc.).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run runtime diagnostics across Nerd Font / gitstatusd / config /
+    /// shell init / instant-prompt cache / OSC 7 / WSL font story.
+    ///
+    /// Each check reports `OK` / `WARN` / `ERROR` / `SKIP`. Exit codes:
+    /// 0 (all OK or skips only), 1 (warnings, no errors), 2 (at least
+    /// one error). `--json` emits a `p10krs.doctor/v1` envelope.
+    Doctor {
+        /// Emit machine-readable JSON on stdout instead of the
+        /// per-check text format. Same exit codes; mirrors
+        /// `daemon-health --json` and `verify --json`.
         #[arg(long)]
         json: bool,
     },
@@ -367,6 +381,10 @@ fn main() -> Result<()> {
             tracing::debug!(json, "daemon-health invoked");
             let exit = daemon_health::cmd_daemon_health(json);
             std::process::exit(exit);
+        }
+        Command::Doctor { json } => {
+            tracing::debug!(json, "doctor invoked");
+            doctor::cmd_doctor(json);
         }
         Command::Version { json } => {
             tracing::debug!(json, "version invoked");
