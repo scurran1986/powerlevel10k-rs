@@ -86,6 +86,72 @@ impl VerifyOutcome {
             Self::UnsupportedArch(triple) => format!("UNSUPPORTED_ARCH {triple}"),
         }
     }
+
+    /// Machine-readable JSON representation. Field set per variant:
+    ///
+    /// - `Ok`:              `{"status":"OK","triple":"<t>","version":"<v>","sha_prefix":"<12hex>"}`
+    /// - `Mismatch`:        `{"status":"MISMATCH","expected":"<64hex>","got":"<64hex>"}`
+    /// - `NotFound`:        `{"status":"NOT_FOUND","reason":"<escaped>"}`
+    /// - `UnsupportedArch`: `{"status":"UNSUPPORTED_ARCH","triple":"<t>"}`
+    ///
+    /// Hand-rolled to avoid pulling `serde_json` for one call site —
+    /// matches the encoder pattern used by `daemon-health --json`
+    /// (v0.1.10) and `version --json` (v0.2.1). Strings are
+    /// JSON-escaped via [`json_escape`]; the sha hex strings can't
+    /// contain anything that needs escaping but pass through the
+    /// encoder anyway for symmetry.
+    pub(crate) fn render_json(&self) -> String {
+        match self {
+            Self::Ok {
+                triple,
+                version,
+                sha_prefix,
+            } => format!(
+                "{{\"status\":\"OK\",\"triple\":\"{}\",\"version\":\"{}\",\"sha_prefix\":\"{}\"}}",
+                json_escape(triple),
+                json_escape(version),
+                json_escape(sha_prefix)
+            ),
+            Self::Mismatch { expected, got } => format!(
+                "{{\"status\":\"MISMATCH\",\"expected\":\"{}\",\"got\":\"{}\"}}",
+                json_escape(expected),
+                json_escape(got)
+            ),
+            Self::NotFound(reason) => format!(
+                "{{\"status\":\"NOT_FOUND\",\"reason\":\"{}\"}}",
+                json_escape(reason)
+            ),
+            Self::UnsupportedArch(triple) => format!(
+                "{{\"status\":\"UNSUPPORTED_ARCH\",\"triple\":\"{}\"}}",
+                json_escape(triple)
+            ),
+        }
+    }
+}
+
+/// Minimal JSON string escape — quote, backslash, C0 controls. Same
+/// pattern as `daemon_health::json_escape` and main's
+/// `json_escape_str`; hand-rolled per call site rather than hoisted
+/// because the project doesn't otherwise pull `serde_json` and a
+/// "json utils" module would be premature abstraction for three
+/// small uses.
+fn json_escape(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Stream-hash `path` with SHA-256 and return the 64-char lowercase
@@ -167,10 +233,14 @@ pub(crate) fn verify_with_pins(binary_path: Option<&Path>, pins: &Pins) -> Verif
 /// bug surfaced via the test `embedded_pins_parse`), runs the verify
 /// computation, prints the stable wire line, and exits with the
 /// outcome's mapped code so callers can branch on it without parsing.
-pub(crate) fn cmd_verify(binary_path: Option<&Path>) -> Result<()> {
+pub(crate) fn cmd_verify(binary_path: Option<&Path>, json: bool) -> Result<()> {
     let pins = Pins::load_embedded().context("loading embedded gitstatusd pins")?;
     let outcome = verify_with_pins(binary_path, &pins);
-    println!("{}", outcome.render());
+    if json {
+        println!("{}", outcome.render_json());
+    } else {
+        println!("{}", outcome.render());
+    }
     let code = outcome.exit_code();
     if code == 0 {
         Ok(())
@@ -340,5 +410,53 @@ mod tests {
 
         let ua = VerifyOutcome::UnsupportedArch("powerpc64-aix".to_owned());
         assert_eq!(ua.render(), "UNSUPPORTED_ARCH powerpc64-aix");
+    }
+
+    #[test]
+    fn render_json_format_is_stable() {
+        // Same pinning as the text form, JSON shape this time. Consumers
+        // scripting against `verify --json` depend on these exact field
+        // names and ordering (the encoder is hand-rolled per call site,
+        // so order is determined by the format!() call).
+        let ok = VerifyOutcome::Ok {
+            triple: "x86_64-linux-gnu".to_owned(),
+            version: "v1.5.4".to_owned(),
+            sha_prefix: "02b7bc11a70a".to_owned(),
+        };
+        assert_eq!(
+            ok.render_json(),
+            r#"{"status":"OK","triple":"x86_64-linux-gnu","version":"v1.5.4","sha_prefix":"02b7bc11a70a"}"#
+        );
+
+        let mm = VerifyOutcome::Mismatch {
+            expected: "aa".repeat(32),
+            got: "bb".repeat(32),
+        };
+        let mm_json = mm.render_json();
+        assert!(mm_json.starts_with(r#"{"status":"MISMATCH","expected":""#));
+        assert!(mm_json.contains(r#"","got":""#));
+
+        let nf = VerifyOutcome::NotFound("oops".to_owned());
+        assert_eq!(
+            nf.render_json(),
+            r#"{"status":"NOT_FOUND","reason":"oops"}"#
+        );
+
+        let ua = VerifyOutcome::UnsupportedArch("powerpc64-aix".to_owned());
+        assert_eq!(
+            ua.render_json(),
+            r#"{"status":"UNSUPPORTED_ARCH","triple":"powerpc64-aix"}"#
+        );
+    }
+
+    #[test]
+    fn render_json_escapes_reason_quotes_and_backslashes() {
+        // NotFound carries an OS error message; nothing prevents weird
+        // path chars from reaching the encoder. Pin the escape pass.
+        let nf = VerifyOutcome::NotFound(r#"path "/weird\name" failed"#.to_owned());
+        assert_eq!(
+            nf.render_json(),
+            r#"{"status":"NOT_FOUND","reason":"path \"/weird\\name\" failed"}"#
+        );
     }
 }

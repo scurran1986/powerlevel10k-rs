@@ -155,6 +155,13 @@ enum Command {
         /// moving it into the install prefix.
         #[arg(long)]
         binary: Option<PathBuf>,
+        /// Emit machine-readable JSON on stdout instead of the
+        /// one-line text format. Same exit codes; same outcomes.
+        /// Mirrors `daemon-health --json` (v0.1.10) and
+        /// `version --json` (v0.2.1) so all three diagnostic
+        /// subcommands now offer scripting-friendly output.
+        #[arg(long)]
+        json: bool,
     },
     /// Report daemon health: alive, wedged, dead, or channel not wired (slice 64 phase 4).
     ///
@@ -333,9 +340,9 @@ fn main() -> Result<()> {
                 ThemeCommand::Install { name, force } => themes::cmd_install(&name, force),
             }
         }
-        Command::Verify { binary } => {
-            tracing::debug!(?binary, "verify invoked");
-            verify::cmd_verify(binary.as_deref())
+        Command::Verify { binary, json } => {
+            tracing::debug!(?binary, json, "verify invoked");
+            verify::cmd_verify(binary.as_deref(), json)
         }
         Command::DaemonHealth { json } => {
             tracing::debug!(json, "daemon-health invoked");

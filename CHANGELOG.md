@@ -8,6 +8,43 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-25
+
+Theme: **`verify --json` completes the diagnostic-JSON trilogy.**
+All three diagnostic subcommands — `daemon-health`, `version`,
+`verify` — now offer structured machine-readable output via a
+`--json` flag. Same wire-stability contract across all three.
+
+### `verify --json`
+
+Pass `--json` to emit a single-line JSON object instead of the
+one-line text form. Same exit codes (0/2/3/4), same outcomes:
+
+| Outcome | JSON |
+|---------|------|
+| Match | `{"status":"OK","triple":"<t>","version":"<v>","sha_prefix":"<12hex>"}` |
+| Mismatch | `{"status":"MISMATCH","expected":"<64hex>","got":"<64hex>"}` |
+| Not found | `{"status":"NOT_FOUND","reason":"<escaped>"}` |
+| Unsupported arch | `{"status":"UNSUPPORTED_ARCH","triple":"<t>"}` |
+
+`reason` strings are JSON-escaped (`"`, `\\`, C0 controls; non-ASCII
+UTF-8 passes through). Hand-rolled encoder, no `serde_json` dep.
+
+The text format (default) is unchanged from v0.2.1 and the
+SECURITY.md verification recipe still references it.
+
+### Diagnostic-JSON trilogy in one glance
+
+| Subcommand | Text | JSON |
+|---|---|---|
+| `daemon-health` | v0.1.8 | v0.1.10 |
+| `version` | v0.2.0 | v0.2.1 |
+| `verify` | T0.5 (v0.1.5) | **v0.2.2** |
+
+All three follow the same `--json` convention. Same exit codes
+in either mode. Same wire-stability discipline (additive field
+changes only).
+
 ## [0.2.1] - 2026-05-25
 
 Theme: **`version --json` for parity with `daemon-health --json`.**
