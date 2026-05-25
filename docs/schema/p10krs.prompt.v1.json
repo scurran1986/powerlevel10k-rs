@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p10k-rs.example/schema/p10krs.prompt.v1.json",
+  "title": "p10k-rs prompt --json payload (v1)",
+  "description": "Structured snapshot of one `p10k-rs prompt` render. Emitted by `p10k-rs prompt --json` for AI hosts, integration partners, and debugging tools. The shape is wire-stable within the `p10krs.prompt/v1` schema version; breaking changes ship behind a new schema version (`v2`, etc.) while keeping the v1 file present for at least one minor cycle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "produced_at_unix"],
+  "properties": {
+    "schema_version": {
+      "description": "Stable schema identifier — always the literal string `p10krs.prompt/v1` for payloads validated by this document.",
+      "type": "string",
+      "const": "p10krs.prompt/v1"
+    },
+    "produced_at_unix": {
+      "description": "Unix epoch seconds at the moment the binary started assembling the payload. Useful for detecting stale snapshots vs. the live shell state.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "p10k_rs_version": {
+      "description": "Cargo package version of the running `p10k-rs` binary. Matches the value emitted by `p10k-rs version --json`'s `binary` field.",
+      "type": "string"
+    },
+    "shell": {
+      "description": "Which shell asked for the prompt. Lowercase CLI label.",
+      "type": "string",
+      "enum": ["zsh", "bash", "fish"]
+    },
+    "exit_status": {
+      "description": "Exit status the shell forwarded via `--last-status`. Defaults to 0 when the shell didn't pass one (consistent with the clap default).",
+      "type": "integer"
+    },
+    "host": {
+      "description": "Detected AI / agent host the shell is running inside. `null` when no host was detected. The set is open: unknown agents that adopt the `AI_AGENT` / `AGENT` convention are surfaced as their (trimmed, lowercased) self-reported name.",
+      "type": ["string", "null"],
+      "examples": ["claude-code", "cursor", "aider", "goose", "warp", "custom-agent", null]
+    },
+    "cwd": {
+      "description": "Current working directory at render time, UTF-8 string (lossy for non-UTF-8 filesystems, matching the `dir` segment's rendering).",
+      "type": "string"
+    },
+    "ansi_text": {
+      "description": "Full rendered prompt for the requested side with ANSI escapes included. Byte-identical to what `p10k-rs prompt` (without `--json`) would print to stdout for the same `--render-side`.",
+      "type": "string"
+    },
+    "plain_text": {
+      "description": "`ansi_text` with ANSI SGR/OSC escapes and zsh's `%{`/`%}` non-printing markers stripped. Drop-in for log lines, file names, and other plain-text consumers.",
+      "type": "string"
+    },
+    "left": {
+      "description": "Per-segment breakdown for the left ribbon, after `disabled` / `show_in_dir` / `show_on_command` gating but before powerline-arrow weaving.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Segment" }
+    },
+    "right": {
+      "description": "Per-segment breakdown for the right ribbon. Same shape as `left`.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Segment" }
+    },
+    "git": {
+      "description": "Git state for the cwd, when available. `null` outside a git repository or when none of the configured backends (gitstatusd, ShellOut, GixBackend) could produce a state.",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/Git" }
+      ]
+    }
+  },
+  "$defs": {
+    "Segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "ansi", "plain"],
+      "properties": {
+        "name": {
+          "description": "Segment identifier — matches the TOML config key (`Segment::name`). Stable across releases.",
+          "type": "string"
+        },
+        "ansi": {
+          "description": "Segment's styled output as it would appear in the prompt ribbon, ANSI escapes included. Does not include the powerline arrows or separators the renderer weaves between adjacent segments — those are owned by the render pipeline, not the segment.",
+          "type": "string"
+        },
+        "plain": {
+          "description": "`ansi` with ANSI escapes and zsh non-printing markers stripped.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Optional state tag the segment reported (`ok`, `error`, `writable`, …). `null` when the segment doesn't carry state.",
+          "type": ["string", "null"]
+        },
+        "icon": {
+          "description": "Glyph the segment chose for its icon slot, when applicable. `null` when the segment has no icon.",
+          "type": ["string", "null"]
+        },
+        "background": {
+          "description": "Background colour the segment painted itself on. `null` when the segment opted out of a background. Encoded as a `Color`: named string (`\"blue\"`), hex literal (`\"#ff6600\"`), ANSI palette index (0–255), or `[r, g, b]` triple — matching the config-file colour grammar.",
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" },
+            { "type": "integer", "minimum": 0, "maximum": 255 },
+            {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ]
+        }
+      }
+    },
+    "Git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "ahead",
+        "behind",
+        "staged",
+        "unstaged",
+        "untracked",
+        "has_conflicts",
+        "action"
+      ],
+      "properties": {
+        "branch": {
+          "description": "Current branch name. Empty string when detached or unknown.",
+          "type": "string"
+        },
+        "ahead": {
+          "description": "Commits ahead of the configured upstream. 0 if no upstream or unknown.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "behind": {
+          "description": "Commits behind the configured upstream. 0 if no upstream or unknown.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "staged": {
+          "description": "Number of staged changes (tree-vs-index).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "unstaged": {
+          "description": "Number of unstaged changes (index-vs-worktree).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "untracked": {
+          "description": "Number of untracked files.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "has_conflicts": {
+          "description": "`true` if any path is in conflict (unmerged stage).",
+          "type": "boolean"
+        },
+        "action": {
+          "description": "In-progress repo action — one of `merge`, `rebase`, `cherry-pick`, `revert`, `bisect` — or `null` when the working tree is in a normal state.",
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

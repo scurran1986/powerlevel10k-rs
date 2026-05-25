@@ -701,7 +701,10 @@ mod tests {
             ..AiStatusPayload::default()
         };
         let pct = used_pct(&p).unwrap();
-        assert!((pct - 100.0).abs() < f64::EPSILON, "expected 100, got {pct}");
+        assert!(
+            (pct - 100.0).abs() < f64::EPSILON,
+            "expected 100, got {pct}"
+        );
     }
 
     #[test]

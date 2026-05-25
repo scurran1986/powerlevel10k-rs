@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 mod daemon_health;
+mod prompt_json;
 mod themes;
 mod verify;
 
@@ -289,10 +290,28 @@ fn main() -> Result<()> {
                 ?prompt_cwd_history_file,
                 "prompt invoked"
             );
-            if json {
-                anyhow::bail!("--json output lands with the AI integration phase");
-            }
             let side = parse_render_side(&render_side)?;
+            if json {
+                // `--json` short-circuits the styled-text emit path:
+                // gather the same inputs `cmd_prompt` walks, render
+                // once, then hand the resulting segments + ribbons to
+                // [`prompt_json::build_prompt_json`] for the wire
+                // payload. Transient rendering doesn't make sense in
+                // JSON form (there's no "collapsed" snapshot to
+                // serialise vs. the full one), so we always emit the
+                // full left+right breakdown and key `ansi_text` off
+                // the requested side. Dump-to-disk is also skipped
+                // for `--json` — the dump exists to mask
+                // first-prompt gitstatusd latency, which doesn't
+                // apply to a one-shot diagnostic invocation.
+                return cmd_prompt_json(
+                    &shell,
+                    last_status,
+                    last_duration_ms,
+                    side,
+                    &upcoming_command,
+                );
+            }
             cmd_prompt(
                 &shell,
                 last_status,
@@ -375,7 +394,10 @@ fn cmd_version(json: bool) -> Result<()> {
             let triple = match p10k_rs_git::detect_host_triple() {
                 Some(t) => match pins.for_triple(t) {
                     Ok(entry) => {
-                        let short = entry.binary_sha256.get(..12).unwrap_or(&entry.binary_sha256);
+                        let short = entry
+                            .binary_sha256
+                            .get(..12)
+                            .unwrap_or(&entry.binary_sha256);
                         VersionTriple::Pinned {
                             triple: t.to_owned(),
                             sha256_short: short.to_owned(),
@@ -387,17 +409,26 @@ fn cmd_version(json: bool) -> Result<()> {
             };
             (VersionPin::Ok(pins.version.clone()), triple)
         }
-        Err(e) => (VersionPin::Err(e.to_string()), VersionTriple::UnsupportedHost),
+        Err(e) => (
+            VersionPin::Err(e.to_string()),
+            VersionTriple::UnsupportedHost,
+        ),
     };
     if json {
         // Hand-rolled JSON for the same reason as daemon-health: surface is
         // tiny + bounded, no need to pull serde_json just for one line.
         let pin_field = match &gitstatusd_pin {
             VersionPin::Ok(v) => format!("\"gitstatusd_pin\":\"{}\"", json_escape_str(v)),
-            VersionPin::Err(e) => format!("\"gitstatusd_pin\":null,\"gitstatusd_error\":\"{}\"", json_escape_str(e)),
+            VersionPin::Err(e) => format!(
+                "\"gitstatusd_pin\":null,\"gitstatusd_error\":\"{}\"",
+                json_escape_str(e)
+            ),
         };
         let triple_field = match &triple_info {
-            VersionTriple::Pinned { triple, sha256_short } => format!(
+            VersionTriple::Pinned {
+                triple,
+                sha256_short,
+            } => format!(
                 "\"triple\":\"{}\",\"binary_sha256_short\":\"{}\"",
                 json_escape_str(triple),
                 json_escape_str(sha256_short)
@@ -423,7 +454,10 @@ fn cmd_version(json: bool) -> Result<()> {
             VersionPin::Err(e) => println!("gitstatusd: <unparseable: {e}>"),
         }
         match &triple_info {
-            VersionTriple::Pinned { triple, sha256_short } => {
+            VersionTriple::Pinned {
+                triple,
+                sha256_short,
+            } => {
                 println!("gitstatusd triple: {triple} (sha256: {sha256_short}…)");
             }
             VersionTriple::NoEntry(triple) => {
@@ -446,7 +480,10 @@ enum VersionPin {
 
 /// Intermediate triple info shape — same reason as [`VersionPin`].
 enum VersionTriple {
-    Pinned { triple: String, sha256_short: String },
+    Pinned {
+        triple: String,
+        sha256_short: String,
+    },
     NoEntry(String),
     UnsupportedHost,
 }
@@ -885,7 +922,11 @@ mod cwd_history_file_tests {
         let v = parse_cwd_history_file(&path, None);
         assert_eq!(
             v,
-            vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
+            vec![
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/c")
+            ]
         );
         let _ = std::fs::remove_file(&path);
     }
@@ -919,7 +960,11 @@ mod cwd_history_file_tests {
         let v = parse_cwd_history_file(&path, Some(prev.as_path()));
         assert_eq!(
             v,
-            vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
+            vec![
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/c")
+            ]
         );
         let _ = std::fs::remove_file(&path);
     }
@@ -952,7 +997,6 @@ mod cwd_history_file_tests {
         assert_eq!(v, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
         let _ = std::fs::remove_file(&path);
     }
-
 }
 
 /// Render the prompt: discover the user's TOML config, fall back to a
@@ -1047,10 +1091,7 @@ fn cmd_prompt(
             // Unique-dir mode is the only consumer; read the file only
             // when the user opted into that mode. Other modes get an
             // empty slice and skip the (best-effort) I/O entirely.
-            let history: Vec<PathBuf> = match (
-                cfg.transient_prompt,
-                prompt_cwd_history_file,
-            ) {
+            let history: Vec<PathBuf> = match (cfg.transient_prompt, prompt_cwd_history_file) {
                 (p10k_rs_config::TransientPromptMode::UniqueDir, Some(p)) => {
                     parse_cwd_history_file(p, last_prompt_cwd)
                 }
@@ -1084,6 +1125,88 @@ fn cmd_prompt(
             }
         }
     }
+    Ok(())
+}
+
+/// `--json` variant of [`cmd_prompt`] — runs the same render pipeline
+/// the styled path uses, then serialises the result as a structured
+/// payload per `docs/schema/p10krs.prompt.v1.json`.
+///
+/// Deliberately omits the transient-prompt + dump-to-disk paths the
+/// styled `cmd_prompt` carries: a `--json` consumer never asks for a
+/// collapsed snapshot, and the instant-prompt dump exists solely to
+/// mask first-prompt gitstatusd latency — neither concern applies to
+/// a one-shot diagnostic invocation. `side` still selects which
+/// ribbon lands in `ansi_text`; both ribbons' per-segment breakdowns
+/// always ride along in `left` / `right` because the wire contract
+/// targets full-picture consumers.
+fn cmd_prompt_json(
+    shell: &str,
+    last_status: i32,
+    last_duration_ms: u64,
+    side: RenderSide,
+    upcoming_command: &str,
+) -> Result<()> {
+    use std::io::Write;
+
+    let core_shell = parse_core_shell(shell)?;
+    let cwd: PathBuf = std::env::current_dir().context("read cwd")?;
+
+    let git = git_status(cwd.as_path());
+    let jj = jj_status(cwd.as_path());
+
+    let cfg = match Config::load_default() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!("config load failed: {e}, falling back to factory default");
+            factory_default_config()
+        }
+    };
+    let env = EnvSnapshot::from_env();
+    let host = p10k_rs_ai::detect_host_kind();
+    let cwd_display =
+        p10k_rs_core::safety::SafeText::from_untrusted(&cwd.as_path().display().to_string());
+    let shell_integration_active =
+        resolve_shell_integration(cfg.shell_integration.mode, &host, |k| std::env::var(k).ok());
+    let ctx = RenderCtx {
+        config: &cfg,
+        shell: core_shell,
+        host,
+        cwd: cwd.as_path(),
+        cwd_display,
+        git: git.as_ref(),
+        jj: jj.as_ref(),
+        last_status,
+        last_duration: Duration::from_millis(last_duration_ms),
+        jobs: 0,
+        now: SystemTime::now(),
+        env: &env,
+        upcoming_command,
+        shell_integration_active,
+    };
+
+    let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left, upcoming_command);
+    let right_segments =
+        assemble_segments(&cfg, cwd.as_path(), &cfg.layout.right, upcoming_command);
+    let prompt = p10k_rs_core::render_prompt(&left_segments, &right_segments, &ctx);
+
+    let payload = prompt_json::build_prompt_json(
+        &cfg,
+        &ctx,
+        &left_segments,
+        &right_segments,
+        &prompt.left,
+        &prompt.right,
+        matches!(side, RenderSide::Left | RenderSide::Transient),
+    );
+    let json = prompt_json::to_pretty_json(&payload).context("serialise prompt JSON")?;
+
+    // Bypass `println!` — `to_pretty_json` already appends the
+    // trailing newline. Writing directly avoids a duplicate `\n` on
+    // platforms whose stdout layer adds one.
+    std::io::stdout()
+        .write_all(json.as_bytes())
+        .context("write prompt JSON to stdout")?;
     Ok(())
 }
 

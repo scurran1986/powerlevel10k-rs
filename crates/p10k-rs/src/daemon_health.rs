@@ -100,13 +100,16 @@ impl DaemonHealth {
             Self::Ok { pid } => {
                 format!("{{\"status\":\"OK\",\"pid\":{pid},\"wedge\":null}}")
             }
-            Self::Wedged { pid, wedge_age_ms } => format!(
-                "{{\"status\":\"WEDGED\",\"pid\":{pid},\"wedge_age_ms\":{wedge_age_ms}}}"
-            ),
+            Self::Wedged { pid, wedge_age_ms } => {
+                format!("{{\"status\":\"WEDGED\",\"pid\":{pid},\"wedge_age_ms\":{wedge_age_ms}}}")
+            }
             Self::Dead { pid } => format!("{{\"status\":\"DEAD\",\"pid\":{pid}}}"),
             Self::NotWired => "{\"status\":\"NOT_WIRED\"}".to_owned(),
             Self::Error(msg) => {
-                format!("{{\"status\":\"ERROR\",\"reason\":\"{}\"}}", json_escape(msg))
+                format!(
+                    "{{\"status\":\"ERROR\",\"reason\":\"{}\"}}",
+                    json_escape(msg)
+                )
             }
         }
     }
@@ -506,9 +509,6 @@ mod tests {
         // gaining wire-compatibility).
         let msg = "héllo 世界";
         let out = DaemonHealth::Error(msg.to_owned()).render_json();
-        assert_eq!(
-            out,
-            r#"{"status":"ERROR","reason":"héllo 世界"}"#
-        );
+        assert_eq!(out, r#"{"status":"ERROR","reason":"héllo 世界"}"#);
     }
 }

@@ -1725,6 +1725,8 @@ dependencies = [
  "p10k-rs-shell",
  "p10k-rs-wizard",
  "rustix 0.38.44",
+ "serde",
+ "serde_json",
  "sha2",
  "time",
  "tracing",
