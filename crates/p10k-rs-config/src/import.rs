@@ -33,6 +33,7 @@ use crate::{
 /// solely so that cross-crate test can read it — no other consumer.
 pub const KNOWN_SEGMENT_NAMES: &[&str] = &[
     "ai_host",
+    "ai_status",
     "anaconda",
     "aws",
     "background_jobs",

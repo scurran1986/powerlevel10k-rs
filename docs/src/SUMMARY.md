@@ -24,3 +24,4 @@
 - [Schema (full)](./reference/schema.md)
 - [Per-shell init](./reference/shell.md)
 - [daemon-health subcommand](./reference/daemon-health.md)
+- [ai_status sidecar contract](./reference/ai-status.md)

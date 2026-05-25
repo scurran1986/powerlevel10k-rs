@@ -15,6 +15,7 @@
 use p10k_rs_core::Segment;
 
 pub mod ai_host;
+pub mod ai_status;
 pub mod anaconda;
 pub mod aws;
 pub mod background_jobs;
@@ -81,6 +82,11 @@ pub fn segment_names() -> &'static [&'static str] {
         // AI-host badge (slice 46): visible only when running inside a
         // detected AI shell (Claude Code, Aider, Cursor).
         "ai_host",
+        // AI host sidecar status (v0.2 Phase 5 carry-over): reads
+        // `$XDG_RUNTIME_DIR/p10k-rs/ai/<host>.json` for model name +
+        // context-window usage. Hidden when no host is detected, no
+        // sidecar exists, or the sidecar is stale (> 5 min).
+        "ai_status",
         // Modern version managers + container-context (slices 48-50).
         // mise (formerly rtx) is the dominant cross-language version manager;
         // fnm covers Node-only fast switching; pixi is the conda alternative.
@@ -105,6 +111,7 @@ pub fn segment_names() -> &'static [&'static str] {
 pub fn build(name: &str) -> Option<Box<dyn Segment>> {
     match name {
         "ai_host" => Some(Box::new(ai_host::AiHost)),
+        "ai_status" => Some(Box::new(ai_status::AiStatus)),
         "anaconda" => Some(Box::new(anaconda::Anaconda)),
         "aws" => Some(Box::new(aws::Aws)),
         "background_jobs" => Some(Box::new(background_jobs::BackgroundJobs)),
@@ -145,6 +152,7 @@ mod tests {
     fn build_returns_known_segments() {
         for name in [
             "ai_host",
+            "ai_status",
             "anaconda",
             "aws",
             "background_jobs",
