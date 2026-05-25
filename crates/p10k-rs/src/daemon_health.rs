@@ -80,6 +80,64 @@ impl DaemonHealth {
             Self::Error(msg) => format!("ERROR {msg}"),
         }
     }
+
+    /// Machine-readable JSON representation. Field set per variant:
+    ///
+    /// - `Ok`:        `{"status":"OK","pid":<n>,"wedge":null}`
+    /// - `Wedged`:    `{"status":"WEDGED","pid":<n>,"wedge_age_ms":<n>}`
+    /// - `Dead`:      `{"status":"DEAD","pid":<n>}`
+    /// - `NotWired`:  `{"status":"NOT_WIRED"}`
+    /// - `Error`:     `{"status":"ERROR","reason":"<escaped>"}`
+    ///
+    /// Hand-rolled because the binary doesn't otherwise depend on
+    /// `serde_json` and the surface is bounded: status is one of five
+    /// known strings, pid is `i32`, `wedge_age_ms` is `u128`, and
+    /// `reason` is the only string that needs escaping. JSON-escapes
+    /// the reason via [`json_escape`] — see that doc-comment for the
+    /// covered cases.
+    pub(crate) fn render_json(&self) -> String {
+        match self {
+            Self::Ok { pid } => {
+                format!("{{\"status\":\"OK\",\"pid\":{pid},\"wedge\":null}}")
+            }
+            Self::Wedged { pid, wedge_age_ms } => format!(
+                "{{\"status\":\"WEDGED\",\"pid\":{pid},\"wedge_age_ms\":{wedge_age_ms}}}"
+            ),
+            Self::Dead { pid } => format!("{{\"status\":\"DEAD\",\"pid\":{pid}}}"),
+            Self::NotWired => "{\"status\":\"NOT_WIRED\"}".to_owned(),
+            Self::Error(msg) => {
+                format!("{{\"status\":\"ERROR\",\"reason\":\"{}\"}}", json_escape(msg))
+            }
+        }
+    }
+}
+
+/// Minimal JSON string escape — quote, backslash, and the C0
+/// controls. Sufficient for the `DaemonHealth::Error` reason field,
+/// whose payloads come from `std::io::Error` messages and PID-parse
+/// errors. Non-ASCII bytes pass through as-is (UTF-8 is valid JSON);
+/// the function is intentionally NOT a general-purpose JSON encoder.
+fn json_escape(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                // `write!` on a `String` is infallible — the `fmt::Write`
+                // impl for `String` never returns Err. Discarding via
+                // `let _ =` keeps `clippy::format_push_string` quiet
+                // without adding a panic surface.
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Probe the slice-64 daemon-respawn channel by reading the env vars
@@ -176,7 +234,7 @@ fn pid_is_alive_default(pid: i32) -> bool {
 /// Infallible by construction — every path through `probe` lands on a
 /// `DaemonHealth` variant (including the `Error` variant for I/O
 /// failures), so there's nothing to surface upward as a `Result`.
-pub(crate) fn cmd_daemon_health() -> i32 {
+pub(crate) fn cmd_daemon_health(json: bool) -> i32 {
     let pid_path = std::env::var_os(PID_FILE_ENV).map(PathBuf::from);
     let wedge_path = std::env::var_os(WEDGE_ENV).map(PathBuf::from);
     let outcome = probe(
@@ -185,7 +243,11 @@ pub(crate) fn cmd_daemon_health() -> i32 {
         pid_is_alive_default,
         SystemTime::now(),
     );
-    println!("{}", outcome.render());
+    if json {
+        println!("{}", outcome.render_json());
+    } else {
+        println!("{}", outcome.render());
+    }
     outcome.exit_code()
 }
 
@@ -373,5 +435,80 @@ mod tests {
         assert_eq!(DaemonHealth::Dead { pid: 3 }.render(), "DEAD pid=3");
         assert_eq!(DaemonHealth::NotWired.render(), "NOT_WIRED");
         assert_eq!(DaemonHealth::Error("io".to_owned()).render(), "ERROR io");
+    }
+
+    #[test]
+    fn render_json_shapes_are_stable() {
+        assert_eq!(
+            DaemonHealth::Ok { pid: 1 }.render_json(),
+            r#"{"status":"OK","pid":1,"wedge":null}"#
+        );
+        assert_eq!(
+            DaemonHealth::Wedged {
+                pid: 2,
+                wedge_age_ms: 50,
+            }
+            .render_json(),
+            r#"{"status":"WEDGED","pid":2,"wedge_age_ms":50}"#
+        );
+        assert_eq!(
+            DaemonHealth::Dead { pid: 3 }.render_json(),
+            r#"{"status":"DEAD","pid":3}"#
+        );
+        assert_eq!(
+            DaemonHealth::NotWired.render_json(),
+            r#"{"status":"NOT_WIRED"}"#
+        );
+        assert_eq!(
+            DaemonHealth::Error("io".to_owned()).render_json(),
+            r#"{"status":"ERROR","reason":"io"}"#
+        );
+    }
+
+    #[test]
+    fn render_json_negative_pid_is_emitted_unquoted() {
+        // pids are i32 — a negative value (rare; would come from a
+        // corrupt PID file) must still emit as a bare JSON number,
+        // not a string, so downstream parsers don't crash on the
+        // type mismatch.
+        assert_eq!(
+            DaemonHealth::Ok { pid: -1 }.render_json(),
+            r#"{"status":"OK","pid":-1,"wedge":null}"#
+        );
+    }
+
+    #[test]
+    fn json_escape_handles_quote_and_backslash() {
+        // The two structural chars JSON strings can't contain raw.
+        let msg = r#"read pid file: file "path" \ broken"#;
+        let out = DaemonHealth::Error(msg.to_owned()).render_json();
+        assert_eq!(
+            out,
+            r#"{"status":"ERROR","reason":"read pid file: file \"path\" \\ broken"}"#
+        );
+    }
+
+    #[test]
+    fn json_escape_handles_control_chars() {
+        // \n, \r, \t get their short forms; other C0 (< 0x20) gets \u00xx.
+        let msg = "line1\nline2\rtab\there\x07bel";
+        let out = DaemonHealth::Error(msg.to_owned()).render_json();
+        assert_eq!(
+            out,
+            r#"{"status":"ERROR","reason":"line1\nline2\rtab\there\u0007bel"}"#
+        );
+    }
+
+    #[test]
+    fn json_escape_passes_utf8_through_unchanged() {
+        // Non-ASCII multi-byte UTF-8 is valid in JSON strings; don't
+        // \u-escape it (that would inflate the byte count without
+        // gaining wire-compatibility).
+        let msg = "héllo 世界";
+        let out = DaemonHealth::Error(msg.to_owned()).render_json();
+        assert_eq!(
+            out,
+            r#"{"status":"ERROR","reason":"héllo 世界"}"#
+        );
     }
 }

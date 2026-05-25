@@ -8,6 +8,37 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-25
+
+Theme: **`daemon-health --json` for scripting consumers.** The
+`p10k-rs daemon-health` subcommand (shipped in v0.1.8) emitted
+a stable one-line text format; v0.1.10 adds a `--json` flag
+that emits a single JSON object on stdout instead. Same exit
+codes, same outcome surface, same wire-stability contract —
+just structured output for non-shell consumers (Python, Go,
+Prometheus textfile collectors, monitoring tooling).
+
+Test count: 603 → 608 (+5 for the JSON render/escape tests).
+
+### Wire shape per outcome
+
+| Outcome | JSON |
+|---------|------|
+| Healthy | `{"status":"OK","pid":<n>,"wedge":null}` |
+| Wedged | `{"status":"WEDGED","pid":<n>,"wedge_age_ms":<n>}` |
+| Daemon dead | `{"status":"DEAD","pid":<n>}` |
+| Channel not wired | `{"status":"NOT_WIRED"}` |
+| I/O error | `{"status":"ERROR","reason":"<escaped>"}` |
+
+`reason` strings are JSON-escaped (`"`, `\\`, and C0 controls
+handled explicitly; non-ASCII UTF-8 passes through unchanged).
+Hand-rolled JSON encoder — the binary doesn't otherwise depend
+on `serde_json` and the surface is bounded.
+
+The `docs/src/reference/daemon-health.md` mdBook page documents
+both the text format (unchanged) and the new JSON shape side
+by side, including a `case` / `jq` script example.
+
 ## [0.1.9] - 2026-05-25
 
 Theme: **CI hygiene & forward-compat.** Three small additive

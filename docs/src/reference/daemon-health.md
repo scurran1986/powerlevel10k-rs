@@ -57,3 +57,34 @@ fi
 Check the exit code to decide whether to restart the shell session or investigate
 further. Exit 2 (wedged) or 3 (dead) indicate the health-check hook should have
 respawned the daemon on the next prompt; if you see this repeatedly, file an issue.
+
+## `--json` for machine-readable output
+
+Pass `--json` to emit a single JSON object on stdout instead of the one-line text
+form. Same exit codes; same outcomes. Useful when scripting from non-shell
+consumers (Python, Go, a Prometheus textfile collector, monitoring tooling).
+
+| Outcome | JSON |
+|---------|------|
+| Healthy | `{"status":"OK","pid":<n>,"wedge":null}` |
+| Wedged | `{"status":"WEDGED","pid":<n>,"wedge_age_ms":<n>}` |
+| Daemon dead | `{"status":"DEAD","pid":<n>}` |
+| Channel not wired | `{"status":"NOT_WIRED"}` |
+| I/O error | `{"status":"ERROR","reason":"<escaped>"}` |
+
+`reason` strings are JSON-escaped (`"`, `\`, and C0 controls handled
+explicitly; non-ASCII UTF-8 passes through unchanged). The shape is part of
+the public contract — additive field changes only in future releases; existing
+fields keep their names and types.
+
+```sh
+# branch on a structured field rather than parse the text form
+status=$(p10k-rs daemon-health --json | jq -r .status)
+case "$status" in
+  OK)        ;;
+  WEDGED)    echo "daemon wedged; precmd hook should respawn next prompt" ;;
+  DEAD)      echo "daemon dead; respawn pending" ;;
+  NOT_WIRED) echo "init zsh not sourced or env vars missing" ;;
+  ERROR)     echo "I/O error reading channel state" ;;
+esac
+```

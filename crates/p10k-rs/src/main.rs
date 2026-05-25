@@ -165,7 +165,16 @@ enum Command {
     /// Run from inside a zsh that sourced `p10k-rs init zsh`; outside
     /// that context both env vars are unset and the subcommand
     /// correctly reports `NOT_WIRED`.
-    DaemonHealth,
+    DaemonHealth {
+        /// Emit machine-readable JSON on stdout instead of the
+        /// one-line text format. Same exit codes; same outcome
+        /// surface — just `{"status":"OK","pid":12345,"wedge":null}`
+        /// vs `OK pid=12345 wedge=none`. Useful when scripting
+        /// branching on the channel state from a non-shell consumer
+        /// (Python, Go, a Prometheus textfile collector, etc.).
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Subcommands under `p10k-rs theme`.
@@ -311,9 +320,9 @@ fn main() -> Result<()> {
             tracing::debug!(?binary, "verify invoked");
             verify::cmd_verify(binary.as_deref())
         }
-        Command::DaemonHealth => {
-            tracing::debug!("daemon-health invoked");
-            let exit = daemon_health::cmd_daemon_health();
+        Command::DaemonHealth { json } => {
+            tracing::debug!(json, "daemon-health invoked");
+            let exit = daemon_health::cmd_daemon_health(json);
             std::process::exit(exit);
         }
     }
