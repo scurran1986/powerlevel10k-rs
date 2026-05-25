@@ -62,18 +62,14 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-14
             cross: false
-          # Windows targets land in v0.2 to unblock the Scoop manifest
-          # (packaging/scoop/p10k-rs.json). Both arches build on
-          # `windows-latest` (x86_64); aarch64-pc-windows-msvc
-          # cross-compiles cleanly via `rustup target add` — MSVC's
-          # linker handles the emission without an external toolchain,
-          # so `cross: false` for both.
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            cross: false
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            cross: false
+          # Windows MSVC targets deferred. v0.2.3 added them prematurely;
+          # p10k-rs-core uses rustix::termios / std::os::fd::AsFd /
+          # rustix::process::geteuid across term_caps, term_query, safety,
+          # context, dir, gitstatusd, etc. — all Unix-only. The port wants
+          # cfg(unix) gates + Windows fallbacks (Console API for raw mode,
+          # whoami for identity, ShellOut backend exclusively since FIFO
+          # IPC doesn't exist on Windows) and is its own multi-slice
+          # project, not a matrix add. Tracking in a follow-up.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

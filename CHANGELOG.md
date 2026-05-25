@@ -8,6 +8,38 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-05-25
+
+Theme: **Revert Windows release matrix + ship docs catch-up.** v0.2.3's
+`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc` matrix entries
+failed at the cargo build step — `p10k-rs-core` uses
+`rustix::termios` / `std::os::fd::AsFd` / `rustix::process::geteuid`
+unconditionally across `term_caps`, `term_query`, `safety`, plus
+`p10k-rs-segments` (`context`, `dir`, `root_indicator`), `p10k-rs-config`,
+`p10k-rs-git` (`gitstatusd`), and the binary's main. Adding a CI target
+was the easy half; the Unix-only API audit is the hard half. The
+proper Windows port wants `cfg(unix)` gates plus Windows fallbacks
+(Console API for raw-mode termios, `whoami`-style identity in place
+of `euid`, exclusive `ShellOut` backend since FIFO IPC has no Windows
+equivalent) and is its own multi-slice project — landing it here was
+premature. Reverting until done.
+
+### Removed
+
+- Windows MSVC entries from `.github/workflows/release.yml`. The
+  PowerShell `Compress-Archive` / `Get-FileHash` packaging steps and
+  the `runner.os == 'Windows'` gates stay in place (inert without the
+  matrix entries), so restoring Windows once portability lands is a
+  one-line matrix edit.
+
+### Added (carried from v0.2.3 ship)
+
+- 6 segment doc pages closing the dead "see also" links from v0.2.3:
+  `vcs`, `virtualenv`, `pyenv`, `nodenv`, `pixi`, `root_indicator`.
+- Top-level `troubleshooting.md` routing through `p10k-rs doctor`.
+
+Test count, schema, and architecture invariants unchanged from v0.2.3.
+
 ## [0.2.3] - 2026-05-25
 
 Theme: **`p10k-rs doctor` + Windows release matrix.** New runtime
