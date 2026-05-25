@@ -5,6 +5,7 @@
 - [Introduction](./introduction.md)
 - [Quick start](./quickstart.md)
 - [WSL2 + Windows Terminal](./wsl-windows.md)
+- [Troubleshooting](./troubleshooting.md)
 
 # User guide
 
@@ -24,6 +25,12 @@
   - [kubecontext](./segments/kubecontext.md)
   - [mise](./segments/mise.md)
   - [node_version](./segments/node_version.md)
+  - [nodenv](./segments/nodenv.md)
+  - [pixi](./segments/pixi.md)
+  - [pyenv](./segments/pyenv.md)
+  - [root_indicator](./segments/root_indicator.md)
+  - [vcs](./segments/vcs.md)
+  - [virtualenv](./segments/virtualenv.md)
 - [Theming and layout](./theming.md)
 - [Bundled themes](./themes.md)
 
