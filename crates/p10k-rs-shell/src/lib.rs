@@ -393,6 +393,100 @@ mod tests {
             .expect("_p10k_rs_preexec must still assign _P10K_RS_UPCOMING_CMD from \\$1");
         let _ = assign; // presence is the assertion
     }
+    // --- v0.2: fish transient prompt -------------------------------------------
+
+    #[test]
+    fn fish_init_declares_transient_flag() {
+        // v0.2 — fish transient prompt rides a per-shell flag that the
+        // Enter-key wrapper sets and `fish_prompt` consumes. Pin both
+        // the flag name (other code may grep for it) and the wrapper's
+        // `commandline -f repaint` so the collapsed render lands in
+        // scrollback before the command executes.
+        let fish = init_script(Shell::Fish);
+        assert!(
+            fish.contains("_p10k_rs_transient"),
+            "fish init must declare the transient flag variable"
+        );
+        assert!(
+            fish.contains("commandline -f repaint"),
+            "fish transient wrapper must repaint before executing"
+        );
+        assert!(
+            fish.contains("commandline -f execute"),
+            "fish transient wrapper must execute the line after the repaint"
+        );
+        assert!(
+            fish.contains("bind \\r _p10k_rs_transient_execute"),
+            "fish init must bind Enter (\\r) to the transient wrapper"
+        );
+    }
+
+    #[test]
+    fn fish_init_honors_all_four_transient_modes() {
+        // v0.2 — fish transient must honor the same four
+        // `TransientPromptMode` variants the zsh side does. The modes
+        // are gated by the binary at `--render-side transient` (Off →
+        // empty stdout, Always/SameDir-match/UniqueDir-match → emit,
+        // mismatch → exit 2). Pin the wire surface the fish init
+        // forwards: `--render-side transient`, `--last-prompt-cwd`,
+        // `--prompt-cwd-history-file`, and the exit-code-2 KeepPrompt
+        // fall-through to the full render. The four mode-name strings
+        // themselves live in the binary; the shell side just needs to
+        // round-trip the wire bits intact.
+        let fish = init_script(Shell::Fish);
+        assert!(
+            fish.contains("--render-side transient"),
+            "fish init must invoke the binary with --render-side transient"
+        );
+        assert!(
+            fish.contains("--last-prompt-cwd"),
+            "fish init must forward --last-prompt-cwd for same-dir / unique-dir modes"
+        );
+        assert!(
+            fish.contains("--prompt-cwd-history-file"),
+            "fish init must forward --prompt-cwd-history-file for unique-dir mode"
+        );
+        // The KeepPrompt contract (rc == 2 → full render in scrollback)
+        // is implemented as a fall-through past the transient branch
+        // when `rc` is non-zero or stdout is empty. We pin the
+        // condition that triggers the emit so a refactor that drops
+        // the rc-check breaks the suite rather than silently blanking
+        // SameDir/UniqueDir mismatches.
+        assert!(
+            fish.contains("test $rc -eq 0"),
+            "fish transient must gate the collapsed-emit on rc == 0 (KeepPrompt fall-through)"
+        );
+        // All four mode-name slugs must appear somewhere in the script
+        // — in the header docs as the contract reference. This is the
+        // belt-and-braces pin requested by the v0.2 ship plan: a
+        // refactor that drops a mode from the contract docs surfaces
+        // it here.
+        for mode in ["Off", "Always", "SameDir", "UniqueDir"] {
+            assert!(
+                fish.contains(mode),
+                "fish init must reference TransientPromptMode::{mode} in its contract docs"
+            );
+        }
+    }
+
+    #[test]
+    fn fish_init_shifts_cwd_history_slots() {
+        // Same `prev / curr` discipline the zsh precmd uses (T1.8).
+        // The transient render reads `_P10K_RS_PREV_PROMPT_CWD` to
+        // decide whether to collapse; the full-render path shifts it
+        // forward by reading `_P10K_RS_CURR_PROMPT_CWD` into prev
+        // and stamping the current `$PWD` into curr.
+        let fish = init_script(Shell::Fish);
+        assert!(
+            fish.contains("_P10K_RS_PREV_PROMPT_CWD"),
+            "fish init must track the previous prompt's cwd"
+        );
+        assert!(
+            fish.contains("_P10K_RS_CURR_PROMPT_CWD"),
+            "fish init must track the current prompt's cwd"
+        );
+    }
+
     // --- Slice 63: instant-prompt $TERM-aware cache key --------------------------
 
     #[test]

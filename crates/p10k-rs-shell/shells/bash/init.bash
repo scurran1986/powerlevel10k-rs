@@ -26,8 +26,10 @@
 #  - `gitstatusd` daemon backend: the FIFO orchestration is zsh-specific
 #    (uses zsh-only `exec {fd}<>` and `add-zsh-hook zshexit` for cleanup).
 #    The binary falls back to the `git`-shell-out backend automatically.
-#  - Transient prompt: zsh-only (uses ZLE widgets — `zle-line-finish` +
-#    `zle reset-prompt`). Bash readline has no comparable redraw hook.
+#  - Transient prompt: bash readline has no comparable redraw hook to
+#    zsh's `zle-line-finish` + `zle reset-prompt` or fish's
+#    `commandline -f repaint`, so the collapse-on-accept swap that
+#    ships for zsh (T1.8) and fish (v0.2) is not wired here.
 #  - Instant prompt: zsh's PROMPT-SUBST cached-dump trick doesn't map
 #    onto bash's prompt rendering model; a bash-native equivalent lands
 #    in a future slice if at all.
