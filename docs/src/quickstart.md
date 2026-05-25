@@ -9,6 +9,11 @@ curl -fsSL https://raw.githubusercontent.com/scurran1986/powerlevel10k-rs/main/g
 
 Open a new zsh terminal — the prompt is live.
 
+> **WSL2 + Windows Terminal users:** if segment icons render as `◆`
+> diamonds while the `▶` chevrons look fine, you need a Nerd Font
+> installed on the **Windows** side. See
+> [WSL2 + Windows Terminal](./wsl-windows.md).
+
 Requirements: `cargo` (install via [rustup](https://rustup.rs)), `zsh`,
 `git`, `curl`. The installer drops the binary at `~/.cargo/bin/p10k-rs`,
 appends an `eval "$(p10k-rs init zsh)"` line to `~/.zshrc`, and

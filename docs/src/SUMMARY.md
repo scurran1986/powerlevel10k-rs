@@ -4,6 +4,7 @@
 
 - [Introduction](./introduction.md)
 - [Quick start](./quickstart.md)
+- [WSL2 + Windows Terminal](./wsl-windows.md)
 
 # User guide
 
