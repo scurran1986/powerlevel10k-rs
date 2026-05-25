@@ -62,6 +62,18 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-14
             cross: false
+          # Windows targets land in v0.2 to unblock the Scoop manifest
+          # (packaging/scoop/p10k-rs.json). Both arches build on
+          # `windows-latest` (x86_64); aarch64-pc-windows-msvc
+          # cross-compiles cleanly via `rustup target add` — MSVC's
+          # linker handles the emission without an external toolchain,
+          # so `cross: false` for both.
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            cross: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -95,16 +107,22 @@ jobs:
       - name: build (release)
         run: cargo build --release --locked --target ${{ matrix.target }} --bin p10k-rs
 
+      # Skip strip on Windows: MSVC `link.exe` handles symbol stripping
+      # at link time and `strip` isn't on PATH on the windows-latest
+      # runner. The `matrix.cross == false` gate already excluded the
+      # cross-linux entry; the `runner.os != 'Windows'` gate excludes
+      # the new windows-msvc entries.
       - name: strip (unix)
-        if: matrix.cross == false
+        if: matrix.cross == false && runner.os != 'Windows'
         run: strip target/${{ matrix.target }}/release/p10k-rs
 
       - name: strip (cross aarch64-linux)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/p10k-rs
 
-      - name: package
-        id: package
+      - name: package (unix)
+        if: runner.os != 'Windows'
+        id: package_unix
         run: |
           set -euo pipefail
           # `github.ref_name` is the tag (`v0.1.0`) on a push:tags event;
@@ -127,6 +145,57 @@ jobs:
           echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "shasum=${stage}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
+      # Windows packaging: produce `${stage}.zip` (instead of `.tar.gz`)
+      # via PowerShell's built-in `Compress-Archive`. No external tools
+      # required, no `tar` quirks across Windows tar variants. The
+      # `.sha256` sidecar uses `Get-FileHash` (SHA-256 by default) and is
+      # formatted to match the `sha256sum`/`shasum -a 256` line format:
+      # `<lowercase-hex>  <filename>\n`.
+      - name: package (windows)
+        if: runner.os == 'Windows'
+        id: package_windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $target = "${{ matrix.target }}"
+          $stage = "p10k-rs-$version-$target"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/$target/release/p10k-rs.exe" -Destination "$stage/"
+          foreach ($f in @("LICENSE-MIT","LICENSE-APACHE","README.md","THIRD-PARTY-LICENSES.md")) {
+            if (Test-Path $f) { Copy-Item $f -Destination "$stage/" }
+          }
+          $zip = "$stage.zip"
+          $sha = "$stage.zip.sha256"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path $stage -DestinationPath $zip
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
+          # Match GNU `sha256sum` line format: "<hex>  <file>\n" (two spaces).
+          Set-Content -Path $sha -Value ("$hash  $zip") -NoNewline
+          Add-Content -Path $sha -Value "`n" -NoNewline
+          "asset=$zip"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "shasum=$sha"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # Unify outputs from the two packaging branches so downstream steps
+      # don't have to keep branching. Exactly one of `package_unix` /
+      # `package_windows` ran above; the other's outputs are empty.
+      - name: collect package outputs
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${{ steps.package_unix.outputs.asset }}${{ steps.package_windows.outputs.asset }}"
+          shasum="${{ steps.package_unix.outputs.shasum }}${{ steps.package_windows.outputs.shasum }}"
+          echo "asset=$asset"   >> "$GITHUB_OUTPUT"
+          echo "shasum=$shasum" >> "$GITHUB_OUTPUT"
+          # `binpath` is the unstripped binary the attest step subjects;
+          # `.exe` suffix on Windows.
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "binpath=target/${{ matrix.target }}/release/p10k-rs.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "binpath=target/${{ matrix.target }}/release/p10k-rs" >> "$GITHUB_OUTPUT"
+          fi
+
       # Sigstore keyless signing. The OIDC token GitHub Actions issues
       # binds to this workflow file + ref, so verifiers can prove the
       # tarball came from a build of this repo at this tag — not just
@@ -140,8 +209,13 @@ jobs:
         with:
           cosign-release: "v2.5.0"
 
-      - name: sign tarball (sigstore keyless)
+      # Sigstore signs whatever archive the OS-specific packaging step
+      # produced — `.tar.gz` on unix, `.zip` on windows. `shell: bash`
+      # is explicit so the same line-continuation syntax works on
+      # windows-latest (Git Bash ships with the runner image).
+      - name: sign archive (sigstore keyless)
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         env:
           COSIGN_YES: "true" # auto-accept the Rekor transparency-log upload
         run: |
@@ -160,8 +234,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
+          # `binpath` resolves to `…/p10k-rs.exe` on windows runners and
+          # `…/p10k-rs` elsewhere; `asset` is `.zip` or `.tar.gz` to
+          # match. Verifiers can attest either artifact directly via
+          # `gh attestation verify`.
           subject-path: |
-            target/${{ matrix.target }}/release/p10k-rs
+            ${{ steps.package.outputs.binpath }}
             ${{ steps.package.outputs.asset }}
 
       - name: upload artifacts (workflow run)
