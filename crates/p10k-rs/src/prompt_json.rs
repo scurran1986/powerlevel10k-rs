@@ -68,7 +68,7 @@ pub(crate) struct PromptJson {
     /// Per-segment breakdown for the left ribbon (`layout.left` after
     /// `disabled` / `show_in_dir` / `show_on_command` gates).
     pub left: Vec<SegmentJson>,
-    /// Same as [`left`] but for the right ribbon.
+    /// Same as [`PromptJson::left`] but for the right ribbon.
     pub right: Vec<SegmentJson>,
     /// Git state for the cwd, when available. `null` outside a git
     /// repo OR when the backend chain (gitstatusd → ShellOut →

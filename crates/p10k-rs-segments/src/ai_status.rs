@@ -44,8 +44,8 @@
 //!
 //! ## Staleness
 //!
-//! If `last_updated_unix` is older than [`MAX_AGE_SECS`] the segment
-//! hides. The host is presumed to have crashed or moved on.
+//! If `last_updated_unix` is older than `MAX_AGE_SECS` (5 minutes) the
+//! segment hides. The host is presumed to have crashed or moved on.
 
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -85,9 +85,9 @@ const MAX_AGE_SECS: u64 = 300;
 ///
 /// - No AI host is detected (`ctx.host == HostKind::None`).
 /// - The sidecar file is missing or unreadable.
-/// - The file is larger than [`MAX_FILE_BYTES`].
+/// - The file is larger than `MAX_FILE_BYTES` (16 KiB).
 /// - The JSON fails to parse.
-/// - The payload is older than [`MAX_AGE_SECS`].
+/// - The payload is older than `MAX_AGE_SECS` (5 minutes).
 ///
 /// Otherwise renders `<icon> <model> <used%>` (or `<icon> <model>` when
 /// the payload omits usage data).
