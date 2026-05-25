@@ -1603,6 +1603,18 @@ pub enum HostKind {
     Aider,
     /// Cursor editor terminal.
     Cursor,
+    /// Warp terminal (`TERM_PROGRAM=WarpTerminal`, `WARP_HONOR_PS1`,
+    /// `WARP_IS_SUBSHELL`).
+    ///
+    /// Warp is technically a terminal emulator rather than an AI host in
+    /// the Claude-Code / Cursor / Aider sense, but it owns enough
+    /// agentic surface (its own AI assistant, custom block model that
+    /// conflicts with OSC 133 — see warp#6718) that surfacing it as a
+    /// first-class host lets segments and the statusline path treat it
+    /// distinctly from the `Generic` catch-all. Renders empty until a
+    /// Warp statusline contract is published; the existence of the
+    /// variant lets users target it from `[ai.host.warp]`.
+    Warp,
     /// Generic agent declared via the `AI_AGENT` or `AGENT` env var.
     ///
     /// The inner `String` is the agent's self-reported name, already
@@ -1626,6 +1638,7 @@ impl core::fmt::Display for HostKind {
             Self::Goose => f.write_str("goose"),
             Self::Aider => f.write_str("aider"),
             Self::Cursor => f.write_str("cursor"),
+            Self::Warp => f.write_str("warp"),
             Self::Generic(name) => f.write_str(name),
         }
     }

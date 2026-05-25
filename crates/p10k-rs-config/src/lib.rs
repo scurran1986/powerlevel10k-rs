@@ -781,12 +781,74 @@ pub struct AiConfig {
 }
 
 /// Per-host AI integration toggle.
+///
+/// Lives under `[ai.host.<name>]` in TOML where `<name>` matches the
+/// short label `HostKind::Display` emits (`claude_code` / `claude-code`,
+/// `cursor`, `goose`, `aider`, `warp`, …). Both `snake_case` and
+/// `kebab-case` keys resolve to the same effective config — the lookup
+/// is normalised in `p10k-rs-ai` so users can write either form without
+/// surprise.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HostConfig {
     /// `true` enables status JSON ingestion for this host.
     pub enabled: bool,
+    /// Override the render mode for this host. `None` means "fall back
+    /// to the host's default mode" (currently always `Full`).
+    ///
+    /// Lets a user hide the prompt entirely under Claude Code while
+    /// keeping a compact one under Cursor, for example.
+    #[serde(default)]
+    pub mode: Option<HostMode>,
+}
+
+/// Render mode for an individual AI host.
+///
+/// Routes through `[ai.host.<name>].mode` to let the user dial how
+/// loudly an integration speaks. The four modes form a strict
+/// "tell me less → tell me more" ladder:
+///
+/// - [`HostMode::Off`] — the integration is disabled outright. The
+///   statusline renderer returns an empty string; segments that key on
+///   the host (currently `ai_host`) treat the host as if unset. Same
+///   wire-effect as [`HostMode::Hidden`] today, kept distinct so a
+///   future segment-level toggle (e.g. "still emit OSC, just no
+///   visible badge") has somewhere to grow.
+/// - [`HostMode::Hidden`] — the integration is detected but produces
+///   no visible output. Practical for "I know I'm in Claude Code, I
+///   don't need the prompt to remind me."
+/// - [`HostMode::Compact`] — render a reduced statusline. Currently:
+///   `<model-short> | <cwd>`, dropping the percent / context-budget
+///   block. Useful for narrow terminals or split panes.
+/// - [`HostMode::Full`] — the historical default render. All available
+///   fields. This is the implicit fallback when no override exists.
+///
+/// `#[non_exhaustive]` so a future "tiny" or "verbose" mode lands
+/// without a schema break. Casing is `snake_case` to match the other
+/// freely-named enums in this crate (e.g. `ColorMode::FollowTerminal`,
+/// `TransientPromptMode::Same`) — single-word names so the casing
+/// debate only matters for the underlying field discriminator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum HostMode {
+    /// Disable this host integration.
+    Off,
+    /// Detect but hide.
+    Hidden,
+    /// Reduced render — model + cwd only on the statusline path.
+    Compact,
+    /// Default render — every available field.
+    Full,
+}
+
+impl Default for HostMode {
+    /// `Full` matches the pre-`HostMode` behaviour, so an absent override
+    /// is byte-identical to the historical render.
+    fn default() -> Self {
+        Self::Full
+    }
 }
 
 impl Config {

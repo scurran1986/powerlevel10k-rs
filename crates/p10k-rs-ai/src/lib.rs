@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub use p10k_rs_config::HostMode;
 pub use p10k_rs_core::HostKind;
 
 /// Detect which AI host (if any) is wrapping the current shell by probing
@@ -35,9 +36,11 @@ pub use p10k_rs_core::HostKind;
 ///    [`HostKind::Goose`].
 /// 3. Any `$AIDER_*` env var set → [`HostKind::Aider`].
 /// 4. Any `$CURSOR_*` env var set → [`HostKind::Cursor`].
-/// 5. `$AI_AGENT` or `$AGENT` non-empty → [`HostKind::Generic`] carrying
+/// 5. `$WARP_HONOR_PS1`, `$WARP_IS_SUBSHELL`, or
+///    `$TERM_PROGRAM=WarpTerminal` → [`HostKind::Warp`].
+/// 6. `$AI_AGENT` or `$AGENT` non-empty → [`HostKind::Generic`] carrying
 ///    the (trimmed, lowercased) value.
-/// 6. Otherwise → [`HostKind::None`].
+/// 7. Otherwise → [`HostKind::None`].
 ///
 /// Hosts beyond Claude Code are best-effort stubs for this slice — the
 /// goal is the wiring, not perfect detection. Future slices can refine
@@ -58,8 +61,11 @@ pub fn detect_host_kind() -> HostKind {
 /// The probe list is intentionally short — one canonical "this host is
 /// running" fingerprint per supported host. Adding more probes per host
 /// is fine, but keep the precedence stable (Claude Code → Goose → Aider
-/// → Cursor → Generic → None) so a single shell wrapped by multiple
-/// integrations reports the outermost / most-specific one. The generic
+/// → Cursor → Warp → Generic → None) so a single shell wrapped by multiple
+/// integrations reports the outermost / most-specific one. Warp slots
+/// after the agent hosts because an agent launched *inside* Warp is
+/// more useful to identify (Claude Code in Warp still wants its OSC
+/// contract honoured) than the outer terminal emulator. The generic
 /// `AGENT` / `AI_AGENT` probe runs *after* per-tool exact matches so an
 /// agent that exports both `CLAUDECODE=1` and `AGENT=claude-code` still
 /// reports as `ClaudeCode`, not as a stringly-typed `Generic`.
@@ -103,6 +109,30 @@ pub fn detect_from_env<F: Fn(&str) -> Option<String>>(env: F) -> HostKind {
         }
     }
 
+    // Warp terminal: a first-class variant rather than falling into
+    // the `Generic` catch-all because warp#6718 (OSC 133 A breaks
+    // Warp's block model) makes us already special-case the host in
+    // `resolve_shell_integration`. Three fingerprints, all stable per
+    // Warp's docs (https://docs.warp.dev/terminal/subshells):
+    //
+    // - `$WARP_HONOR_PS1` — set when the user opts a subshell into
+    //   honouring their `PS1` instead of Warp's native prompt UI.
+    // - `$WARP_IS_SUBSHELL` — set on every Warp-spawned subshell.
+    // - `$TERM_PROGRAM=WarpTerminal` — the canonical terminal-emulator
+    //   identifier Warp ships alongside iTerm2's convention.
+    //
+    // Runs *after* the agent hosts because Claude Code / Cursor /
+    // Aider / Goose running *inside* Warp should still report as the
+    // agent — that's the more useful identity for the segment and OSC
+    // routing. Warp falls back to the generic terminal when no agent
+    // is layered on top.
+    if env("WARP_HONOR_PS1").is_some()
+        || env("WARP_IS_SUBSHELL").is_some()
+        || env("TERM_PROGRAM").as_deref() == Some("WarpTerminal")
+    {
+        return HostKind::Warp;
+    }
+
     // Generic agent probe: covers every future agent that adopts the
     // informal `AGENT=` / `AI_AGENT=` convention without us shipping a
     // per-tool variant. Runs last so explicit fingerprints above always
@@ -143,6 +173,7 @@ pub fn parse_host_kind(s: &str) -> HostKind {
         "goose" => HostKind::Goose,
         "aider" => HostKind::Aider,
         "cursor" => HostKind::Cursor,
+        "warp" => HostKind::Warp,
         other => HostKind::Generic(other.to_owned()),
     }
 }
@@ -257,8 +288,20 @@ const STATUSLINE_TOKEN_CAP: usize = 32;
 /// [`SafeText::from_untrusted_with_cap`]: p10k_rs_core::safety::SafeText::from_untrusted_with_cap
 #[must_use]
 pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
+    // Per-host mode override resolved first: `Off` and `Hidden`
+    // short-circuit *every* host-specific render path so a user who
+    // sets `[ai.host.claude_code].mode = "hidden"` gets an empty
+    // statusline regardless of how rich the host's wire protocol is.
+    // `Compact` and `Full` then route into the per-host renderer; the
+    // renderer is responsible for honouring the mode when it ships
+    // (Claude Code does; the documented-empty hosts ignore it because
+    // their contract is already empty).
+    let mode = effective_host_mode(ai, host);
+    if matches!(mode, HostMode::Off | HostMode::Hidden) {
+        return String::new();
+    }
     match host {
-        HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai),
+        HostKind::ClaudeCode => render_claude_code_statusline(json_in, ai, mode),
         // Every other host returns empty. Cursor, Goose, *and* Aider
         // are empty by *documented choice* — see the doc comment
         // above and the matching research notes
@@ -281,7 +324,76 @@ pub fn render_statusline(host: &HostKind, json_in: &[u8], ai: &p10k_rs_config::A
     }
 }
 
-fn render_claude_code_statusline(json_in: &[u8], ai: &p10k_rs_config::AiConfig) -> String {
+/// Stable string keys the user can use under `[ai.host.<key>]` to
+/// target a given [`HostKind`]. Returns every alias that resolves to
+/// the host so callers can normalise both `claude-code` and
+/// `claude_code` to the same effective config without forcing one
+/// canonical casing on the user.
+///
+/// `None` host returns an empty slice — there's no `[ai.host.none]`.
+/// `Generic("foo")` resolves only to its own self-reported name; we
+/// don't speculate about a kebab/snake twin for user-declared agents.
+fn host_config_aliases(host: &HostKind) -> &'static [&'static str] {
+    match host {
+        HostKind::ClaudeCode => &["claude_code", "claude-code"],
+        HostKind::Goose => &["goose"],
+        HostKind::Aider => &["aider"],
+        HostKind::Cursor => &["cursor"],
+        HostKind::Warp => &["warp"],
+        HostKind::Generic(_) | HostKind::None => &[],
+    }
+}
+
+/// Resolve the effective [`HostMode`] for `host` against the user's
+/// `[ai.host.*]` config. Falls back to [`HostMode::default`] (currently
+/// [`HostMode::Full`]) when no override exists.
+///
+/// Two layers of fallback:
+///
+/// 1. Each host has one-or-more accepted alias keys (e.g. Claude Code
+///    matches both `claude_code` and `claude-code`); we walk them in
+///    order so the user can write either casing.
+/// 2. For [`HostKind::Generic`], we look up the agent's self-reported
+///    name verbatim — no aliasing because we don't know which form
+///    the user uses for an agent we've never heard of.
+///
+/// Pure: no env access, no I/O.
+#[must_use]
+pub fn effective_host_mode(ai: &p10k_rs_config::AiConfig, host: &HostKind) -> HostMode {
+    if let HostKind::Generic(name) = host {
+        return ai.hosts.get(name).and_then(|h| h.mode).unwrap_or_default();
+    }
+    for alias in host_config_aliases(host) {
+        if let Some(cfg) = ai.hosts.get(*alias) {
+            if let Some(m) = cfg.mode {
+                return m;
+            }
+        }
+    }
+    HostMode::default()
+}
+
+/// Shrink a model display name to its leading word for the compact
+/// statusline render. `"Opus 4.7"` → `"Opus"`, `"claude-opus-4-7"` →
+/// `"claude-opus-4-7"` (no whitespace boundary → leave alone), `"?"`
+/// → `"?"`. Whitespace-only / empty input returns the literal `"?"`
+/// fallback so the statusline keeps the model column populated.
+///
+/// Intentionally simple: the first non-whitespace token. Heuristics
+/// like "strip version numbers" or "alias model families" are out of
+/// scope — Compact is "less verbose," not "AI-curated."
+fn compact_model_label(raw: &str) -> String {
+    raw.split_whitespace()
+        .next()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "?".to_owned())
+}
+
+fn render_claude_code_statusline(
+    json_in: &[u8],
+    ai: &p10k_rs_config::AiConfig,
+    mode: HostMode,
+) -> String {
     use p10k_rs_core::safety::SafeText;
 
     // Malformed JSON → fall back to defaults across the board so the
@@ -321,6 +433,19 @@ fn render_claude_code_statusline(json_in: &[u8], ai: &p10k_rs_config::AiConfig) 
         .and_then(|os| os.to_str())
         .unwrap_or("?");
     let cwd = SafeText::from_untrusted_with_cap(cwd_basename_raw, STATUSLINE_TOKEN_CAP);
+
+    // Compact mode: model + cwd only. Drops the context-window block
+    // entirely (no `%`, no `k`, no `--` placeholder) so the line stays
+    // short under split panes / narrow IDE side-bars. Also truncates
+    // the model to its short form: "Opus 4.7" → "Opus", "Sonnet 4.6
+    // (中文)" → "Sonnet". Compact is the user's "tell me less" knob;
+    // the truncation matches that intent rather than preserving every
+    // glyph of the host's verbose `display_name`.
+    if matches!(mode, HostMode::Compact) {
+        let model_short = compact_model_label(model.as_str());
+        let model_short = SafeText::from_untrusted_with_cap(&model_short, STATUSLINE_TOKEN_CAP);
+        return format!("{model_short} | {cwd}");
+    }
 
     // Three shapes depending on which fields the host gave us; pick
     // the most-informative one available without inventing missing
