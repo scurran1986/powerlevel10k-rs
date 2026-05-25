@@ -183,7 +183,15 @@ enum Command {
     /// subcommand exists for the deeper "what versions of what is
     /// this binary actually shipping with?" question. Useful for
     /// bug reports and install-script diagnostics.
-    Version,
+    Version {
+        /// Emit a single-line JSON object on stdout instead of the
+        /// multi-line text format. Same fields, same content; just
+        /// machine-readable. Mirrors `daemon-health --json` from
+        /// v0.1.10 so any scripting consumer dealing with one is
+        /// at home with the other.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Subcommands under `p10k-rs theme`.
@@ -334,9 +342,9 @@ fn main() -> Result<()> {
             let exit = daemon_health::cmd_daemon_health(json);
             std::process::exit(exit);
         }
-        Command::Version => {
-            tracing::debug!("version invoked");
-            cmd_version()
+        Command::Version { json } => {
+            tracing::debug!(json, "version invoked");
+            cmd_version(json)
         }
     }
 }
@@ -353,28 +361,110 @@ fn main() -> Result<()> {
 /// idiomatic answer to clippy's `unnecessary_wraps` lint when a
 /// signature is deliberately matched for symmetry.
 #[allow(clippy::unnecessary_wraps)]
-fn cmd_version() -> Result<()> {
-    println!("p10k-rs {}", env!("CARGO_PKG_VERSION"));
-    match p10k_rs_git::Pins::load_embedded() {
+fn cmd_version(json: bool) -> Result<()> {
+    let binary = env!("CARGO_PKG_VERSION");
+    let (gitstatusd_pin, triple_info) = match p10k_rs_git::Pins::load_embedded() {
         Ok(pins) => {
-            println!("gitstatusd pin: {}", pins.version);
-            match p10k_rs_git::detect_host_triple() {
-                Some(triple) => match pins.for_triple(triple) {
+            let triple = match p10k_rs_git::detect_host_triple() {
+                Some(t) => match pins.for_triple(t) {
                     Ok(entry) => {
-                        // First 12 hex chars of the binary sha256 is plenty for
-                        // a glance-fingerprint; the full hash lives in `p10k-rs
-                        // verify` output for anyone who actually needs to compare.
                         let short = entry.binary_sha256.get(..12).unwrap_or(&entry.binary_sha256);
-                        println!("gitstatusd triple: {triple} (sha256: {short}…)");
+                        VersionTriple::Pinned {
+                            triple: t.to_owned(),
+                            sha256_short: short.to_owned(),
+                        }
                     }
-                    Err(_) => println!("gitstatusd triple: {triple} (no pin entry)"),
+                    Err(_) => VersionTriple::NoEntry(t.to_owned()),
                 },
-                None => println!("gitstatusd triple: <unsupported host>"),
+                None => VersionTriple::UnsupportedHost,
+            };
+            (VersionPin::Ok(pins.version.clone()), triple)
+        }
+        Err(e) => (VersionPin::Err(e.to_string()), VersionTriple::UnsupportedHost),
+    };
+    if json {
+        // Hand-rolled JSON for the same reason as daemon-health: surface is
+        // tiny + bounded, no need to pull serde_json just for one line.
+        let pin_field = match &gitstatusd_pin {
+            VersionPin::Ok(v) => format!("\"gitstatusd_pin\":\"{}\"", json_escape_str(v)),
+            VersionPin::Err(e) => format!("\"gitstatusd_pin\":null,\"gitstatusd_error\":\"{}\"", json_escape_str(e)),
+        };
+        let triple_field = match &triple_info {
+            VersionTriple::Pinned { triple, sha256_short } => format!(
+                "\"triple\":\"{}\",\"binary_sha256_short\":\"{}\"",
+                json_escape_str(triple),
+                json_escape_str(sha256_short)
+            ),
+            VersionTriple::NoEntry(t) => format!(
+                "\"triple\":\"{}\",\"binary_sha256_short\":null",
+                json_escape_str(t)
+            ),
+            VersionTriple::UnsupportedHost => {
+                "\"triple\":null,\"binary_sha256_short\":null".to_owned()
+            }
+        };
+        println!(
+            "{{\"binary\":\"{}\",{},{}}}",
+            json_escape_str(binary),
+            pin_field,
+            triple_field
+        );
+    } else {
+        println!("p10k-rs {binary}");
+        match &gitstatusd_pin {
+            VersionPin::Ok(v) => println!("gitstatusd pin: {v}"),
+            VersionPin::Err(e) => println!("gitstatusd: <unparseable: {e}>"),
+        }
+        match &triple_info {
+            VersionTriple::Pinned { triple, sha256_short } => {
+                println!("gitstatusd triple: {triple} (sha256: {sha256_short}…)");
+            }
+            VersionTriple::NoEntry(triple) => {
+                println!("gitstatusd triple: {triple} (no pin entry)");
+            }
+            VersionTriple::UnsupportedHost => {
+                println!("gitstatusd triple: <unsupported host>");
             }
         }
-        Err(e) => println!("gitstatusd: <unparseable: {e}>"),
     }
     Ok(())
+}
+
+/// Intermediate version info shape so the text + JSON renderers share
+/// one computation pass.
+enum VersionPin {
+    Ok(String),
+    Err(String),
+}
+
+/// Intermediate triple info shape — same reason as [`VersionPin`].
+enum VersionTriple {
+    Pinned { triple: String, sha256_short: String },
+    NoEntry(String),
+    UnsupportedHost,
+}
+
+/// JSON-escape a string for use in a double-quoted JSON string. Same
+/// rules as `daemon_health::json_escape`: `"`, `\`, and the C0
+/// controls. Hand-rolled because we don't otherwise depend on
+/// `serde_json` and the surface is bounded.
+fn json_escape_str(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// `p10k-rs config check [--config <path>]` — parse the TOML config and

@@ -8,6 +8,40 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-25
+
+Theme: **`version --json` for parity with `daemon-health --json`.**
+Single additive flag. The two scripting-oriented JSON surfaces
+on the diagnostic subcommands now mirror each other in shape
+and capability so a consumer that handles one is at home with
+the other.
+
+### `version --json`
+
+Pass `--json` to emit a single-line JSON object instead of the
+multi-line text form. Same fields, same content:
+
+```json
+{"binary":"0.2.1","gitstatusd_pin":"v1.5.4","triple":"x86_64-linux-gnu","binary_sha256_short":"02b7bc11a70a"}
+```
+
+Field set across the variant axes:
+
+- Normal case: `binary`, `gitstatusd_pin`, `triple`,
+  `binary_sha256_short`
+- Pinned host with no entry yet: `triple` is set,
+  `binary_sha256_short` is `null`
+- Unsupported host: `triple` and `binary_sha256_short` are both `null`
+- Pins file unparseable: `gitstatusd_pin` is `null`, an extra
+  `gitstatusd_error` field carries the parse error message
+
+`binary_sha256_short` is the first 12 hex chars of the bundled
+`binary_sha256` (full hash via `p10k-rs verify`). Strings are
+JSON-escaped via the same minimal encoder pattern used by
+`daemon-health --json` — no new dependencies.
+
+The text format (default) is unchanged from v0.2.0.
+
 ## [0.2.0] - 2026-05-25
 
 Theme: **v0.2 cycle opens.** Same architecture, same security
