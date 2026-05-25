@@ -63,6 +63,7 @@ p10k-rs verify
 | See what works today (segments, features, supported shells) | [STATUS.md](STATUS.md) |
 | Import an existing `~/.p10k.zsh` | [IMPORTING.md](IMPORTING.md) |
 | Verify a release signature, report a defect privately | [SECURITY.md](SECURITY.md) |
+| Diagnose a slow / wedged prompt (`p10k-rs daemon-health`) | [daemon-health reference](docs/src/reference/daemon-health.md) |
 | Confirm there's no telemetry | [PRIVACY.md](PRIVACY.md) |
 | Hack on the code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Understand maintenance, AI-development model, trademarks | [POLICIES.md](POLICIES.md) |

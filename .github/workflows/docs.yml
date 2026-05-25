@@ -23,6 +23,14 @@ on:
 permissions:
   contents: write   # gh-pages branch push
 
+# Node.js 24 forward-compat: the peaceiris/* actions still ship as
+# Node.js 20 actions, which the GitHub runner is deprecating on
+# 2026-09-16. Opt into Node.js 24 now so the workflow doesn't break
+# the day the runner default flips. Drop this env block once both
+# peaceiris actions ship Node.js 24-native major versions.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: gh-pages
   cancel-in-progress: false

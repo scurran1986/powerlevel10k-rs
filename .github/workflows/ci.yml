@@ -60,6 +60,21 @@ jobs:
       - run: cargo doc --no-deps --workspace --locked
 
   deny:
+    # Supply-chain gate. Runs `cargo deny check` against the workspace —
+    # advisories (RUSTSEC), bans, licenses, sources. Was a hand-run pre-tag
+    # check before v0.1.9; codifying it here means every PR (and every push
+    # to main) catches a new advisory or an accidental license drift before
+    # it reaches a release.
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31bc0647485d80c66cfba # v2.0.4
+        with:
+          command: check
+          arguments: --workspace --locked
+
+  deny:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:

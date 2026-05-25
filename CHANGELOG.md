@@ -8,7 +8,21 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
-### `ci(docs)` Pages publish via gh-pages branch
+## [0.1.9] - 2026-05-25
+
+Theme: **CI hygiene & forward-compat.** Three small additive
+changes: the docs publishing channel switches to a
+`gh-pages` branch (works with the default branch-deploy Pages
+UI), `cargo deny` becomes a per-PR gate (supply-chain hygiene
+runs on every push, not just hand-run pre-tag), and the docs
+workflow opts into Node.js 24 ahead of the September 2026
+runner-default flip. README link table now points at the
+`daemon-health` reference page so the subcommand is
+discoverable without reading the CHANGELOG.
+
+No code in `src/` changed; test count holds at 603.
+
+### `ci(docs)` Pages publish via gh-pages branch (`60480d3`)
 
 The v0.1.8 docs deploy failed with `HttpError: Not Found`
 because the workflow used `actions/upload-pages-artifact` +
@@ -16,8 +30,8 @@ because the workflow used `actions/upload-pages-artifact` +
 "GitHub Actions" — a separate settings option from the more
 common "Deploy from a branch" UI most repos default to.
 Switched the workflow to `peaceiris/actions-gh-pages` which
-pushes the built mdBook output to a `gh-pages` branch
-(`60480d3`). To complete the fix, set repo Pages settings to:
+pushes the built mdBook output to a `gh-pages` branch.
+To complete the fix, set repo Pages settings to:
 
 ```
 Source: Deploy from a branch
@@ -28,6 +42,34 @@ Folder: / (root)
 No mdBook content changes; this is a delivery-channel switch
 only. `force_orphan: true` keeps the gh-pages branch as a
 single commit so history doesn't accumulate weight.
+
+### `ci` cargo-deny gate on every push
+
+Added a `deny` job to `ci.yml` that runs
+`cargo deny check --workspace --locked`. Catches new RUSTSEC
+advisories, accidental license drift, banned crates, or
+non-allowed sources at PR time rather than as a hand-run
+pre-tag check (which is what gated v0.1.8). Uses the pinned
+`EmbarkStudios/cargo-deny-action` so the action itself is
+sha-pinned alongside everything else in the workflows.
+
+### `ci(docs)` Node.js 24 forward-compat env
+
+The `peaceiris/actions-mdbook` and `peaceiris/actions-gh-pages`
+actions still ship as Node.js 20 actions, which the GitHub
+runner deprecates on 2026-09-16. Added
+`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` at the workflow
+env level so the docs job runs on Node 24 ahead of the
+default flip. Drop the env block once both actions ship
+Node-24-native major versions.
+
+### `docs(readme)` daemon-health discoverability
+
+The README's "Where to go next" link table now points at
+`docs/src/reference/daemon-health.md` for the
+`p10k-rs daemon-health` subcommand. v0.1.8 shipped the
+subcommand + the reference page but the reference was only
+discoverable via the CHANGELOG entry; this fixes that.
 
 ## [0.1.8] - 2026-05-24
 
