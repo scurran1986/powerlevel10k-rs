@@ -1,0 +1,27 @@
+# Hand-written stub. Regenerate via:
+#   cd packaging/aur/p10k-rs-bin && makepkg --printsrcinfo > .SRCINFO
+# from an Arch host before pushing this directory to the AUR git repo.
+# The AUR submission script (see packaging/aur/README.md) refuses to
+# upload a package whose .SRCINFO disagrees with the PKGBUILD.
+
+pkgbase = p10k-rs-bin
+	pkgdesc = Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust (prebuilt)
+	pkgver = 0.2.2
+	pkgrel = 1
+	url = https://github.com/scurran1986/powerlevel10k-rs
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	license = Apache
+	depends = gcc-libs
+	depends = glibc
+	optdepends = gitstatusd: faster git status via long-lived daemon (bundled by install.sh)
+	optdepends = cosign: verify the sigstore bundle for the downloaded tarball
+	provides = p10k-rs=0.2.2
+	conflicts = p10k-rs
+	source_x86_64 = p10k-rs-0.2.2-x86_64.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.2/p10k-rs-0.2.2-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums_x86_64 = SKIP
+	source_aarch64 = p10k-rs-0.2.2-aarch64.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.2/p10k-rs-0.2.2-aarch64-unknown-linux-gnu.tar.gz
+	sha256sums_aarch64 = SKIP
+
+pkgname = p10k-rs-bin

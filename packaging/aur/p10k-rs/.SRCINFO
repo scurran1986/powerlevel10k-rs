@@ -1,0 +1,24 @@
+# Hand-written stub. Regenerate via:
+#   cd packaging/aur/p10k-rs && makepkg --printsrcinfo > .SRCINFO
+# from an Arch host before pushing this directory to the AUR git repo.
+# The AUR submission script (see packaging/aur/README.md) refuses to
+# upload a package whose .SRCINFO disagrees with the PKGBUILD.
+
+pkgbase = p10k-rs
+	pkgdesc = Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust
+	pkgver = 0.2.2
+	pkgrel = 1
+	url = https://github.com/scurran1986/powerlevel10k-rs
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	license = Apache
+	makedepends = rust
+	makedepends = cargo
+	depends = gcc-libs
+	depends = glibc
+	optdepends = gitstatusd: faster git status via long-lived daemon (bundled by install.sh)
+	source = p10k-rs-0.2.2.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/archive/v0.2.2.tar.gz
+	sha256sums = SKIP
+
+pkgname = p10k-rs

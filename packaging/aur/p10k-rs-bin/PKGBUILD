@@ -1,0 +1,88 @@
+# Maintainer: Sean Curran <scurran1986@gmail.com>
+#
+# AUR binary package for powerlevel10k-rs.
+#
+# Pulls the prebuilt, sigstore-signed tarball that the release pipeline
+# publishes at:
+#   https://github.com/scurran1986/powerlevel10k-rs/releases/download/
+#     v<version>/p10k-rs-<version>-<rust-triple>.tar.gz
+#
+# Static-ish binary (no non-stdlib runtime deps beyond glibc + libgcc).
+# For source builds, see the companion `p10k-rs` package.
+#
+# Sigstore verification is NOT performed inside this PKGBUILD because
+# cosign isn't in the makepkg sandbox by default. Users who want to
+# verify before installing should follow the recipe in
+# packaging/aur/README.md.
+
+pkgname=p10k-rs-bin
+_upstream=p10k-rs
+pkgver=0.2.2
+pkgrel=1
+pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust (prebuilt)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/scurran1986/powerlevel10k-rs"
+license=('MIT' 'Apache')
+depends=('gcc-libs' 'glibc')
+optdepends=(
+  'gitstatusd: faster git status via long-lived daemon (bundled by install.sh)'
+  'cosign: verify the sigstore bundle for the downloaded tarball'
+)
+provides=("${_upstream}=${pkgver}")
+conflicts=("${_upstream}")
+
+# Per-arch source / sha256 split. Rust triple naming — don't "fix" the
+# URL to `arm64` / `amd64` unless the release pipeline starts publishing
+# under those names.
+source_x86_64=(
+  "${_upstream}-${pkgver}-x86_64.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/releases/download/v${pkgver}/${_upstream}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz"
+)
+source_aarch64=(
+  "${_upstream}-${pkgver}-aarch64.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/releases/download/v${pkgver}/${_upstream}-${pkgver}-aarch64-unknown-linux-gnu.tar.gz"
+)
+
+# TODO: replace with real sha256 from the v${pkgver} release sidecars
+# (`*.tar.gz.sha256`) once a maintainer runs `updpkgsums`. Kept as SKIP
+# so the PKGBUILD is committable without pulling the tarballs.
+#
+# Defence in depth: the GitHub release also ships a sigstore-signed
+# `.cosign.bundle` per tarball. Verification recipe lives in
+# packaging/aur/README.md.
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  # makepkg unpacks the tarball into a single top-level directory named
+  # `p10k-rs-<version>-<triple>/`. Pick whichever extracted directory
+  # matches the host arch.
+  local srcdir_inner
+  case "${CARCH}" in
+    x86_64)
+      srcdir_inner="${_upstream}-${pkgver}-x86_64-unknown-linux-gnu"
+      ;;
+    aarch64)
+      srcdir_inner="${_upstream}-${pkgver}-aarch64-unknown-linux-gnu"
+      ;;
+    *)
+      echo "unsupported CARCH: ${CARCH}" >&2
+      return 1
+      ;;
+  esac
+
+  cd "${srcdir}/${srcdir_inner}"
+
+  install -Dm755 "${_upstream}" "${pkgdir}/usr/bin/${_upstream}"
+
+  install -Dm644 LICENSE-MIT \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-APACHE"
+  if [ -f THIRD-PARTY-LICENSES.md ]; then
+    install -Dm644 THIRD-PARTY-LICENSES.md \
+      "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-LICENSES.md"
+  fi
+
+  if [ -f README.md ]; then
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  fi
+}

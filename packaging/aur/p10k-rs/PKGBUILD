@@ -1,0 +1,90 @@
+# Maintainer: Sean Curran <scurran1986@gmail.com>
+#
+# AUR source package for powerlevel10k-rs.
+#
+# Builds the `p10k-rs` binary from the tagged source tarball on GitHub
+# using the project's pinned Rust toolchain (1.88, declared via
+# `rust-toolchain.toml`). For users who prefer prebuilt, sigstore-signed
+# binaries, see the companion `p10k-rs-bin` package.
+#
+# Upstream: https://github.com/scurran1986/powerlevel10k-rs
+
+pkgname=p10k-rs
+pkgver=0.2.2
+pkgrel=1
+pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust"
+arch=('x86_64' 'aarch64')
+url="https://github.com/scurran1986/powerlevel10k-rs"
+license=('MIT' 'Apache')
+depends=('gcc-libs' 'glibc')
+makedepends=('rust' 'cargo')
+optdepends=('gitstatusd: faster git status via long-lived daemon (bundled by install.sh)')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/archive/v${pkgver}.tar.gz")
+# TODO: replace with real sha256 once a maintainer runs `updpkgsums`.
+# We keep SKIP intentionally so the PKGBUILD is committable from any
+# host without first pulling the tarball. AUR-side users are protected
+# by the GitHub release's sigstore bundle (see packaging/aur/README.md
+# for the verification recipe) and by makepkg's own tarball pinning to
+# this `pkgver`.
+sha256sums=('SKIP')
+
+prepare() {
+  cd "powerlevel10k-rs-${pkgver}"
+  # Pre-fetch dependencies so the actual `build()` step is offline-safe
+  # under makepkg's `--cleanbuild` / sandboxed networks.
+  export CARGO_TARGET_DIR=target
+  cargo fetch --locked
+}
+
+build() {
+  cd "powerlevel10k-rs-${pkgver}"
+  export CARGO_TARGET_DIR=target
+  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,relro,-z,now"
+  cargo build --release --locked --bin p10k-rs
+}
+
+check() {
+  cd "powerlevel10k-rs-${pkgver}"
+  export CARGO_TARGET_DIR=target
+  # Run the workspace test suite. Pinned 1.88 toolchain + `--locked`
+  # keeps this deterministic across rebuilds. Skip via `--nocheck` if
+  # the AUR helper insists.
+  cargo test --release --locked --workspace
+}
+
+package() {
+  cd "powerlevel10k-rs-${pkgver}"
+
+  # Binary.
+  install -Dm755 "target/release/p10k-rs" "${pkgdir}/usr/bin/p10k-rs"
+
+  # Per-shell init scripts. Live under /usr/share so users can
+  # `source` them directly without running `p10k-rs init <shell>`
+  # in their rc file every startup (matches the documented zsh path
+  # convention from the upstream README).
+  install -Dm644 "crates/p10k-rs-shell/shells/zsh/init.zsh" \
+    "${pkgdir}/usr/share/p10k-rs/init.zsh"
+  install -Dm644 "crates/p10k-rs-shell/shells/bash/init.bash" \
+    "${pkgdir}/usr/share/p10k-rs/init.bash"
+  install -Dm644 "crates/p10k-rs-shell/shells/fish/init.fish" \
+    "${pkgdir}/usr/share/p10k-rs/init.fish"
+
+  # Licences. Both MIT and Apache-2.0 are required by the dual-licence
+  # declaration; install each under its own filename.
+  install -Dm644 LICENSE-MIT \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-APACHE"
+  install -Dm644 NOTICE \
+    "${pkgdir}/usr/share/licenses/${pkgname}/NOTICE"
+  install -Dm644 THIRD-PARTY-LICENSES.md \
+    "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-LICENSES.md"
+
+  # Docs. README is the v0.2 cycle's user-facing entry point; mdBook
+  # output is HTML-only and not appropriate for /usr/share/doc.
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
+
+  # No upstream man page yet (slice carry-over). Wire one here when
+  # `docs/man/p10k-rs.1` lands.
+}
