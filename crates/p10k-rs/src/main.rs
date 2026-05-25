@@ -270,6 +270,7 @@ enum ConfigCommand {
     },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     // Hold the non-blocking writer's `WorkerGuard` for the full lifetime
     // of the process (T1.21). When it drops, tracing-appender's

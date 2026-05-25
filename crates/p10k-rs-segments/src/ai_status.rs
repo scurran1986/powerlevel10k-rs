@@ -35,7 +35,7 @@
 //!   still gate the open through
 //!   [`p10k_rs_core::safety::open_owned_safely`] on Unix to close the
 //!   symlink / TOCTOU window.
-//! - The file is read with a hard 16 KiB cap. Anything larger short-
+//! - The file is read with a hard `16 KiB` cap. Anything larger short-
 //!   circuits to "no render" rather than slurping a huge file into the
 //!   prompt hot path.
 //! - All string-shaped fields (`model`, `host`, `status`) flow through
@@ -47,6 +47,7 @@
 //! If `last_updated_unix` is older than `MAX_AGE_SECS` (5 minutes) the
 //! segment hides. The host is presumed to have crashed or moved on.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -61,7 +62,7 @@ const DEFAULT_ICON: &str = "\u{f06a9}";
 /// Hard cap on bytes we'll read from the sidecar. Anything bigger is
 /// presumed corrupt (or hostile) and the segment renders empty. Non-
 /// negotiable per the slice brief.
-const MAX_FILE_BYTES: u64 = 16 * 1024;
+const MAX_FILE_BYTES: usize = 16 * 1024;
 
 /// Grapheme cap applied to the model name before it lands in the
 /// rendered prompt. Prompt rows are narrow; model names can be long.
@@ -85,7 +86,7 @@ const MAX_AGE_SECS: u64 = 300;
 ///
 /// - No AI host is detected (`ctx.host == HostKind::None`).
 /// - The sidecar file is missing or unreadable.
-/// - The file is larger than `MAX_FILE_BYTES` (16 KiB).
+/// - The file is larger than `MAX_FILE_BYTES` (`16 KiB`).
 /// - The JSON fails to parse.
 /// - The payload is older than `MAX_AGE_SECS` (5 minutes).
 ///
@@ -167,10 +168,10 @@ fn sidecar_path(host: &str) -> Option<PathBuf> {
 
 /// Read and parse the sidecar at `path`, returning `None` on any failure.
 ///
-/// Read deadline shape: we use a plain bounded read (≤ 16 KiB) rather
+/// Read deadline shape: we use a plain bounded read (≤ `16 KiB`) rather
 /// than the `output_with_deadline` proc helper because the data source
 /// is a local file in `$XDG_RUNTIME_DIR`, not a forked child. Local-fs
-/// reads on tmpfs (where XDG_RUNTIME_DIR lives on systemd) are
+/// reads on tmpfs (where `XDG_RUNTIME_DIR` lives on systemd) are
 /// effectively memory copies; a sub-millisecond ceiling is implicit.
 fn read_sidecar(path: &std::path::Path) -> Option<AiStatusPayload> {
     // Size gate before slurping: a 1 GiB sidecar must never reach the
@@ -181,7 +182,7 @@ fn read_sidecar(path: &std::path::Path) -> Option<AiStatusPayload> {
     if !meta.is_file() {
         return None;
     }
-    if meta.len() > MAX_FILE_BYTES {
+    if meta.len() > MAX_FILE_BYTES as u64 {
         // Oversized sidecar — refuse silently. Same posture as the rest
         // of the segment library (kubecontext, aws): I/O failure hides
         // the segment, doesn't panic and doesn't pollute stderr.
@@ -210,10 +211,10 @@ fn read_capped(path: &std::path::Path) -> Option<Vec<u8>> {
         // we hide the segment silently, matching the rest of the
         // segment library's "I/O error == no render" posture.
         let f = p10k_rs_core::safety::open_owned_safely(path).ok()?;
-        let mut buf = Vec::with_capacity(MAX_FILE_BYTES as usize);
+        let mut buf = Vec::with_capacity(MAX_FILE_BYTES);
         // `Read::take` enforces the cap even if the file grew between
         // the `metadata().len()` check and now.
-        f.take(MAX_FILE_BYTES).read_to_end(&mut buf).ok()?;
+        f.take(MAX_FILE_BYTES as u64).read_to_end(&mut buf).ok()?;
         Some(buf)
     }
     #[cfg(not(unix))]
@@ -267,16 +268,16 @@ fn render_payload(ctx: &RenderCtx<'_>, payload: &AiStatusPayload) -> SegmentOutp
     // user-configurable format string in this slice (deferred — keeps
     // the surface tight).
     let mut body = String::new();
-    if !model.is_empty() {
-        body.push_str(model.as_str());
-    } else {
+    if model.is_empty() {
         body.push('?');
+    } else {
+        body.push_str(model.as_str());
     }
     if let Some(pct) = used_pct(payload) {
         if !body.is_empty() {
             body.push(' ');
         }
-        body.push_str(&format!("{pct:.0}%"));
+        let _ = write!(body, "{pct:.0}%");
     }
     if !status.is_empty() {
         if !body.is_empty() {

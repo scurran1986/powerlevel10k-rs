@@ -340,7 +340,6 @@ fn host_config_aliases(host: &HostKind) -> &'static [&'static str] {
         HostKind::Aider => &["aider"],
         HostKind::Cursor => &["cursor"],
         HostKind::Warp => &["warp"],
-        HostKind::Generic(_) | HostKind::None => &[],
         _ => &[],
     }
 }
@@ -386,8 +385,7 @@ pub fn effective_host_mode(ai: &p10k_rs_config::AiConfig, host: &HostKind) -> Ho
 fn compact_model_label(raw: &str) -> String {
     raw.split_whitespace()
         .next()
-        .map(str::to_owned)
-        .unwrap_or_else(|| "?".to_owned())
+        .map_or_else(|| "?".to_owned(), str::to_owned)
 }
 
 fn render_claude_code_statusline(

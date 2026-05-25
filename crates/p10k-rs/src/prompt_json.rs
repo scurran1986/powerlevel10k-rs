@@ -71,8 +71,8 @@ pub(crate) struct PromptJson {
     /// Same as [`PromptJson::left`] but for the right ribbon.
     pub right: Vec<SegmentJson>,
     /// Git state for the cwd, when available. `null` outside a git
-    /// repo OR when the backend chain (gitstatusd → ShellOut →
-    /// GixBackend) couldn't produce a state.
+    /// repo OR when the backend chain (gitstatusd → `ShellOut` →
+    /// `GixBackend`) couldn't produce a state.
     pub git: Option<GitJson>,
 }
 
@@ -202,7 +202,7 @@ fn strip_ansi(s: &str) -> String {
             // shell is zsh. With the inner escapes already stripped,
             // the markers themselves are transport noise — drop the
             // matched pair.
-            if matches!(chars.peek().copied(), Some('{') | Some('}')) {
+            if matches!(chars.peek().copied(), Some('{' | '}')) {
                 chars.next();
                 continue;
             }

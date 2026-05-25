@@ -54,7 +54,7 @@ impl Status {
 /// Result of a single check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DoctorCheck {
-    /// Stable short name, e.g. `gitstatusd_binary`. Snake_case so
+    /// Stable short name, e.g. `gitstatusd_binary`. `snake_case` so
     /// downstream `jq` filters don't need quoting.
     pub(crate) name: &'static str,
     /// Severity. See [`Status`].
@@ -111,10 +111,8 @@ impl DoctorReport {
         let mut worst = Status::Ok;
         for c in &self.checks {
             worst = match (worst, c.status) {
-                (_, Status::Error) => Status::Error,
-                (Status::Error, _) => Status::Error,
-                (_, Status::Warn) => Status::Warn,
-                (Status::Warn, _) => Status::Warn,
+                (_, Status::Error) | (Status::Error, _) => Status::Error,
+                (_, Status::Warn) | (Status::Warn, _) => Status::Warn,
                 _ => worst,
             };
         }
@@ -131,13 +129,7 @@ impl DoctorReport {
     pub(crate) fn render(&self) -> String {
         let mut out = String::new();
         for c in &self.checks {
-            let _ = writeln!(
-                out,
-                "[{:<5}] {}: {}",
-                c.status.as_wire(),
-                c.name,
-                c.message
-            );
+            let _ = writeln!(out, "[{:<5}] {}: {}", c.status.as_wire(), c.name, c.message);
         }
         let exit = self.exit_code();
         let summary = match exit {
@@ -199,7 +191,7 @@ fn json_escape(s: &str) -> String {
 
 /// Probe-side environment accessor. Tests pass a stub so we can drive
 /// each check deterministically without touching `std::env` (which
-/// would force the ENV_LOCK pattern for every test).
+/// would force the `ENV_LOCK` pattern for every test).
 pub(crate) trait Env {
     /// Lookup an env var. Same semantics as `std::env::var().ok()`.
     fn var(&self, key: &str) -> Option<String>;
@@ -217,7 +209,7 @@ pub(crate) trait Env {
     }
 }
 
-/// Live env accessor — defers to `std::env`. Tests use [`MapEnv`].
+/// Live env accessor — defers to `std::env`. Tests use `MapEnv`.
 pub(crate) struct StdEnv;
 impl Env for StdEnv {
     fn var(&self, key: &str) -> Option<String> {
@@ -317,20 +309,14 @@ pub(crate) fn check_gitstatusd_version_pin() -> DoctorCheck {
             "host triple not in pin file — version cross-check skipped",
         );
     };
-    let entry = match pins.for_triple(triple) {
-        Ok(e) => e,
-        Err(_) => {
-            return DoctorCheck::skip(
-                "gitstatusd_version_pin",
-                format!("no pin entry for triple {triple}"),
-            );
-        }
-    };
-    let Some(path) = p10k_rs_git::locate_gitstatusd() else {
+    let Ok(entry) = pins.for_triple(triple) else {
         return DoctorCheck::skip(
             "gitstatusd_version_pin",
-            "binary not located; cannot hash",
+            format!("no pin entry for triple {triple}"),
         );
+    };
+    let Some(path) = p10k_rs_git::locate_gitstatusd() else {
+        return DoctorCheck::skip("gitstatusd_version_pin", "binary not located; cannot hash");
     };
     // Re-use the verify path's stream-hasher for the actual sha256
     // computation. Doing the hash twice (once here, once if the user
@@ -397,11 +383,11 @@ pub(crate) fn check_config_file_parses<E: Env>(env: &E) -> DoctorCheck {
         );
     };
     match p10k_rs_core::Config::load_from_path(&path) {
-        Ok(_) => DoctorCheck::ok("config_file_parses", format!("{} parses cleanly", path.display())),
-        Err(e) => DoctorCheck::error(
+        Ok(_) => DoctorCheck::ok(
             "config_file_parses",
-            format!("{}: {e}", path.display()),
+            format!("{} parses cleanly", path.display()),
         ),
+        Err(e) => DoctorCheck::error("config_file_parses", format!("{}: {e}", path.display())),
     }
 }
 
@@ -447,7 +433,10 @@ pub(crate) fn check_instant_prompt_cache_writable<E: Env>(env: &E) -> DoctorChec
     if !dir.exists() {
         return DoctorCheck::ok(
             "instant_prompt_cache_writable",
-            format!("{} does not exist yet (will be created on first prompt)", dir.display()),
+            format!(
+                "{} does not exist yet (will be created on first prompt)",
+                dir.display()
+            ),
         );
     }
     match std::fs::metadata(&dir) {
@@ -500,7 +489,10 @@ pub(crate) fn check_osc7_supported<E: Env>(env: &E) -> DoctorCheck {
     ];
     if let Some(prog) = env.var("TERM_PROGRAM") {
         if supporting.iter().any(|p| prog.eq_ignore_ascii_case(p)) {
-            return DoctorCheck::ok("osc7_supported", format!("TERM_PROGRAM={prog} supports OSC 7"));
+            return DoctorCheck::ok(
+                "osc7_supported",
+                format!("TERM_PROGRAM={prog} supports OSC 7"),
+            );
         }
         return DoctorCheck::warn(
             "osc7_supported",
@@ -597,18 +589,12 @@ mod tests {
     #[test]
     fn exit_code_aggregates_to_worst_severity() {
         let r = DoctorReport {
-            checks: vec![
-                DoctorCheck::ok("a", "ok"),
-                DoctorCheck::skip("b", "skip"),
-            ],
+            checks: vec![DoctorCheck::ok("a", "ok"), DoctorCheck::skip("b", "skip")],
         };
         assert_eq!(r.exit_code(), 0);
 
         let r = DoctorReport {
-            checks: vec![
-                DoctorCheck::ok("a", "ok"),
-                DoctorCheck::warn("b", "warn"),
-            ],
+            checks: vec![DoctorCheck::ok("a", "ok"), DoctorCheck::warn("b", "warn")],
         };
         assert_eq!(r.exit_code(), 1);
 
