@@ -21,5 +21,8 @@ Thumbs.db
 # OMC tooling local state (per-developer; not project code)
 /.omc/
 
+# Claude Code per-project state (settings, scheduled tasks, worktrees)
+/.claude/
+
 # mdBook generated output
 /docs/book/
