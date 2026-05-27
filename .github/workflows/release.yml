@@ -254,6 +254,12 @@ jobs:
       - name: locate release notes
         if: startsWith(github.ref, 'refs/tags/v')
         id: notes
+        # Force bash on every runner — Windows defaults to PowerShell and
+        # would choke on `[[ -f ... ]]`. v0.2.5 surfaced this: both
+        # windows-msvc jobs failed at this step despite the build /
+        # package / sign / attest steps succeeding. Git Bash ships on
+        # windows-latest.
+        shell: bash
         run: |
           notes=".github/release-notes/${GITHUB_REF_NAME}.md"
           if [[ -f "$notes" ]]; then
