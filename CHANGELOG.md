@@ -8,6 +8,99 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-05-26
+
+Theme: **Windows portability milestone — first Windows release.**
+Closes the v0.2.3 → v0.2.4 round-trip. v0.2.3 added Windows MSVC release
+matrix entries that failed at `cargo build` because `p10k-rs-core` used
+`rustix::termios` / `std::os::fd::AsFd` / `rustix::process::geteuid`
+unconditionally across eight+ files. v0.2.4 reverted the matrix and
+documented the per-module fallback shape. v0.2.5 lands the actual
+portability work: cfg-gates plus Windows fallbacks across every Unix-only
+site, a PowerShell installer draft, an mdBook status page, and the
+re-enabled release matrix.
+
+### Windows compile
+
+`cargo check --target x86_64-pc-windows-msvc --workspace --locked` exits
+**0 with zero warnings** against this codebase. Verified locally with
+`rustup target add x86_64-pc-windows-msvc` on the maintainer's Linux
+host. First real Windows release artifacts ship with this tag — the
+`.github/workflows/release.yml` matrix now builds for
+`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` on
+`windows-latest`, packages via PowerShell `Compress-Archive`, hashes
+with `Get-FileHash`, sigstore-signs via `shell: bash` (Git Bash), and
+attests provenance against the `.exe` binpath.
+
+### What works on Windows
+
+- Prompt rendering, the segment library, the doctor / verify /
+  daemon-health / version diagnostic CLI surface, every TOML schema
+  knob.
+- `ShellOut` git backend (spawn-per-prompt `git status --porcelain`).
+- `GixBackend` git backend (pure-Rust gitoxide).
+- All segments that don't depend on Unix-only syscalls.
+
+### What's reduced on Windows
+
+| Feature | Unix | Windows |
+|---|---|---|
+| `gitstatusd` daemon backend | ✅ | ❌ — FIFO IPC has no Windows equivalent; falls back to `ShellOut` / `GixBackend` |
+| `root_indicator` segment | ✅ — EUID == 0 probe | ❌ — UAC is a different elevation model; segment hides |
+| `context` segment privilege state | ✅ — EUID-aware | ⚠️ — never classifies as root; `$COMPUTERNAME` for hostname |
+| `dir` writable probe | ✅ — `access(W_OK)` | ⚠️ — `metadata().permissions().readonly()` (coarse) |
+| DECSET 2026 synchronized output probe | ✅ | ❌ — needs raw-mode termios + `/dev/tty`, falls back to non-synced render |
+| OSC 4 truecolor palette probe | ✅ | ❌ — same reason; falls back to `Ansi256` |
+| `terminal_width` `TIOCGWINSZ` ioctl | ✅ | ❌ — falls through to `$COLUMNS` or 80 |
+| Config file TOCTOU safety (`open_owned_safely`) | ✅ — `O_NOFOLLOW` + `fstat` | ⚠️ — plain `File::open`; future slice adds ACL probe |
+
+Each reduction is documented at `docs/src/windows.md` with a
+per-feature table.
+
+### `install.ps1`
+
+PowerShell installer drops at the repo root. Mirrors `install.sh`'s
+argument surface 1:1 with platform substitutions:
+
+- `-Version`, `-Prefix`, `-NoProfile`, `-NoFonts`, `-VerifyOnly`,
+  `-Uninstall` (matches `install.sh`'s `--*` flags).
+- Default prefix: `$env:LOCALAPPDATA\Programs\p10k-rs` (per-user; no
+  UAC).
+- Archive format: `.zip` extracted via `Expand-Archive`; sha256 verify
+  via `Get-FileHash`.
+- `--gitstatusd` flag dropped: ShellOut is the only backend on
+  Windows.
+- Shell-rc snippet: `& p10k-rs.exe init pwsh | Invoke-Expression` in
+  `$PROFILE`.
+- Sigstore verify: opt-in via `cosign.exe` if on `PATH`.
+
+**Draft only** — untested on a real Windows host. Two TODOs flagged
+in-file: sigstore certificate-identity needs the actual issuer value
+once the Windows release pipeline runs; per-exe `.sha256` sidecar
+verification needs a matching change to the release workflow.
+
+### mdBook
+
+New `docs/src/windows.md` page documents the per-feature Unix-vs-Windows
+status table, the "build-from-source today" recipe, and the path to
+shipped Windows binaries.
+
+### Internal
+
+- `p10k-rs-core::safety::SafetyError::Stat` variant is now `cfg(unix)`;
+  enum itself is platform-portable.
+- `p10k-rs-git::gitstatusd` retains its full Unix implementation; the
+  `cfg(not(unix))` `Backend` impl returns `None` for trait completeness
+  (unreachable in practice — `from_env_paths` returns `None` first via
+  the `cfg(not(unix))` `is_fifo` stub).
+- `p10k-rs-segments::context` factored `current_euid()` helper; returns
+  1 on non-unix so `detect_state` never classifies as root.
+
+### Test count
+
+655 → 656 (an added test for the cwd-history chunk parser landed
+alongside the cfg-gating).
+
 ## [0.2.4] - 2026-05-25
 
 Theme: **Revert Windows release matrix + ship docs catch-up.** v0.2.3's
