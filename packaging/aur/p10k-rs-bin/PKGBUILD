@@ -17,7 +17,7 @@
 
 pkgname=p10k-rs-bin
 _upstream=p10k-rs
-pkgver=0.2.2
+pkgver=0.2.6
 pkgrel=1
 pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust (prebuilt)"
 arch=('x86_64' 'aarch64')
@@ -41,15 +41,12 @@ source_aarch64=(
   "${_upstream}-${pkgver}-aarch64.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/releases/download/v${pkgver}/${_upstream}-${pkgver}-aarch64-unknown-linux-gnu.tar.gz"
 )
 
-# TODO: replace with real sha256 from the v${pkgver} release sidecars
-# (`*.tar.gz.sha256`) once a maintainer runs `updpkgsums`. Kept as SKIP
-# so the PKGBUILD is committable without pulling the tarballs.
-#
-# Defence in depth: the GitHub release also ships a sigstore-signed
-# `.cosign.bundle` per tarball. Verification recipe lives in
+# sha256 verified against the published `.tar.gz.sha256` sidecars on
+# the v${pkgver} release page. Defence in depth: each tarball also has a
+# sigstore-signed `.cosign.bundle`; verification recipe lives in
 # packaging/aur/README.md.
-sha256sums_x86_64=('SKIP')
-sha256sums_aarch64=('SKIP')
+sha256sums_x86_64=('cd0ee4484c4c49e8e802f7ec555a174150236d08b2905713a30f938e811b7870')
+sha256sums_aarch64=('ccd4a7416b2797a48db8a08d51e8d8c0c19c080321bef866dabae0685d5e8b73')
 
 package() {
   # makepkg unpacks the tarball into a single top-level directory named

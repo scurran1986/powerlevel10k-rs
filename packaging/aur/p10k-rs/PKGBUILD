@@ -10,7 +10,7 @@
 # Upstream: https://github.com/scurran1986/powerlevel10k-rs
 
 pkgname=p10k-rs
-pkgver=0.2.2
+pkgver=0.2.6
 pkgrel=1
 pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust"
 arch=('x86_64' 'aarch64')
@@ -20,13 +20,11 @@ depends=('gcc-libs' 'glibc')
 makedepends=('rust' 'cargo')
 optdepends=('gitstatusd: faster git status via long-lived daemon (bundled by install.sh)')
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/scurran1986/powerlevel10k-rs/archive/v${pkgver}.tar.gz")
-# TODO: replace with real sha256 once a maintainer runs `updpkgsums`.
-# We keep SKIP intentionally so the PKGBUILD is committable from any
-# host without first pulling the tarball. AUR-side users are protected
-# by the GitHub release's sigstore bundle (see packaging/aur/README.md
-# for the verification recipe) and by makepkg's own tarball pinning to
-# this `pkgver`.
-sha256sums=('SKIP')
+# sha256 of the GitHub `archive/v${pkgver}.tar.gz`. Verified locally
+# against `curl ... | sha256sum`. AUR-side users are additionally
+# protected by the sigstore bundle on the release page and makepkg's
+# own tarball pinning to this `pkgver`.
+sha256sums=('7646b4fb34a46aad710668b762d4331b1c7b2fd58ce4fc102b068c4aaeb94916')
 
 prepare() {
   cd "powerlevel10k-rs-${pkgver}"
