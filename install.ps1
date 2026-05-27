@@ -431,9 +431,15 @@ function Invoke-Install {
         Write-Step 'extract' "Extracting to $tmpDir..."
         Expand-Archive -LiteralPath $tmpZip -DestinationPath $tmpDir -Force
 
-        $staged = Join-Path $tmpDir $EXE_NAME
-        if (-not (Test-Path $staged)) {
-            Write-Fail 'extract' "Expected '$EXE_NAME' inside the zip but it wasn't there. Contents: $(Get-ChildItem $tmpDir | Select-Object -ExpandProperty Name)"
+        # The release zip nests under `p10k-rs-<version>-<triple>/` (matches
+        # the unix tar.gz staging-dir convention). Locate the binary
+        # recursively so an upstream change to the staging layout doesn't
+        # silently break the installer.
+        $staged = Get-ChildItem -Path $tmpDir -Filter $EXE_NAME -Recurse -File `
+            | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $staged) {
+            $listing = (Get-ChildItem -Path $tmpDir -Recurse | Select-Object -ExpandProperty FullName) -join ', '
+            Write-Fail 'extract' "Couldn't find '$EXE_NAME' anywhere under $tmpDir. Contents: $listing"
         }
 
         # 9. Install: move into prefix.
