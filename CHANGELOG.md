@@ -8,6 +8,39 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-05-27
+
+Theme: **Man page + packaging polish.** v0.2.6 unblocked the
+Homebrew / AUR / Scoop / Nix manifests with real v0.2.6 hashes;
+v0.2.7 ships the long-deferred section-1 man page (`p10k-rs.1`) and
+threads it through every install path (release tarball, `install.sh`,
+Homebrew, AUR binary PKGBUILD; AUR source PKGBUILD already wires it).
+
+### Added
+
+- **`docs/man/p10k-rs.1`** — standard section-1 man page covering all
+  13 subcommands (`prompt`, `init`, `configure`, `import`,
+  `statusline`, `segment-list`, `config`, `theme`, `verify`,
+  `daemon-health`, `doctor`, `version`, `help`), plus `FILES`,
+  `ENVIRONMENT`, and `PLATFORM NOTES` sections. Renders zero-warning
+  under `man --warnings -E UTF-8` (groff).
+- **Release tarball** now stages `man1/p10k-rs.1` alongside the binary
+  and the licence/doc files. Unix-only — Windows zips skip it
+  (Windows has no native man infrastructure).
+- **`install.sh`** copies the man page to `$XDG_DATA_HOME/man/man1/`
+  after a successful `cargo install`. Non-fatal on failure; prints a
+  `MANPATH` hint when the data-home man dir isn't already on the
+  resolver path.
+- **Homebrew formula** + **AUR binary PKGBUILD** install the man page
+  from the tarball staging dir, guarded with `File.exist?` /
+  `[ -f ... ]` so the formula stays compatible with the v0.2.6
+  tarball (no `man1/`).
+
+### Unchanged
+
+- Schema, themes, segments, all gates. No code in the workspace
+  binary changed.
+
 ## [0.2.6] - 2026-05-26
 
 Theme: **Reship the Windows artifacts.** v0.2.5 built the Windows
