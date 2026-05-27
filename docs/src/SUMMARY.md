@@ -5,6 +5,7 @@
 - [Introduction](./introduction.md)
 - [Quick start](./quickstart.md)
 - [WSL2 + Windows Terminal](./wsl-windows.md)
+- [Windows status](./windows.md)
 - [Troubleshooting](./troubleshooting.md)
 
 # User guide
