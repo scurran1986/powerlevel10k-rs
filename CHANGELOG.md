@@ -8,6 +8,44 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-05-26
+
+Theme: **Reship the Windows artifacts.** v0.2.5 built the Windows
+binaries cleanly but the "locate release notes" workflow step is bash
+(`[[ -f ... ]]` + `${VAR}` expansion) and Windows runners default to
+PowerShell, which can't parse it. Both `windows-msvc` jobs failed at
+that step — after build / package / sign / attest had all succeeded.
+Net effect: v0.2.5's release page carries only the 4 unix artifact
+triples (`.tar.gz` + `.sha256` + `.cosign.bundle`); no Windows zips.
+
+This release is one-line surgery (`shell: bash` on the offending step)
+plus a re-ship.
+
+### Fixed
+
+- `.github/workflows/release.yml`'s "locate release notes" step now
+  forces `shell: bash`. Git Bash already ships on `windows-latest`
+  and is what the sigstore-sign step uses — same routing.
+
+### Added (carried alongside the release)
+
+- `.github/workflows/perf.yml` — pairs with the orphaned
+  `bench/compare_criterion.sh` from earlier in the v0.2.x cycle.
+  On a PR touching `crates/p10k-rs-git/**` or `bench/**`, runs
+  `cargo bench -p p10k-rs-git` against both the PR head and the
+  base ref, diffs via `compare_criterion.sh`, and posts a markdown
+  table as a sticky PR comment. Fails the job at regression ≥
+  `PERF_FAIL_PCT` (default 25%). PR-scoped `cancel-in-progress`.
+
+### Unchanged
+
+- Schema, themes, segment surface, all gates. The codebase touched
+  here is CI-only.
+
+If v0.2.6's release page shows 18 artifacts (4 unix tar.gz triples
+× 3 sidecars + 2 windows zip × 3 sidecars), the Windows portability
+milestone is fully done. If not, iterate again.
+
 ## [0.2.5] - 2026-05-26
 
 Theme: **Windows portability milestone — first Windows release.**
