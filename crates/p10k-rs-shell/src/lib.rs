@@ -85,7 +85,7 @@ mod tests {
         // absolute path of the running binary. If a script template loses
         // that token, init silently bakes the placeholder into the user's
         // shell — confusing and hard to diagnose. Pin the invariant.
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
             let s = init_script(shell);
             assert!(
                 s.contains("__P10K_RS_BIN__"),
@@ -98,7 +98,7 @@ mod tests {
     fn every_shell_guards_against_double_source() {
         // Re-sourcing must be a no-op. Each script gates on an
         // installation sentinel.
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
             let s = init_script(shell);
             assert!(
                 s.contains("_P10K_RS_INSTALLED"),
@@ -112,12 +112,15 @@ mod tests {
         assert_eq!("zsh".parse::<Shell>().unwrap(), Shell::Zsh);
         assert_eq!("bash".parse::<Shell>().unwrap(), Shell::Bash);
         assert_eq!("fish".parse::<Shell>().unwrap(), Shell::Fish);
+        assert_eq!("pwsh".parse::<Shell>().unwrap(), Shell::Pwsh);
+        assert_eq!("powershell".parse::<Shell>().unwrap(), Shell::Pwsh);
     }
 
     #[test]
     fn shell_parses_case_insensitively() {
         assert_eq!("ZSH".parse::<Shell>().unwrap(), Shell::Zsh);
         assert_eq!("Fish".parse::<Shell>().unwrap(), Shell::Fish);
+        assert_eq!("PWSH".parse::<Shell>().unwrap(), Shell::Pwsh);
     }
 
     #[test]
@@ -515,6 +518,73 @@ mod tests {
         assert!(
             zsh.contains("_p10k_rs_term_safe"),
             "zsh init must sanitise $TERM before embedding it in the dump path"
+        );
+    }
+
+    // --- v0.3: pwsh init ---------------------------------------------------
+
+    #[test]
+    fn pwsh_init_declares_global_prompt_function() {
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains("function global:prompt"),
+            "pwsh init must declare function global:prompt"
+        );
+    }
+
+    #[test]
+    fn pwsh_init_invokes_binary_with_shell_pwsh() {
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains("--shell pwsh"),
+            "pwsh init must invoke the binary with --shell pwsh"
+        );
+    }
+
+    #[test]
+    fn pwsh_init_captures_last_exit_code() {
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains("$global:LASTEXITCODE"),
+            "pwsh init must read $global:LASTEXITCODE to capture the last exit status"
+        );
+        assert!(
+            pwsh.contains("--last-status $status"),
+            "pwsh init must forward the captured status via --last-status $status"
+        );
+    }
+
+    #[test]
+    fn pwsh_init_has_fallback_prompt() {
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains("executionContext.SessionState.Path.CurrentLocation"),
+            "pwsh init fallback prompt must use executionContext.SessionState.Path.CurrentLocation"
+        );
+        assert!(
+            pwsh.contains("PS "),
+            "pwsh init fallback prompt must emit the 'PS ' prefix"
+        );
+    }
+
+    #[test]
+    fn pwsh_init_passes_zero_duration_ms() {
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains("--last-duration-ms 0"),
+            "pwsh init must pass --last-duration-ms 0 (no preexec analogue in pwsh)"
+        );
+    }
+
+    #[test]
+    fn pwsh_init_joins_stdout_lines_with_lf_not_crlf() {
+        // pwsh captures binary stdout as a string array; joining with "`n" (LF)
+        // reconstructs the original output. Using "`r`n" (CRLF) would double-up
+        // line endings on Windows because the binary already emits LF.
+        let pwsh = init_script(Shell::Pwsh);
+        assert!(
+            pwsh.contains(r#"-join "`n""#),
+            "pwsh init must join stdout lines with LF (`n), not CRLF (`r`n)"
         );
     }
 }
