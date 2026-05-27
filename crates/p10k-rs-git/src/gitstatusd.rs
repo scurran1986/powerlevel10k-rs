@@ -27,6 +27,7 @@
 
 #[cfg(unix)]
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::io;
 #[cfg(unix)]
 use std::io::Write;
@@ -40,6 +41,7 @@ use rustix::event::{poll, PollFd, PollFlags};
 #[cfg(unix)]
 use rustix::fd::AsFd;
 
+#[cfg(unix)]
 use p10k_rs_core::safety::SafeText;
 use p10k_rs_core::GitState;
 
@@ -214,6 +216,7 @@ impl Backend for Gitstatusd {
 }
 
 /// Open mode for [`open_fifo_safely`].
+#[cfg(unix)]
 #[derive(Clone, Copy)]
 enum FifoMode {
     Read,
@@ -273,18 +276,12 @@ fn open_fifo_safely(path: &Path, mode: FifoMode) -> Option<std::fs::File> {
     Some(f)
 }
 
-#[cfg(not(unix))]
-fn open_fifo_safely(_path: &Path, _mode: FifoMode) -> Option<std::fs::File> {
-    // FIFO IPC is a unix concept; on non-unix targets we never construct
-    // a `Gitstatusd` in the first place (`is_fifo()` returns false).
-    None
-}
-
 /// Outcome of [`read_until_with_deadline`]. Distinguishes the fast
 /// "daemon died" cases (`Hup`, `Error`, immediate-EOF) from the slow
 /// "daemon wedged" case (`Timeout`) so the caller can touch the wedge
 /// sentinel only when it actually matters. `Backend::status` collapses
 /// the three failure variants back to `None`.
+#[cfg(unix)]
 #[derive(Debug)]
 enum ReadOutcome {
     /// Delimiter reached. Inner buffer does not include the delimiter.
@@ -490,6 +487,7 @@ fn is_fifo(_p: &Path) -> bool {
 /// of slice 64 (separate change in `init.zsh`) creates the file at
 /// `$_P10K_RS_FIFO_DIR/wedge` — a per-shell location inside an already-0700
 /// directory. The Rust side READS the variable; it never sets it.
+#[cfg(unix)]
 const WEDGE_ENV: &str = "_P10K_RS_GITSTATUSD_WEDGE";
 
 /// Resolve the wedge-sentinel path from the environment, or `None` if the
@@ -497,6 +495,7 @@ const WEDGE_ENV: &str = "_P10K_RS_GITSTATUSD_WEDGE";
 /// the user is invoking `p10k-rs prompt` by hand). A `None` here means the
 /// fast-bail optimisation is silently disabled — the rest of the backend
 /// still works, just without the extra back-to-back wedge guard.
+#[cfg(unix)]
 fn sentinel_path() -> Option<PathBuf> {
     std::env::var_os(WEDGE_ENV).map(PathBuf::from)
 }
@@ -547,11 +546,6 @@ fn sentinel_is_fresh(path: &Path, max_age: Duration) -> bool {
     age < max_age
 }
 
-#[cfg(not(unix))]
-fn sentinel_is_fresh(_path: &Path, _max_age: Duration) -> bool {
-    false
-}
-
 /// Create or truncate the wedge sentinel at `path` with mode `0600`,
 /// `O_NOFOLLOW`, zero bytes of content. The only field we care about is
 /// the resulting mtime — [`sentinel_is_fresh`] consults that, not the
@@ -587,14 +581,6 @@ fn touch_sentinel(path: &Path) -> io::Result<()> {
     // open + one close.
     let _f = opts.open(path)?;
     Ok(())
-}
-
-#[cfg(not(unix))]
-fn touch_sentinel(_path: &Path) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "wedge sentinel is unix-only",
-    ))
 }
 
 /// Errors produced by [`locate_binary_checked`] when a probed gitstatusd
