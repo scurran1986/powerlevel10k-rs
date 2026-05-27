@@ -1,5 +1,5 @@
 {
-    "version": "0.2.2",
+    "version": "0.2.6",
     "description": "Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust",
     "homepage": "https://github.com/scurran1986/powerlevel10k-rs",
     "license": {
@@ -7,28 +7,25 @@
         "url": "https://github.com/scurran1986/powerlevel10k-rs/blob/main/LICENSE-MIT"
     },
     "notes": [
-        "BLOCKED: as of v0.2.2 the release pipeline (.github/workflows/release.yml)",
-        "does NOT publish Windows binaries — only the 4 unix tarballs",
-        "(x86_64/aarch64 × linux-gnu/darwin). This manifest is structurally",
-        "complete but the URLs below resolve to 404 until the pipeline matrix",
-        "gains x86_64-pc-windows-msvc + aarch64-pc-windows-msvc.",
-        "",
-        "Unblock checklist: see packaging/scoop/README.md.",
-        "",
         "To activate the prompt once installed, add one of these to your shell rc:",
         "  pwsh: Invoke-Expression (& p10k-rs init pwsh | Out-String)",
         "  bash (Git Bash): eval \"$(p10k-rs init bash)\"",
         "Run `p10k-rs verify` to confirm the bundled gitstatusd helper sha matches,",
-        "and `p10k-rs daemon-health` to check the long-lived git daemon."
+        "and `p10k-rs daemon-health` to check the long-lived git daemon.",
+        "Note: gitstatusd has no Windows port — the vcs segment uses ShellOut",
+        "via git.exe on Windows. `verify` is therefore informational only on",
+        "Windows. See https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/src/windows.md"
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.2/p10k-rs-0.2.2-x86_64-pc-windows-msvc.zip",
-            "hash": "PLACEHOLDER_PENDING_WINDOWS_RELEASE_PIPELINE"
+            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.6/p10k-rs-0.2.6-x86_64-pc-windows-msvc.zip",
+            "hash": "5eccc31205e52d9e6dcbe972c0eb1b94afafc9967eb2ee365fe1878aba93740c",
+            "extract_dir": "p10k-rs-0.2.6-x86_64-pc-windows-msvc"
         },
         "arm64": {
-            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.2/p10k-rs-0.2.2-aarch64-pc-windows-msvc.zip",
-            "hash": "PLACEHOLDER_PENDING_WINDOWS_RELEASE_PIPELINE"
+            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.6/p10k-rs-0.2.6-aarch64-pc-windows-msvc.zip",
+            "hash": "d0d737b1f3af149fcc78cba4bb592eab374ffe1ee803949668342ef27bb6fca9",
+            "extract_dir": "p10k-rs-0.2.6-aarch64-pc-windows-msvc"
         }
     },
     "bin": "p10k-rs.exe",
@@ -40,10 +37,12 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v$version/p10k-rs-$version-x86_64-pc-windows-msvc.zip"
+                "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v$version/p10k-rs-$version-x86_64-pc-windows-msvc.zip",
+                "extract_dir": "p10k-rs-$version-x86_64-pc-windows-msvc"
             },
             "arm64": {
-                "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v$version/p10k-rs-$version-aarch64-pc-windows-msvc.zip"
+                "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v$version/p10k-rs-$version-aarch64-pc-windows-msvc.zip",
+                "extract_dir": "p10k-rs-$version-aarch64-pc-windows-msvc"
             }
         },
         "hash": {
