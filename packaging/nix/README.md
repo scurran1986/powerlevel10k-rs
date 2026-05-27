@@ -15,7 +15,7 @@ nix profile install github:scurran1986/powerlevel10k-rs
 Pin to a release tag:
 
 ```sh
-nix profile install github:scurran1986/powerlevel10k-rs/v0.2.2
+nix profile install github:scurran1986/powerlevel10k-rs/v0.2.6
 ```
 
 After install, finish setup by fetching the `gitstatusd` helper:

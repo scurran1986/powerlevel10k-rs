@@ -1,55 +1,11 @@
 # Scoop manifest
 
-[Scoop](https://scoop.sh/) manifest for installing `p10k-rs` on Windows from
-the prebuilt, sigstore-signed zips that the release pipeline *will* publish
-once Windows targets are wired in.
+[Scoop](https://scoop.sh/) manifest for installing `p10k-rs` on Windows
+from the prebuilt, sigstore-signed zips that the release pipeline
+publishes (`x86_64-pc-windows-msvc` + `aarch64-pc-windows-msvc` since
+v0.2.6).
 
-## Current blocker
-
-**No Windows binary exists in the v0.2.2 release.** The release pipeline
-(`.github/workflows/release.yml`) only builds four unix tarballs:
-
-- `x86_64-unknown-linux-gnu`
-- `aarch64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
-- `aarch64-apple-darwin`
-
-Until the pipeline adds Windows triples, the URLs in `p10k-rs.json` resolve
-to 404 and the `hash` fields are deliberate placeholders
-(`PLACEHOLDER_PENDING_WINDOWS_RELEASE_PIPELINE`). The manifest is shipped now
-so the schema, checkver, and autoupdate plumbing can be reviewed independently
-of the pipeline change.
-
-## Unblock checklist (changes needed in `.github/workflows/release.yml`)
-
-1. **Add two entries to the build matrix** (`jobs.build.strategy.matrix.include`):
-   - `target: x86_64-pc-windows-msvc`, `os: windows-latest`, `cross: false`
-   - `target: aarch64-pc-windows-msvc`, `os: windows-latest`, `cross: false`
-     (cross-compiles cleanly on the x86_64 windows-latest runner with
-     `rustup target add aarch64-pc-windows-msvc`).
-2. **Branch the `package` step on OS** so Windows produces a `.zip` instead of
-   a `.tar.gz`:
-   - Use PowerShell `Compress-Archive` or `7z a` to zip
-     `p10k-rs.exe` + the three doc files.
-   - Emit `${stage}.zip` and `${stage}.zip.sha256` outputs.
-   - Skip `strip` on Windows (MSVC `link.exe` does its own; no `strip` on PATH).
-3. **Extend the sigstore + attestation steps** to subject the `.zip` instead of
-   the `.tar.gz` on Windows runners (or just attest both — `subject-path`
-   accepts a glob).
-4. **Confirm the `softprops/action-gh-release` upload globs** pick up the new
-   `*.zip` and `*.zip.sha256` files.
-
-Once those land and a release is cut, backfill `p10k-rs.json`:
-
-```sh
-gh release download v0.2.2 -p '*windows*.sha256' -R scurran1986/powerlevel10k-rs
-# paste the hex digests into the two `hash` fields, drop the placeholder
-```
-
-After that the manifest is install-ready as-is — autoupdate will pull
-subsequent versions automatically via the GitHub releases API.
-
-## Install (once Windows binaries ship)
+## Install
 
 Direct from the repo (no bucket):
 
@@ -57,13 +13,65 @@ Direct from the repo (no bucket):
 scoop install https://raw.githubusercontent.com/scurran1986/powerlevel10k-rs/main/packaging/scoop/p10k-rs.json
 ```
 
-Or, if/when a dedicated bucket repo (`scoop-p10k-rs`) is graduated out of this
-tree:
+Or, if/when a dedicated bucket repo (`scoop-p10k-rs`) is graduated out
+of this tree:
 
 ```pwsh
 scoop bucket add p10k-rs https://github.com/scurran1986/scoop-p10k-rs
 scoop install p10k-rs
 ```
 
-The latter is the more conventional flow for multi-app maintainer buckets;
-the in-repo manifest stays around as the canonical source either way.
+The latter is the more conventional flow for multi-app maintainer
+buckets; the in-repo manifest stays around as the canonical source
+either way.
+
+## Verifying the zip with sigstore
+
+The release pipeline publishes a `.cosign.bundle` next to every
+Windows zip. Verify before installing if you don't trust the mirror
+path:
+
+```pwsh
+$ver = '0.2.6'
+$triple = 'x86_64-pc-windows-msvc'   # or aarch64-pc-windows-msvc
+$base = "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v$ver"
+
+iwr "$base/p10k-rs-$ver-$triple.zip" -OutFile "p10k-rs.zip"
+iwr "$base/p10k-rs-$ver-$triple.zip.cosign.bundle" -OutFile "p10k-rs.zip.cosign.bundle"
+
+cosign verify-blob `
+  --bundle "p10k-rs.zip.cosign.bundle" `
+  --certificate-identity-regexp `
+    "^https://github.com/scurran1986/powerlevel10k-rs/.github/workflows/release.yml@refs/tags/v$ver`$" `
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com `
+  "p10k-rs.zip"
+```
+
+`cosign.exe` is available via `scoop install cosign`.
+
+## What's on Windows vs Unix
+
+`p10k-rs` on Windows is a reduced-functionality build (no
+`gitstatusd` daemon, no `root_indicator`, no privilege-aware `context`,
+no DECSET 2026 / OSC 4 / `TIOCGWINSZ` probes). See
+[`docs/src/windows.md`](../../docs/src/windows.md) for the per-feature
+status table.
+
+Prompt rendering, every segment that doesn't depend on Unix-only
+syscalls, and the entire diagnostic CLI surface (`doctor`, `verify`,
+`daemon-health`, `version`) work as on Unix.
+
+## Refreshing the manifest
+
+Bump `version` + the two `architecture.*.hash` fields to match the
+published `.zip.sha256` sidecars on each release tag:
+
+```sh
+gh release download v<ver> -p '*windows*.zip.sha256' -R scurran1986/powerlevel10k-rs
+# paste the hex digests into the two `hash` fields
+```
+
+`extract_dir` per arch tracks the `p10k-rs-<version>-<triple>/`
+staging dir that `Compress-Archive` produces in the release workflow.
+The `autoupdate` block uses `$version` interpolation so a Scoop bucket
+running `scoop bucket update` picks up future tags automatically.

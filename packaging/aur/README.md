@@ -20,7 +20,7 @@ tarball. Verify it manually before installing if you don't trust your
 mirror path:
 
 ```sh
-ver=0.2.2
+ver=0.2.6
 triple=x86_64-unknown-linux-gnu          # or aarch64-unknown-linux-gnu
 base="https://github.com/scurran1986/powerlevel10k-rs/releases/download/v${ver}"
 curl -fLO "${base}/p10k-rs-${ver}-${triple}.tar.gz"
@@ -41,8 +41,9 @@ and a soft failure would be worse than no check at all.
 
 ## Refreshing checksums
 
-Both PKGBUILDs ship `sha256sums=('SKIP')` so the files commit cleanly
-from any host. Before pushing to the AUR, regenerate the real hashes:
+Both PKGBUILDs ship real `sha256sums` plugged in from the published
+`.tar.gz.sha256` sidecars at each release tag. Refresh by running
+`updpkgsums` (from `pacman-contrib`) after bumping `pkgver`:
 
 ```sh
 cd packaging/aur/p10k-rs       # or p10k-rs-bin
@@ -50,7 +51,8 @@ updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 ```
 
-`updpkgsums` is in `pacman-contrib`.
+For the binary PKGBUILD, the hashes match what `gh release download v$ver
+-p '*linux-gnu.tar.gz.sha256'` yields.
 
 ## Submitting to the AUR
 
