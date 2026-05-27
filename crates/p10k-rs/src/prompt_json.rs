@@ -231,6 +231,7 @@ fn shell_label(shell: Shell) -> &'static str {
         Shell::Zsh => "zsh",
         Shell::Fish => "fish",
         Shell::Bash => "bash",
+        Shell::Pwsh => "pwsh",
     }
 }
 

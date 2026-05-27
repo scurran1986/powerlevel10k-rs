@@ -1585,6 +1585,8 @@ pub enum Shell {
     Fish,
     /// Bourne Again Shell.
     Bash,
+    /// `PowerShell` (Core / 7+). Native Windows + cross-platform.
+    Pwsh,
 }
 
 /// Detected AI host environment.

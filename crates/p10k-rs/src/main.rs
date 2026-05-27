@@ -1788,6 +1788,7 @@ fn parse_core_shell(s: &str) -> Result<CoreShell> {
         "zsh" => Ok(CoreShell::Zsh),
         "fish" => Ok(CoreShell::Fish),
         "bash" => Ok(CoreShell::Bash),
+        "pwsh" | "powershell" => Ok(CoreShell::Pwsh),
         other => anyhow::bail!("unknown shell '{other}': supported = zsh, fish, bash"),
     }
 }

@@ -8,6 +8,73 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-27
+
+Theme: **v0.3 cycle opener — `p10k-rs init pwsh` lands.** Closes the
+embarrassing gap from v0.2.5-7: `install.ps1`, the man page, and the
+Scoop README all advertised `p10k-rs init pwsh` as the activation
+command, but the subcommand didn't exist. The first Windows users
+following the install docs would have hit an unknown-shell error on
+the very first command. v0.3.0 ships the missing init script and
+wires `pwsh` (and the `powershell` alias) through both `Shell` enums
+and the binary's `--shell` parser.
+
+The cycle theme per `~/.planning/powerlevel10k-rs/ROADMAP.md` is
+"reach" — Nushell + PowerShell + WASM custom segments + structured
+event log + plugin / theme marketplaces. PowerShell is the easiest
+deliverable of the bunch and the most user-blocking, so it leads.
+
+### Added
+
+- **`p10k-rs init pwsh`** — emits a PowerShell init script that
+  defines a `global:prompt` function calling
+  `p10k-rs prompt --shell pwsh --last-status $LASTEXITCODE
+  --last-duration-ms 0`. Renders the prompt natively in
+  `windows-latest` + `pwsh 7+`, and works under `pwsh` on
+  Linux / macOS too.
+- **`Shell::Pwsh`** variant on both `p10k_rs_core::Shell` and
+  `p10k_rs_shell::Shell`. `FromStr` accepts both `pwsh` (canonical)
+  and `powershell` (legacy 5.x alias) — same init script either way.
+- **`crates/p10k-rs-shell/shells/pwsh/init.ps1`** — 67-line init
+  script. Re-source guard, `__P10K_RS_BIN__` substitution, fallback
+  to a minimal native pwsh prompt on failure (a stack trace in
+  `prompt` would otherwise crash the shell).
+
+### What works on pwsh
+
+- Left ribbon, every segment that doesn't depend on Unix-only
+  syscalls, the entire `doctor` / `verify` / `daemon-health` /
+  `version` diagnostic surface.
+- ANSI escapes flow through unchanged — modern Windows Terminal and
+  pwsh 7+ honour them; legacy conhost on Win10 1809+ also works once
+  VT processing is enabled (pwsh enables it by default for PSReadLine
+  sessions).
+- `$LASTEXITCODE` capture for the `status` + `prompt_char` segments.
+
+### What's reduced on pwsh
+
+Inherited from the Windows portability reductions (per
+`docs/src/windows.md`):
+
+- `gitstatusd` daemon — no FIFO IPC; falls back to `ShellOut`.
+- `command_execution_time` — pwsh has no clean preexec; segment hides
+  via `--last-duration-ms 0`, same posture as bash.
+- Transient prompt — PSReadLine has hooks (`OnEnterKeyDown`) but the
+  redraw model differs from zsh's `zle reset-prompt`. A native pwsh
+  transient slice lands later if at all.
+- Right-side prompt — no `RPROMPT` analogue; `[layout.right]` silently
+  dropped, same as bash.
+
+### Activation
+
+```pwsh
+# Per-session:
+& p10k-rs init pwsh | Invoke-Expression
+
+# Persistent (add to $PROFILE):
+Invoke-Expression (& p10k-rs init pwsh | Out-String)
+```
+
 ## [0.2.7] - 2026-05-27
 
 Theme: **Man page + packaging polish.** v0.2.6 unblocked the

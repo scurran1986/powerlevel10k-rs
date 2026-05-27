@@ -24,6 +24,8 @@ pub enum Shell {
     Fish,
     /// Bourne Again Shell.
     Bash,
+    /// `PowerShell` (Core / 7+). Native Windows + cross-platform.
+    Pwsh,
 }
 
 impl FromStr for Shell {
@@ -34,6 +36,11 @@ impl FromStr for Shell {
             "zsh" => Ok(Self::Zsh),
             "fish" => Ok(Self::Fish),
             "bash" => Ok(Self::Bash),
+            // Accept both `pwsh` (cross-platform PowerShell 7+) and
+            // `powershell` (Windows-only legacy 5.x). Same init script —
+            // it targets the 5.1 / 7+ intersection and feature-probes
+            // the rest at load time.
+            "pwsh" | "powershell" => Ok(Self::Pwsh),
             other => Err(UnsupportedShell(other.to_owned())),
         }
     }
@@ -41,7 +48,7 @@ impl FromStr for Shell {
 
 /// Returned when [`Shell::from_str`] gets a string we don't support.
 #[derive(Debug, thiserror::Error)]
-#[error("unknown shell '{0}': supported = zsh, fish, bash")]
+#[error("unknown shell '{0}': supported = zsh, fish, bash, pwsh")]
 pub struct UnsupportedShell(pub String);
 
 /// Returns the init script for the requested shell.
@@ -55,6 +62,7 @@ pub fn init_script(shell: Shell) -> &'static str {
         Shell::Zsh => include_str!("../shells/zsh/init.zsh"),
         Shell::Bash => include_str!("../shells/bash/init.bash"),
         Shell::Fish => include_str!("../shells/fish/init.fish"),
+        Shell::Pwsh => include_str!("../shells/pwsh/init.ps1"),
     }
 }
 
@@ -65,7 +73,7 @@ mod tests {
 
     #[test]
     fn every_shell_has_a_non_empty_script() {
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
             let s = init_script(shell);
             assert!(!s.is_empty(), "{shell:?} script is empty");
         }
