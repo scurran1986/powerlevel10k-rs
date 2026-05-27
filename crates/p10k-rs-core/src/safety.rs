@@ -23,12 +23,11 @@
 //! (config files, instant-prompt artefacts, located binaries).
 
 use std::borrow::Cow;
+use std::fs::File;
 #[cfg(unix)]
-use std::fs::{File, OpenOptions};
-#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::path::Path;
 
-#[cfg(unix)]
 use thiserror::Error;
 use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 use unicode_segmentation::UnicodeSegmentation;
@@ -319,7 +318,8 @@ impl PartialEq<String> for SafeText {
 /// Returned as a typed enum so callers can distinguish "didn't exist /
 /// couldn't open" (transient — fall through to a default) from "exists
 /// but failed a safety invariant" (loud — warn the user, refuse to use).
-#[cfg(unix)]
+/// The `Stat` variant is Unix-only; Windows builds get the enum without
+/// that arm (Windows ACL probing is a future slice).
 #[derive(Debug, Error)]
 pub enum SafetyError {
     /// The open syscall failed (path missing, permission denied, `ELOOP`

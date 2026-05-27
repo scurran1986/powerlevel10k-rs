@@ -130,9 +130,26 @@ fn default_palette_for(state: &str) -> (Color, Color) {
 /// padlock is a strictly better warning than a silently-green prompt on
 /// a directory that's actually broken.
 fn writability_state(cwd: &Path) -> &'static str {
-    match rustix::fs::access(cwd, rustix::fs::Access::WRITE_OK) {
-        Ok(()) => "writable",
-        Err(_) => "not_writable",
+    #[cfg(unix)]
+    {
+        match rustix::fs::access(cwd, rustix::fs::Access::WRITE_OK) {
+            Ok(()) => "writable",
+            Err(_) => "not_writable",
+        }
+    }
+    // Windows has no POSIX `access(2)`. ACL probing is non-trivial and
+    // a misleading "writable" answer is worse than no answer — so we
+    // use `metadata().permissions().readonly()` as the cheap-but-coarse
+    // signal. Read-only attribute set → not_writable; otherwise we
+    // optimistically report writable. A proper ACL probe lands in the
+    // Windows port milestone.
+    #[cfg(not(unix))]
+    {
+        match std::fs::metadata(cwd) {
+            Ok(m) if m.permissions().readonly() => "not_writable",
+            Ok(_) => "writable",
+            Err(_) => "not_writable",
+        }
     }
 }
 

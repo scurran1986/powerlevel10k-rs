@@ -25,13 +25,19 @@
 
 #![allow(clippy::result_large_err)]
 
+#[cfg(unix)]
 use std::fs::OpenOptions;
 use std::io;
+#[cfg(unix)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::{Instant, SystemTime};
 
+#[cfg(unix)]
 use rustix::event::{poll, PollFd, PollFlags};
+#[cfg(unix)]
 use rustix::fd::AsFd;
 
 use p10k_rs_core::safety::SafeText;
@@ -40,8 +46,10 @@ use p10k_rs_core::GitState;
 use crate::Backend;
 
 /// US (unit separator) — between fields within a record.
+#[cfg(unix)]
 const US: u8 = 0x1F;
 /// RS (record separator) — between records.
+#[cfg(unix)]
 const RS: u8 = 0x1E;
 
 /// Default timeout for the daemon's response. The daemon is fast (sub-ms
@@ -56,6 +64,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Smaller cap = bounded blast radius if the daemon goes rogue or its output
 /// is corrupted; no impact on real-world git repos (well under 1 `KiB` per
 /// record). Hitting the cap returns `None` and falls back to `ShellOut`.
+#[cfg(unix)]
 const MAX_RESPONSE_LEN: usize = 64 * 1024;
 
 /// POSIX `S_IFMT` — file-type mask within a stat `mode` field.
@@ -81,6 +90,7 @@ const S_IFREG: u32 = 0o100_000;
 /// daemon. 100 ms is the value recommended by the slice-64 design doc — it
 /// covers the "user typed before precmd ran" race without keeping the
 /// daemon offline across long pauses (laptop sleep, etc.).
+#[cfg(unix)]
 const SENTINEL_MAX_AGE: Duration = Duration::from_millis(100);
 
 /// Long-lived gitstatusd backend. Talks to a daemon spawned by the shell
@@ -89,6 +99,7 @@ const SENTINEL_MAX_AGE: Duration = Duration::from_millis(100);
 /// A `poll(2)`-based deadline ensures a wedged daemon falls back to
 /// `ShellOut` instead of hanging the prompt indefinitely.
 #[derive(Debug, Clone)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub struct Gitstatusd {
     req_fifo: PathBuf,
     resp_fifo: PathBuf,
@@ -121,6 +132,18 @@ impl Gitstatusd {
     }
 }
 
+#[cfg(not(unix))]
+impl Backend for Gitstatusd {
+    fn status(&self, _path: &Path) -> Option<GitState> {
+        // FIFO IPC is a Unix concept; `from_env_paths` never succeeds on
+        // non-unix targets (`is_fifo()` returns false), so this method is
+        // unreachable in practice — the impl exists only to satisfy the
+        // trait surface.
+        None
+    }
+}
+
+#[cfg(unix)]
 impl Backend for Gitstatusd {
     fn status(&self, path: &Path) -> Option<GitState> {
         // Wedge fast-bail (slice 64 phase 2). If a previous prompt observed
@@ -282,6 +305,10 @@ enum ReadOutcome {
 ///
 /// Uses `poll(2)` with the remaining timeout on each loop. The returned
 /// buffer (in the `Got` arm) does **not** include the delimiter byte.
+///
+/// Unix-only. The non-unix `Backend::status` shim above returns `None`
+/// before ever reaching the FIFO read path.
+#[cfg(unix)]
 fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> ReadOutcome {
     let mut record = Vec::with_capacity(4096);
     let mut buf = [0u8; 4096];
@@ -331,6 +358,7 @@ fn read_until_with_deadline(f: &impl AsFd, delim: u8, timeout: Duration) -> Read
 ///
 /// Maps the wire-format fields gitstatusd emits onto [`GitState`]. See
 /// `07-gitstatus.md` § 1.3 for the field-index table.
+#[cfg(unix)]
 fn parse_response(record: &[u8]) -> Option<GitState> {
     let fields: Vec<&[u8]> = record.split(|&b| b == US).collect();
     if fields.len() < 2 {
@@ -414,6 +442,7 @@ fn parse_response(record: &[u8]) -> Option<GitState> {
 /// Empty input maps to an empty [`SafeText`] — the "no in-progress
 /// action" sentinel. `SafeText` strips control bytes either way; this
 /// helper only normalises the action *names*.
+#[cfg(unix)]
 fn normalise_action(raw: &str) -> SafeText {
     let canonical = match raw {
         "" => "",
@@ -435,6 +464,7 @@ fn normalise_action(raw: &str) -> SafeText {
 ///   for a symlink to their own pipe, which would otherwise hijack IPC.
 /// - Owner-UID check — refuses FIFOs not owned by us. Defends against a
 ///   co-tenant pre-planting a FIFO in a path we'd otherwise trust.
+#[cfg(unix)]
 fn is_fifo(p: &Path) -> bool {
     use std::os::unix::fs::FileTypeExt;
     use std::os::unix::fs::MetadataExt;
@@ -446,6 +476,13 @@ fn is_fifo(p: &Path) -> bool {
     }
     let me = rustix::process::geteuid().as_raw();
     md.uid() == me
+}
+
+#[cfg(not(unix))]
+fn is_fifo(_p: &Path) -> bool {
+    // FIFOs are a Unix concept; from_env_paths returns None on Windows so
+    // the `Gitstatusd` constructor never builds an instance.
+    false
 }
 
 /// Env var the shell init script exports to point both the daemon-spawn

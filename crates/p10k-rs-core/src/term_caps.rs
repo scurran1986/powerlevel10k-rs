@@ -48,14 +48,19 @@
 //! side safety timeout (~150 ms–1 s, vendor-dependent).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+#[cfg(unix)]
+use std::io::Read;
+use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::AsFd;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+#[cfg(unix)]
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 #[cfg(unix)]
 use rustix::event::{poll, PollFd, PollFlags};
@@ -66,6 +71,7 @@ use rustix::termios::{tcgetattr, tcsetattr, InputModes, LocalModes, OptionalActi
 /// budget in [`crate::term_query`]. Long enough that a local terminal
 /// always answers in time; short enough that a silent terminal doesn't
 /// add visible latency to the first prompt.
+#[cfg(unix)]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// CSI BSU (Begin Synchronized Update) — `\x1b[?2026h`.
@@ -304,6 +310,7 @@ fn probe_sync_output() -> Option<bool> {
 /// Parse a DECRQM reply from `buf`. Returns `Some(true)` for "supported"
 /// (values `1`/`2`/`3`), `Some(false)` for "unsupported" (`0`/`4`), or
 /// `None` if the reply is incomplete.
+#[cfg(unix)]
 fn parse_decrqm_reply(buf: &[u8]) -> Option<bool> {
     // Locate `\x1b[?2026;`.
     let start = buf.windows(8).position(|w| w == b"\x1b[?2026;")?;

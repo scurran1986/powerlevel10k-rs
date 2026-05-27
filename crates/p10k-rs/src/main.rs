@@ -15,6 +15,7 @@ mod verify;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -875,6 +876,19 @@ const CWD_HISTORY_CAP: usize = 64;
 /// Capped to the most-recent [`CWD_HISTORY_CAP`] entries after the
 /// defensive drop, so the membership test in `decide_transient` stays
 /// constant-cost as the per-session file grows.
+#[cfg(unix)]
+fn path_from_chunk(chunk: &[u8]) -> PathBuf {
+    PathBuf::from(std::ffi::OsStr::from_bytes(chunk))
+}
+
+#[cfg(not(unix))]
+fn path_from_chunk(chunk: &[u8]) -> PathBuf {
+    // No `OsStr::from_bytes` on Windows. The cwd-history file is written
+    // by the zsh init script and is therefore unix-only in practice;
+    // accept lossy-UTF-8 here to keep the type system happy.
+    PathBuf::from(String::from_utf8_lossy(chunk).into_owned())
+}
+
 fn parse_cwd_history_file(
     path: &std::path::Path,
     last_prompt_cwd: Option<&std::path::Path>,
@@ -885,7 +899,7 @@ fn parse_cwd_history_file(
     let mut entries: Vec<PathBuf> = bytes
         .split(|b| *b == 0)
         .filter(|chunk| !chunk.is_empty())
-        .map(|chunk| PathBuf::from(std::ffi::OsStr::from_bytes(chunk)))
+        .map(path_from_chunk)
         .collect();
     if let (Some(last), Some(prev)) = (entries.last(), last_prompt_cwd) {
         if last.as_path() == prev {

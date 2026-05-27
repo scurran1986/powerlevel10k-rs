@@ -58,7 +58,7 @@ impl Segment for Context {
         };
 
         let ssh_set = ssh_session_active();
-        let euid = rustix::process::geteuid().as_raw();
+        let euid = current_euid();
         let state = detect_state(euid, ssh_set);
         let default_user = std::env::var("P10K_RS_DEFAULT_USER").ok();
         should_show(&user, state, default_user.as_deref())
@@ -79,7 +79,7 @@ impl Segment for Context {
         let host_env = std::env::var("HOSTNAME").ok();
         let host = host_or_uname(host_env.as_deref());
 
-        let euid = rustix::process::geteuid().as_raw();
+        let euid = current_euid();
         let ssh_set = ssh_session_active();
         let state = detect_state(euid, ssh_set);
 
@@ -193,8 +193,34 @@ fn host_or_uname(hostname_env: Option<&str>) -> String {
     if let Some(h) = hostname_env.filter(|s| !s.is_empty()) {
         return sanitize_for_terminal(h).into_owned();
     }
-    let uname = rustix::system::uname();
-    sanitize_for_terminal(&uname.nodename().to_string_lossy()).into_owned()
+    #[cfg(unix)]
+    {
+        let uname = rustix::system::uname();
+        sanitize_for_terminal(&uname.nodename().to_string_lossy()).into_owned()
+    }
+    #[cfg(not(unix))]
+    {
+        // No `uname(2)` on Windows; fall back to `$COMPUTERNAME` and then
+        // an empty string. The render path already tolerates `""`.
+        let cn = std::env::var("COMPUTERNAME").unwrap_or_default();
+        sanitize_for_terminal(&cn).into_owned()
+    }
+}
+
+/// Current effective UID, abstracted across platforms.
+///
+/// Unix: `rustix::process::geteuid().as_raw()`. Windows: returns a
+/// non-zero sentinel (`1`) so `detect_state` never sees a "root"
+/// classification on a platform where the concept doesn't translate.
+fn current_euid() -> u32 {
+    #[cfg(unix)]
+    {
+        rustix::process::geteuid().as_raw()
+    }
+    #[cfg(not(unix))]
+    {
+        1
+    }
 }
 
 #[cfg(test)]

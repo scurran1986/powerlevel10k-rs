@@ -25,7 +25,20 @@ impl Segment for RootIndicator {
         // EUID (not RUID): reflects the privilege the process *currently
         // holds*, which is what the prompt is warning about. A setuid-root
         // binary that dropped privileges shouldn't keep flashing red.
-        rustix::process::geteuid().as_raw() == 0
+        //
+        // Non-Unix: there is no EUID and the elevation model is entirely
+        // different (UAC on Windows). Always-disabled keeps the segment
+        // additive on unix without claiming a meaningful "root" answer
+        // on platforms where the concept doesn't translate. A future
+        // Windows-aware admin probe would land here.
+        #[cfg(unix)]
+        {
+            rustix::process::geteuid().as_raw() == 0
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
     }
 
     fn render(&self, ctx: &RenderCtx<'_>) -> SegmentOutput {

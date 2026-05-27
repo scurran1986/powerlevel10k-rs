@@ -47,9 +47,8 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::AsFd;
 use std::sync::OnceLock;
-use std::time::Duration;
 #[cfg(unix)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use rustix::event::{poll, PollFd, PollFlags};
@@ -61,11 +60,13 @@ use crate::style::Color;
 /// 50 ms per-query budget for OSC 4 responses. Comfortable for local
 /// terminals; tight enough that an unresponsive terminal (or a mux that
 /// silently drops the query) doesn't spike prompt latency.
+#[cfg(unix)]
 const PER_QUERY_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// 800 ms hard wall-clock budget for the full 16-query probe. If the
 /// terminal is slow but answering, we'd rather give up partway than
 /// stall the first prompt of the session for a full second.
+#[cfg(unix)]
 const TOTAL_BUDGET: Duration = Duration::from_millis(800);
 
 /// Cached result of [`query_terminal_palette`]. `None` means "we ran the
@@ -212,6 +213,7 @@ fn probe_one(tty: &std::fs::File, index: u8) -> Option<[u8; 3]> {
 
 /// True once `buf` contains a complete OSC 4 response, terminated by
 /// either BEL (`\x07`) or ST (`\x1b\\`).
+#[cfg(unix)]
 fn response_complete(buf: &[u8]) -> bool {
     if buf.contains(&0x07) {
         return true;
@@ -238,6 +240,7 @@ fn response_complete(buf: &[u8]) -> bool {
 /// high byte out of the value uniformly. Other prefixes (`rgb:` vs
 /// `rgba:`, `#rrggbb`) are rare enough we don't bother — `rgb:` covers
 /// every responder we've seen.
+#[cfg(unix)]
 fn parse_osc4_response(buf: &[u8], expected_index: u8) -> Option<[u8; 3]> {
     // Locate the start of the OSC sequence (`\x1b]4;`).
     let osc_start = buf.windows(4).position(|w| w == b"\x1b]4;")?;
@@ -282,6 +285,7 @@ fn parse_osc4_response(buf: &[u8], expected_index: u8) -> Option<[u8; 3]> {
 /// - 3 digits (`abc`)  → `0xab` (left-justify to 16 bits via shift).
 /// - 2 digits (`ab`)   → `0xab`.
 /// - 1 digit  (`a`)    → `0xa0`.
+#[cfg(unix)]
 fn parse_channel(s: &str) -> Option<u8> {
     if s.is_empty() || s.len() > 4 {
         return None;
