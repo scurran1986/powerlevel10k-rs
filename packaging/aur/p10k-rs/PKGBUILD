@@ -83,6 +83,6 @@ package() {
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
 
-  # No upstream man page yet (slice carry-over). Wire one here when
-  # `docs/man/p10k-rs.1` lands.
+  # Man page.
+  install -Dm644 docs/man/p10k-rs.1 "${pkgdir}/usr/share/man/man1/p10k-rs.1"
 }

@@ -1,0 +1,187 @@
+.TH P10K\-RS 1 "May 2026" "p10k-rs 0.2.6" "User Commands"
+.SH NAME
+p10k\-rs \- Rust port of Powerlevel10k. Single static binary, declarative TOML config, multi-shell prompt.
+.SH SYNOPSIS
+.B p10k\-rs
+.I COMMAND
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B p10k\-rs
+is a from-scratch reimplementation of the Powerlevel10k prompt in Rust.
+Configuration is declarative TOML at
+.IR ~/.config/p10k\-rs/config.toml ;
+the binary renders a prompt per invocation, driven by your shell's
+.BR precmd "/" preexec
+hooks. Git state on the hot path runs through a long-lived
+.BR gitstatusd (1)
+daemon (Unix only); macOS, Linux, and Windows all build from the same
+codebase.
+
+For interactive setup run
+.B p10k\-rs configure
+or seed a config from an existing P10K install with
+.BR "p10k\-rs import" .
+
+.SH COMMANDS
+.TP
+.B prompt
+Render a prompt for the given shell. Wired by
+.BR precmd / preexec
+hooks. Honors
+.B \-\-render-side {left|right}
+and
+.B \-\-json
+for machine-readable output. The hot path.
+.TP
+.B init
+Print the per-shell init script. Source the output from your shell rc:
+.RS
+.IP \fBzsh\fR 6
+\fBeval "$(p10k\-rs init zsh)"\fR
+.IP \fBbash\fR 6
+\fBeval "$(p10k\-rs init bash)"\fR
+.IP \fBfish\fR 6
+\fBp10k\-rs init fish | source\fR
+.IP \fBpwsh\fR 6
+\fB& p10k\-rs init pwsh | Invoke\-Expression\fR
+.RE
+.TP
+.B configure
+Run the interactive configuration wizard. Asks high-level questions
+about visual style, segments, and shell integration; writes
+.IR ~/.config/p10k\-rs/config.toml .
+.TP
+.B import
+Import a Powerlevel10k
+.I ~/.p10k.zsh
+file best-effort. Translates the supported subset to TOML; flags
+unsupported directives with
+.B WARN
+on stderr. Idempotent.
+.TP
+.B statusline
+Render a statusline payload for an AI host (Claude Code today; Cursor /
+Aider / Goose are stubbed pending upstream protocol). Reads the host's
+JSON payload from stdin and writes one styled status line to stdout.
+.TP
+.B segment\-list
+List every segment this build ships, including auto-detect heuristics.
+Useful for diagnosing why a segment isn't rendering and for piping into
+.BR jq .
+.TP
+.B config validate
+Parse the active TOML config and report any schema errors. Always-on
+verification; safe to run from CI.
+.TP
+.B theme list | show \fIname\fR | install \fIname\fR
+Manage bundled prompt themes. List enumerates the catalogue;
+.B show
+dumps a theme's TOML to stdout; install copies it to the user's config
+path (backing up any existing config first).
+.TP
+.B verify [\-\-binary \fIPATH\fR] [\-\-json]
+Verify the
+.BR gitstatusd (1)
+helper binary against the committed sha256 pin. Exit codes: 0 (match),
+2 (mismatch), 3 (binary not found), 4 (host triple not pinned). With
+.B \-\-json
+emits a single-line object for scripting.
+.TP
+.B daemon\-health [\-\-json]
+Report the per-shell
+.BR gitstatusd (1)
+daemon's status: alive, wedged, dead, or channel not wired. Exit
+codes: 0 (OK), 2 (WEDGED), 3 (DEAD), 4 (NOT_WIRED), 5 (ERROR). With
+.B \-\-json
+emits a single-line object.
+.TP
+.B doctor [\-\-json]
+Run nine runtime probes (Nerd Font, gitstatusd binary, config
+present + parses, shell init sourced, instant-prompt cache writable,
+OSC 7 support, WSL font story). Exit codes: 0 (all OK / SKIP),
+1 (≥1 WARN), 2 (≥1 ERROR). With
+.B \-\-json
+emits a
+.B p10krs.doctor/v1
+envelope.
+.TP
+.B version [\-\-json]
+Print binary + bundled-gitstatusd-pin + detected host-triple
+diagnostics. Always exits 0. Distinct from
+.BR \-\-version ,
+which only prints the bare version string.
+
+.SH FILES
+.TP
+.I ~/.config/p10k\-rs/config.toml
+User configuration. See
+.B "p10k\-rs configure"
+or
+.UR https://github.com/scurran1986/powerlevel10k\-rs/blob/main/docs/src/reference/schema.md
+the schema reference
+.UE .
+.TP
+.I $XDG_RUNTIME_DIR/p10k\-rs\-$$/
+Per-shell daemon FIFO directory. Created by the shell init script and
+torn down on shell exit (Unix only).
+.TP
+.I $XDG_CACHE_HOME/p10k\-rs/
+Instant-prompt dumps (sanitised
+.BR $TERM
+in filename, mode 0600). Self-invalidates on terminal switch.
+
+.SH ENVIRONMENT
+.TP
+.B P10K_RS_CONFIG
+Override the resolved config path. Falls through to
+.B $XDG_CONFIG_HOME/p10k\-rs/config.toml
+and then
+.IR ~/.config/p10k\-rs/config.toml .
+.TP
+.B P10K_RS_GITSTATUSD_BIN
+Override the auto-discovered
+.BR gitstatusd (1)
+binary path.
+.TP
+.B _P10K_RS_GITSTATUSD_PID_FILE \fR/\fB _P10K_RS_GITSTATUSD_WEDGE
+Set by the shell init script when sourced. Their presence is how
+.B doctor
+and
+.B daemon\-health
+tell whether your rc is wired.
+
+.SH PLATFORM NOTES
+.B Windows
+ships a reduced-functionality build: no gitstatusd daemon (FIFO IPC
+has no Windows analogue; falls back to
+.BR ShellOut ),
+no
+.B root_indicator
+(no EUID), no DECSET 2026 / OSC 4 / TIOCGWINSZ probes (need raw-mode
+termios). See the
+.B Windows status
+page in the mdBook for the per-feature table.
+
+.SH SEE ALSO
+.BR gitstatusd (1),
+.BR zsh (1),
+.BR bash (1),
+.BR fish (1)
+.PP
+mdBook documentation:
+.UR https://scurran1986.github.io/powerlevel10k\-rs/
+.UE
+.PP
+Source + issue tracker:
+.UR https://github.com/scurran1986/powerlevel10k\-rs
+.UE
+
+.SH AUTHOR
+Sean Curran <scurran1986@gmail.com>
+
+.SH LICENSE
+Dual MIT / Apache-2.0. See
+.B LICENSE\-MIT
+and
+.BR LICENSE\-APACHE
+shipped with the binary.
