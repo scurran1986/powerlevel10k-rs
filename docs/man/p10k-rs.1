@@ -44,6 +44,16 @@ Print the per-shell init script. Source the output from your shell rc:
 \fBp10k\-rs init fish | source\fR
 .IP \fBpwsh\fR 6
 \fB& p10k\-rs init pwsh | Invoke\-Expression\fR
+.br
+For persistent activation add to
+.IR $PROFILE :
+\fBInvoke\-Expression (& p10k\-rs init pwsh | Out\-String)\fR
+.br
+Both
+.B pwsh
+and
+.B powershell
+are accepted as the shell argument; both target the same script.
 .RE
 .TP
 .B configure
@@ -166,7 +176,8 @@ page in the mdBook for the per-feature table.
 .BR gitstatusd (1),
 .BR zsh (1),
 .BR bash (1),
-.BR fish (1)
+.BR fish (1),
+.BR pwsh (1)
 .PP
 mdBook documentation:
 .UR https://scurran1986.github.io/powerlevel10k\-rs/
