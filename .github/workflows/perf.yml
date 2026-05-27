@@ -1,0 +1,94 @@
+# Perf regression gate. Pairs with `bench/compare_criterion.sh`.
+#
+# Strategy: on a PR touching `p10k-rs-git`, run the criterion bench on
+# the PR head, then check out `main`, run the same bench, and diff via
+# `compare_criterion.sh`. Markdown table lands in the workflow summary;
+# regressions ≥ `PERF_FAIL_PCT` (default 25) fail the job. The bench
+# fixture cwds are seeded via `bench/fetch_fixtures.sh` (ripgrep at a
+# pinned commit) so runs are reproducible.
+#
+# Triggers:
+# - `pull_request` on `crates/p10k-rs-git/**` paths (the hot path)
+# - `workflow_dispatch` for manual runs against any ref
+#
+# The workflow is opt-in for now (paths filter narrow) until we have
+# more bench coverage outside the git crate. Adding crates: extend
+# `paths` and the `cargo bench` invocations.
+
+name: perf
+
+on:
+  pull_request:
+    paths:
+      - 'crates/p10k-rs-git/**'
+      - 'bench/**'
+      - '.github/workflows/perf.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # PR-scoped concurrency: a new push on the same PR cancels the older
+  # run. workflow_dispatch runs share a single slot.
+  group: perf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: criterion regression check
+    runs-on: ubuntu-latest
+    env:
+      PERF_FAIL_PCT: '25'
+      PERF_WARN_PCT: '10'
+    steps:
+      - name: checkout PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.8.0
+        with:
+          shared-key: perf
+
+      - name: fetch bench fixtures
+        run: bash bench/fetch_fixtures.sh
+
+      - name: bench (PR head)
+        run: cargo bench -p p10k-rs-git --locked -- --noplot
+
+      - name: stash PR results
+        run: mv target/criterion baseline-current
+
+      - name: checkout main into ./base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'main' }}
+          path: base
+
+      - name: bench (base)
+        run: cargo bench -p p10k-rs-git --manifest-path base/Cargo.toml --locked -- --noplot
+
+      - name: compare
+        id: compare
+        run: |
+          set -euo pipefail
+          summary=$(bash bench/compare_criterion.sh base/target/criterion baseline-current | tee -a "$GITHUB_STEP_SUMMARY")
+          echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$summary" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: comment on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: perf
+          message: |
+            ## perf — criterion diff vs `${{ github.event.pull_request.base.ref }}`
+
+            ${{ steps.compare.outputs.summary }}
+
+            *Thresholds: warn ≥ ${{ env.PERF_WARN_PCT }}%, fail ≥ ${{ env.PERF_FAIL_PCT }}%. Run details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}*
