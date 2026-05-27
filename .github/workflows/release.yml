@@ -131,9 +131,10 @@ jobs:
           # we still tarball under for testing.
           version="${GITHUB_REF_NAME#v}"
           stage="p10k-rs-${version}-${{ matrix.target }}"
-          mkdir -p "$stage"
+          mkdir -p "$stage" "$stage/man1"
           cp "target/${{ matrix.target }}/release/p10k-rs" "$stage/"
           cp LICENSE-MIT LICENSE-APACHE README.md THIRD-PARTY-LICENSES.md "$stage/" 2>/dev/null || true
+          cp docs/man/p10k-rs.1 "$stage/man1/" 2>/dev/null || true
           tar czf "${stage}.tar.gz" "$stage"
           # `sha256sum` is GNU coreutils only — macOS ships BSD `shasum`
           # under a different name. Branch on availability so the same

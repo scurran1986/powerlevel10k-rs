@@ -82,4 +82,9 @@ package() {
   if [ -f README.md ]; then
     install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   fi
+
+  # Man page (release tarball stages it under `man1/p10k-rs.1` since v0.2.7).
+  if [ -f man1/p10k-rs.1 ]; then
+    install -Dm644 man1/p10k-rs.1 "${pkgdir}/usr/share/man/man1/p10k-rs.1"
+  fi
 }

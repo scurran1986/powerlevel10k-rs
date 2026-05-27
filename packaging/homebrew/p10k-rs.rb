@@ -48,6 +48,9 @@ class P10kRs < Formula
     # doesn't break the install.
     doc.install "README.md" if File.exist?("README.md")
     doc.install "THIRD-PARTY-LICENSES.md" if File.exist?("THIRD-PARTY-LICENSES.md")
+
+    # Man page (release tarball includes `man1/p10k-rs.1` since v0.2.7).
+    man1.install "man1/p10k-rs.1" if File.exist?("man1/p10k-rs.1")
   end
 
   def caveats

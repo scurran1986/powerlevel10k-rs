@@ -207,6 +207,32 @@ if [ -z "$INSTALLED_BIN" ]; then
 fi
 echo "[install] binary at $INSTALLED_BIN"
 
+# ---------- man page -------------------------------------------------------
+#
+# `cargo install` only handles the binary. The man page lives in the
+# source tree at `docs/man/p10k-rs.1`; copy it to the user's data dir
+# so `man p10k-rs` resolves once the install completes. Non-fatal on
+# failure — a missing man page never breaks the prompt.
+
+MAN_SRC="$(dirname "$0")/docs/man/p10k-rs.1"
+MAN_DEST_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+if [ -f "$MAN_SRC" ]; then
+  if mkdir -p "$MAN_DEST_DIR" 2>/dev/null && cp "$MAN_SRC" "$MAN_DEST_DIR/p10k-rs.1"; then
+    echo "[install] man page at $MAN_DEST_DIR/p10k-rs.1"
+    # Quick hint if the user's MANPATH doesn't pick up XDG_DATA_HOME by
+    # default (some BSD man implementations don't). Idempotent — just
+    # informational.
+    if ! manpath 2>/dev/null | tr ':' '\n' | grep -qx "$MAN_DEST_DIR" && \
+       ! manpath 2>/dev/null | tr ':' '\n' | grep -qx "$(dirname "$MAN_DEST_DIR")"; then
+      echo "[install]   note: $MAN_DEST_DIR may not be on \$MANPATH;"
+      echo "[install]         add this to your shell rc if 'man p10k-rs' doesn't resolve:"
+      echo "[install]         export MANPATH=\"$MAN_DEST_DIR:\${MANPATH:-}\""
+    fi
+  else
+    echo "[install] warn: couldn't install man page to $MAN_DEST_DIR — skipping"
+  fi
+fi
+
 # ---------- gitstatusd acquisition -----------------------------------------
 #
 # T0.5: pinned download + sha256 verification is the default in v0.1.5.
