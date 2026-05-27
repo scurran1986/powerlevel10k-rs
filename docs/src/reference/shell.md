@@ -26,12 +26,12 @@ All three scripts are idempotent — re-sourcing is a no-op.
 | Feature | zsh | bash | fish |
 |---|---|---|---|
 | Left prompt | yes | yes | yes |
-| Right prompt (`RPROMPT`) | yes | no (bash has no native equivalent) | _TODO: confirm in init.fish_ |
+| Right prompt (`RPROMPT`) | yes | no (bash has no native equivalent) | not wired — fish supports a `fish_right_prompt` function but our `init.fish` doesn't define one yet |
 | `$?` capture | yes | yes | yes |
 | `command_execution_time` | yes | no (no clean preexec; passes `--last-duration-ms 0`) | yes (uses `fish_preexec` event) |
 | `gitstatusd` daemon backend | yes | no (FIFO plumbing is zsh-specific) | no (FIFO plumbing is zsh-specific) |
 | `git` shell-out fallback | yes | yes | yes |
-| Transient prompt | yes (via ZLE widgets) | no (readline has no comparable redraw hook) | _TODO: confirm — fish has `commandline -f repaint` but the script does not wire it yet_ |
+| Transient prompt | yes (via ZLE widgets) | no (readline has no comparable redraw hook) | wired — Enter-key bind sets `_p10k_rs_transient=1` then `commandline -f repaint` redraws (since `8ad919b`) |
 | Instant prompt | yes (cached PROMPT-SUBST dump) | no (does not map onto bash's prompt model) | no (does not map onto fish's prompt model) |
 
 ## bash specifics

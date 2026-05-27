@@ -22,7 +22,7 @@ time, context, vi_mode, root_indicator) finishes in microseconds inside
 | Static (`dir`, `prompt_char`, `status`, `time`, `context`, …) | Inline in `Segment::render()` during `render_prompt()`. |
 | Cached vcs (gitstatusd answered inside the sync budget) | Sync drain of the daemon FIFO. See `p10k-rs-git::Gitstatusd`. |
 | vcs fallback (no daemon, or daemon timeout) | `ShellOut` spawns `git status --porcelain=v1 --branch`. |
-| Future async segments (battery, public_ip, disk_usage, …) | _TODO: confirm in the code — not in the MVP set._ |
+| Future async segments (battery, public_ip, disk_usage, …) | not in the MVP set — would land alongside a v0.3+ rayon parallel-render slice |
 
 The MVP is "spawn-per-prompt synchronous". `tokio` is explicitly out of
 scope until v0.2; the daemon already amortises the only latency that

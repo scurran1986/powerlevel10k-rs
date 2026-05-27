@@ -21,7 +21,7 @@ overrides all reach the rendered prompt.
 | `background_jobs` | Count of suspended/running background jobs. Hidden when the shell has no jobs. |
 | `time` | Current wall-clock time in `HH:MM:SS`, white. |
 | `context` | `user@host` with privilege/SSH awareness. Gated by identity render rules. |
-| `vi_mode` | Vi keymap indicator: `INSERT` / `NORMAL` / `VISUAL` / `OPER`. _TODO: confirm wire-up in non-zsh shells._ |
+| `vi_mode` | Vi keymap indicator: `INSERT` / `NORMAL` / `VISUAL` / `OPER`. Reads `$P10K_RS_VI_MODE`; zsh init exports it via a future `zle-keymap-select` widget. Bash / fish don't export it today, so the segment is effectively zsh-only until those shells gain a hook. |
 | `root_indicator` | Single red lightning glyph when EUID is 0. |
 | `vcs` | Branch name black-on-green with a trailing dirty marker. Powered by `gitstatusd` on the hot path. |
 | `jj` | Jujutsu sibling to `vcs`. Auto-hidden when not inside a `.jj/` working copy, so safe to keep in the always-on group; users who never run jj pay nothing for it. Renders change-id + bookmarks + `divergent` and `conflicts` indicators parsed from `jj log -T` (slice 62). |

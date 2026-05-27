@@ -74,9 +74,9 @@ silently doing nothing.
 | `icon` | `Option<String>` | Override the default icon glyph (sanitised at parse). |
 | `padding` | `Padding` | Whitespace cells on either side. |
 | `truncate` | `DirTruncate` | Cwd truncation policy (only the `dir` segment reads it). |
-| `show_on_command` | `Option<Vec<String>>` | Render only when one of these commands is on the upcoming buffer. _TODO: confirm wire-up in the render path._ |
-| `show_in_dir` | `Option<Vec<Glob>>` | Render only when the cwd matches one of these globs. _TODO: confirm wire-up._ |
-| `disabled_dir_pattern` | `Option<Glob>` | Disable the segment when the cwd matches this glob. _TODO: confirm wire-up._ |
+| `show_on_command` | `Option<Vec<String>>` | Render only when the upcoming command's first word matches one of these. Zsh-only today (`line-pre-redraw` widget); other shells get the last-command approximation per the zsh-init comment. |
+| `show_in_dir` | `Option<Vec<Glob>>` | Render only when the cwd matches one of these globs. |
+| `disabled_dir_pattern` | `Option<Glob>` | Disable the segment when the cwd matches this glob. |
 | `states` | `HashMap<String, StateOverrides>` | Per-state overrides keyed by segment-defined state tag. |
 
 ## `StateOverrides` — `[segment.<name>.states.<tag>]`
