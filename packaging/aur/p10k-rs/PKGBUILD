@@ -10,7 +10,7 @@
 # Upstream: https://github.com/scurran1986/powerlevel10k-rs
 
 pkgname=p10k-rs
-pkgver=0.2.6
+pkgver=0.2.7
 pkgrel=1
 pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust"
 arch=('x86_64' 'aarch64')
@@ -24,7 +24,7 @@ source=("${pkgname}-${pkgver}.tar.gz::https://github.com/scurran1986/powerlevel1
 # against `curl ... | sha256sum`. AUR-side users are additionally
 # protected by the sigstore bundle on the release page and makepkg's
 # own tarball pinning to this `pkgver`.
-sha256sums=('7646b4fb34a46aad710668b762d4331b1c7b2fd58ce4fc102b068c4aaeb94916')
+sha256sums=('9f5bc582dc5bcf20619d7a21a94b888e0994262076337c7c91bd35fdfcb89ce8')
 
 prepare() {
   cd "powerlevel10k-rs-${pkgver}"
