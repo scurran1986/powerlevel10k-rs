@@ -49,6 +49,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::fd::AsFd;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -56,7 +57,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 use rustix::event::{poll, PollFd, PollFlags};
+#[cfg(unix)]
 use rustix::termios::{tcgetattr, tcsetattr, InputModes, LocalModes, OptionalActions, Termios};
 
 /// 50 ms budget for the DECRQM reply, matching the OSC 4 per-query
@@ -234,6 +237,15 @@ fn probe() -> TermCaps {
 ///
 /// Returns `None` on probe failure (no `/dev/tty`, not a TTY, timeout,
 /// unparseable reply). The caller treats `None` as `Some(false)`.
+///
+/// Non-Unix targets return `None` unconditionally — DECRQM probing needs
+/// raw-mode termios + `/dev/tty`, neither of which exist on Windows.
+#[cfg(not(unix))]
+fn probe_sync_output() -> Option<bool> {
+    None
+}
+
+#[cfg(unix)]
 fn probe_sync_output() -> Option<bool> {
     let tty = OpenOptions::new()
         .read(true)
@@ -459,11 +471,13 @@ fn write_cache(caps: TermCaps) -> std::io::Result<()> {
 /// Failure to restore is silent — we're already exiting the probe path
 /// either way and a destructor panic would replace a recoverable
 /// "no sync-output answer" outcome with a process abort.
+#[cfg(unix)]
 struct TermiosGuard<'a> {
     fd: rustix::fd::BorrowedFd<'a>,
     prev: &'a Termios,
 }
 
+#[cfg(unix)]
 impl Drop for TermiosGuard<'_> {
     fn drop(&mut self) {
         let _ = tcsetattr(self.fd, OptionalActions::Now, self.prev);

@@ -40,13 +40,20 @@
 //! with the BEL terminator (`\x07`) instead of ST (`\x1b\\`); the parser
 //! accepts both.
 
+#[cfg(unix)]
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::io::Write;
+#[cfg(unix)]
 use std::os::fd::AsFd;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
+#[cfg(unix)]
 use rustix::event::{poll, PollFd, PollFlags};
+#[cfg(unix)]
 use rustix::termios::{tcgetattr, tcsetattr, InputModes, LocalModes, OptionalActions, Termios};
 
 use crate::style::Color;
@@ -88,6 +95,19 @@ pub fn palette() -> Option<&'static [Color; 16]> {
 /// Public so tests and the rare external caller (a diagnostics command,
 /// for instance) can force a re-probe; normal renderer code goes
 /// through [`palette`] for the cache.
+///
+/// Non-Unix targets return `None` unconditionally — OSC 4 querying needs
+/// raw-mode termios + `/dev/tty`, neither of which exist on Windows.
+#[cfg(not(unix))]
+#[must_use]
+pub fn query_terminal_palette() -> Option<[Color; 16]> {
+    None
+}
+
+/// Unix implementation of [`query_terminal_palette`] — see the
+/// `#[cfg(not(unix))]` arm above for the contract; this is the real
+/// `/dev/tty` + raw-termios + OSC 4 probe.
+#[cfg(unix)]
 #[must_use]
 pub fn query_terminal_palette() -> Option<[Color; 16]> {
     let tty = OpenOptions::new()
@@ -139,11 +159,13 @@ pub fn query_terminal_palette() -> Option<[Color; 16]> {
 /// silent — we're already on the way out of an error path or normal
 /// exit, and panicking from a destructor would replace a recoverable
 /// "no follow-terminal palette" outcome with a process abort.
+#[cfg(unix)]
 struct TermiosGuard<'a> {
     fd: rustix::fd::BorrowedFd<'a>,
     prev: &'a Termios,
 }
 
+#[cfg(unix)]
 impl Drop for TermiosGuard<'_> {
     fn drop(&mut self) {
         let _ = tcsetattr(self.fd, OptionalActions::Now, self.prev);
@@ -155,6 +177,7 @@ impl Drop for TermiosGuard<'_> {
 /// Returns `None` on a poll timeout, read error, or unparseable
 /// response. The caller treats `None` as "give up, the terminal isn't
 /// going to answer the rest either" — there is no per-index retry.
+#[cfg(unix)]
 fn probe_one(tty: &std::fs::File, index: u8) -> Option<[u8; 3]> {
     use std::io::Read;
 

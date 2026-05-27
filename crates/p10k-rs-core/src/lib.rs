@@ -764,6 +764,12 @@ fn terminal_width() -> usize {
 /// Returns `Some(cols)` for the first stream that is a TTY *and* reports
 /// a positive `ws_col`. A pipe or closed fd yields `ENOTTY` from rustix,
 /// which we treat as "not a winsize source, try the next" via `.ok()`.
+///
+/// On non-Unix targets returns `None` unconditionally; the caller falls
+/// through to `$COLUMNS` and the 80-column hard default. A real Windows
+/// probe wants `GetConsoleScreenBufferInfo`; tracked in the v0.2.4
+/// release-notes Windows port table.
+#[cfg(unix)]
 fn tty_winsize_cols() -> Option<usize> {
     use rustix::stdio::{stderr, stdin, stdout};
     use rustix::termios::tcgetwinsize;
@@ -775,6 +781,11 @@ fn tty_winsize_cols() -> Option<usize> {
             }
         }
     }
+    None
+}
+
+#[cfg(not(unix))]
+fn tty_winsize_cols() -> Option<usize> {
     None
 }
 

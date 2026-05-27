@@ -15,8 +15,10 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -998,6 +1000,7 @@ impl Config {
 /// One-shot guard so a hostile config that fires the warn path on every
 /// prompt invocation doesn't spam the user's stderr. The flag flips on
 /// the first refusal and stays flipped for the lifetime of the process.
+#[cfg(unix)]
 static INSECURE_CONFIG_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// TOCTOU-safe wrapper around [`std::fs::read_to_string`] for config files.

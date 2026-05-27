@@ -332,6 +332,8 @@ pub enum SafetyError {
     /// `fstat` on the just-opened fd failed. Vanishingly rare in practice
     /// (the kernel just handed us this fd); kept as a distinct variant so
     /// the caller can log it instead of treating it as a security failure.
+    /// Unix-only — Windows has no `fstat`-based open-and-check pattern.
+    #[cfg(unix)]
     #[error("fstat failed: {0}")]
     Stat(rustix::io::Errno),
 
@@ -424,6 +426,14 @@ pub fn open_owned_safely(path: &Path) -> Result<File, SafetyError> {
     open_owned_inner(path, None)
 }
 
+/// Non-Unix shim: plain `File::open` with no TOCTOU / owner / mode
+/// checks. Windows ACL probing is a separate slice (see v0.2.4 release
+/// notes); until then, callers get reduced safety on Windows.
+#[cfg(not(unix))]
+pub fn open_owned_safely(path: &Path) -> Result<File, SafetyError> {
+    File::open(path).map_err(SafetyError::Open)
+}
+
 /// Open `path` for read, additionally rejecting any file whose mode bits
 /// fall outside `max_mode` (i.e. any bit set in `mode & !max_mode`).
 ///
@@ -462,6 +472,14 @@ pub fn open_owned_safely(path: &Path) -> Result<File, SafetyError> {
 #[cfg(unix)]
 pub fn open_owned_mode_safely(path: &Path, max_mode: u32) -> Result<File, SafetyError> {
     open_owned_inner(path, Some(max_mode))
+}
+
+/// Non-Unix shim: see [`open_owned_safely`]'s non-Unix variant. The
+/// `max_mode` parameter is accepted-and-ignored so callers compile
+/// unchanged.
+#[cfg(not(unix))]
+pub fn open_owned_mode_safely(path: &Path, _max_mode: u32) -> Result<File, SafetyError> {
+    File::open(path).map_err(SafetyError::Open)
 }
 
 /// Shared body of [`open_owned_safely`] and [`open_owned_mode_safely`].
