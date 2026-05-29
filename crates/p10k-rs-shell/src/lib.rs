@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn every_shell_has_a_non_empty_script() {
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh, Shell::Nu] {
             let s = init_script(shell);
             assert!(!s.is_empty(), "{shell:?} script is empty");
         }
@@ -91,7 +91,7 @@ mod tests {
         // absolute path of the running binary. If a script template loses
         // that token, init silently bakes the placeholder into the user's
         // shell — confusing and hard to diagnose. Pin the invariant.
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh, Shell::Nu] {
             let s = init_script(shell);
             assert!(
                 s.contains("__P10K_RS_BIN__"),
@@ -104,7 +104,7 @@ mod tests {
     fn every_shell_guards_against_double_source() {
         // Re-sourcing must be a no-op. Each script gates on an
         // installation sentinel.
-        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh] {
+        for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Pwsh, Shell::Nu] {
             let s = init_script(shell);
             assert!(
                 s.contains("_P10K_RS_INSTALLED"),
@@ -120,6 +120,8 @@ mod tests {
         assert_eq!("fish".parse::<Shell>().unwrap(), Shell::Fish);
         assert_eq!("pwsh".parse::<Shell>().unwrap(), Shell::Pwsh);
         assert_eq!("powershell".parse::<Shell>().unwrap(), Shell::Pwsh);
+        assert_eq!("nu".parse::<Shell>().unwrap(), Shell::Nu);
+        assert_eq!("nushell".parse::<Shell>().unwrap(), Shell::Nu);
     }
 
     #[test]
@@ -127,6 +129,7 @@ mod tests {
         assert_eq!("ZSH".parse::<Shell>().unwrap(), Shell::Zsh);
         assert_eq!("Fish".parse::<Shell>().unwrap(), Shell::Fish);
         assert_eq!("PWSH".parse::<Shell>().unwrap(), Shell::Pwsh);
+        assert_eq!("NU".parse::<Shell>().unwrap(), Shell::Nu);
     }
 
     #[test]
@@ -591,6 +594,119 @@ mod tests {
         assert!(
             pwsh.contains(r#"-join "`n""#),
             "pwsh init must join stdout lines with LF (`n), not CRLF (`r`n)"
+        );
+    }
+
+    // --- v0.3: nu init ---------------------------------------------------
+
+    #[test]
+    fn nu_init_declares_left_prompt_closure() {
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("$env.PROMPT_COMMAND = {||"),
+            "nu init must wire the left ribbon to a PROMPT_COMMAND closure"
+        );
+    }
+
+    #[test]
+    fn nu_init_declares_right_prompt_closure() {
+        // Nushell has a first-class right prompt, so `[layout.right]` renders
+        // here (unlike bash/pwsh, which drop it).
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("$env.PROMPT_COMMAND_RIGHT = {||"),
+            "nu init must wire the right ribbon to a PROMPT_COMMAND_RIGHT closure"
+        );
+    }
+
+    #[test]
+    fn nu_init_invokes_binary_with_shell_nu() {
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("--shell nu"),
+            "nu init must invoke the binary with --shell nu (routes the non-zsh \
+             pass-through in wrap_for_shell)"
+        );
+    }
+
+    #[test]
+    fn nu_init_forwards_both_render_sides() {
+        // Each closure asks for its own ribbon side; dropping either collapses
+        // both prompts onto one edge.
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("--render-side left"),
+            "nu init must request the left ribbon via --render-side left"
+        );
+        assert!(
+            nu.contains("--render-side right"),
+            "nu init must request the right ribbon via --render-side right"
+        );
+    }
+
+    #[test]
+    fn nu_init_reads_native_exit_code() {
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("$env.LAST_EXIT_CODE"),
+            "nu init must read $env.LAST_EXIT_CODE to drive the status/prompt_char segments"
+        );
+        assert!(
+            nu.contains("--last-status"),
+            "nu init must forward the captured status via --last-status"
+        );
+    }
+
+    #[test]
+    fn nu_init_forwards_native_command_duration() {
+        // Nushell tracks wall-clock command duration natively (unlike bash/pwsh,
+        // which have no clean preexec analogue), so this segment is live.
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("$env.CMD_DURATION_MS"),
+            "nu init must read $env.CMD_DURATION_MS for the command_execution_time segment"
+        );
+        assert!(
+            nu.contains("--last-duration-ms"),
+            "nu init must forward the native duration via --last-duration-ms"
+        );
+    }
+
+    #[test]
+    fn nu_init_captures_output_without_leaking_stderr() {
+        // `| complete` captures stdout, stderr, and the exit code together; gating
+        // on exit_code == 0 keeps a transient stderr stack trace from replacing
+        // the prompt.
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("| complete"),
+            "nu init must pipe the binary through `| complete` to capture exit code + streams"
+        );
+        assert!(
+            nu.contains("$out.exit_code == 0"),
+            "nu init must gate the rendered prompt on $out.exit_code == 0"
+        );
+    }
+
+    #[test]
+    fn nu_init_blanks_native_prompt_indicator() {
+        // The binary renders the whole ribbon including the prompt char (`❯`);
+        // a non-empty PROMPT_INDICATOR would double it up.
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains(r#"$env.PROMPT_INDICATOR = """#),
+            "nu init must blank $env.PROMPT_INDICATOR so it doesn't double up after our prompt char"
+        );
+    }
+
+    #[test]
+    fn nu_init_has_fallback_prompt() {
+        // On a non-zero binary exit, fall back to a minimal native prompt built
+        // from the current directory.
+        let nu = init_script(Shell::Nu);
+        assert!(
+            nu.contains("$env.PWD"),
+            "nu init fallback prompt must use $env.PWD when the binary fails"
         );
     }
 }
