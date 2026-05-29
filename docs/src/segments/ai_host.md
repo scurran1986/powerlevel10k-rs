@@ -42,8 +42,8 @@ icon = ""           # default: Nerd Font v3 cog
 | `background` | colour | `magenta` | Ribbon colour |
 | `icon` | string | `` | Glyph rendered before the label |
 
-Standard `padding`, `disabled`, `show_in_dir`, `disabled_dir_pattern`
-fields apply.
+Standard `padding`, `disabled`, `show_in_dir`, `show_on_upglob`,
+`disabled_dir_pattern` fields apply.
 
 ## Notes / gotchas
 

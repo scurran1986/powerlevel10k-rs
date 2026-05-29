@@ -42,8 +42,8 @@ icon = "\u{f06a9}"        # default: Nerd Font v3 robot face
 | `background` | colour | `magenta` | Ribbon colour |
 | `icon` | string | `\u{f06a9}` | Glyph rendered before the model |
 
-Standard `padding`, `disabled`, `show_in_dir`, `disabled_dir_pattern`
-fields apply.
+Standard `padding`, `disabled`, `show_in_dir`, `show_on_upglob`,
+`disabled_dir_pattern` fields apply.
 
 ## Notes / gotchas
 

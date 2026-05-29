@@ -76,6 +76,7 @@ silently doing nothing.
 | `truncate` | `DirTruncate` | Cwd truncation policy (only the `dir` segment reads it). |
 | `show_on_command` | `Option<Vec<String>>` | Render only when the upcoming command's first word matches one of these. Zsh-only today (`line-pre-redraw` widget); other shells get the last-command approximation per the zsh-init comment. |
 | `show_in_dir` | `Option<Vec<Glob>>` | Render only when the cwd matches one of these globs. |
+| `show_on_upglob` | `Option<Vec<Glob>>` | Render only when a file or directory matching one of these globs exists in the cwd or any ancestor directory (walking upward toward the filesystem root). Classic use: gate a language segment to its project tree, e.g. `["package.json"]`. |
 | `disabled_dir_pattern` | `Option<Glob>` | Disable the segment when the cwd matches this glob. |
 | `states` | `HashMap<String, StateOverrides>` | Per-state overrides keyed by segment-defined state tag. |
 

@@ -1288,9 +1288,9 @@ foreground = "blue"
 /// Unknown names produce a `tracing::warn!` and are skipped — a typo'd
 /// segment in a user config is a non-fatal warning, not a crash. Segments
 /// whose `[segment.<name>].disabled = true` block is set, or whose
-/// `show_in_dir` / `disabled_dir_pattern` cwd gates exclude the current
-/// directory, are silently skipped — the user opted in to hiding them,
-/// so no warning is warranted. Returns in render order.
+/// `show_in_dir` / `show_on_upglob` / `disabled_dir_pattern` cwd gates
+/// exclude the current directory, are silently skipped — the user opted in
+/// to hiding them, so no warning is warranted. Returns in render order.
 ///
 /// Gate evaluation order (per slice 32, extended by slice 44):
 ///
@@ -1298,12 +1298,16 @@ foreground = "blue"
 ///    is dropped. Exclude wins over include.
 /// 2. **`show_in_dir`** — if `Some(globs)`, the segment is kept only when
 ///    at least one glob matches `cwd`. `None` means "no constraint".
-/// 3. **`show_on_command`** — if `Some(cmds)`, the segment is kept only
+/// 3. **`show_on_upglob`** — if `Some(globs)`, the segment is kept only
+///    when a directory entry matching at least one glob exists in `cwd` or
+///    any ancestor directory (walking upward to the filesystem root).
+///    `None` means "no constraint".
+/// 4. **`show_on_command`** — if `Some(cmds)`, the segment is kept only
 ///    when the first whitespace-delimited word of `upcoming_command` is
 ///    in `cmds`. An empty `upcoming_command` hides every segment with a
 ///    `show_on_command` filter; that matches the upstream "no command
 ///    typed → no command-gated segments" intuition.
-/// 4. **`disabled`** — the explicit kill switch.
+/// 5. **`disabled`** — the explicit kill switch.
 ///
 /// The dir / command gates fire *before* `disabled` and before the
 /// `segments::build` lookup so a typo'd glob doesn't fall through to the
@@ -1331,6 +1335,13 @@ fn assemble_segments(
         }
         if let Some(allow) = seg_cfg.and_then(|sc| sc.show_in_dir.as_ref()) {
             if !allow.iter().any(|g| glob_matches_cwd(g, cwd)) {
+                continue;
+            }
+        }
+        // Upward-glob gate: keep the segment only when a directory entry
+        // matching one of the patterns exists at the cwd or any ancestor.
+        if let Some(allow) = seg_cfg.and_then(|sc| sc.show_on_upglob.as_ref()) {
+            if !allow.iter().any(|g| upglob_matches(g, cwd)) {
                 continue;
             }
         }
@@ -1416,6 +1427,60 @@ fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
                     }
                 });
         matcher.as_ref().is_some_and(|m| m.is_match(cwd))
+    })
+}
+
+/// Whether a directory entry matching `glob` exists in `cwd` or any
+/// ancestor directory, walking upward toward the filesystem root.
+///
+/// This is the `show_on_upglob` gate's predicate — the "upward glob"
+/// semantics from upstream Powerlevel10k. The classic use is gating a
+/// language segment to a project tree: `show_on_upglob = ["package.json"]`
+/// keeps the segment visible anywhere inside a Node project, because the
+/// marker file lives at the project root and we find it by walking up.
+///
+/// The glob is matched against each entry's **file name** (basename), not
+/// its full path — `["package.json"]` and `["*.gitignore"]` both behave
+/// the way a user reading "a file like this exists here" would expect.
+///
+/// Walk bounds and safety:
+/// - The upward walk uses [`Path::ancestors`], which is purely lexical
+///   (`/a/b/c` → `/a/b` → `/a` → `/`). It cannot loop through symlinks and
+///   always terminates at the filesystem root, so no explicit depth cap is
+///   needed and a symlinked cwd can't trap us in a cycle.
+/// - Best-effort: a directory that can't be listed (EACCES, ENOENT, a
+///   path component that is a file, etc.) is treated as "no match" for
+///   that level rather than an error. The prompt render path must never
+///   panic (project code standards), so every I/O failure degrades to
+///   "this ancestor contributed no match" and the walk continues upward.
+/// - A bad glob pattern is warned-about-once and treated as no-match,
+///   exactly like [`glob_matches_cwd`].
+fn upglob_matches(glob: &Glob, cwd: &std::path::Path) -> bool {
+    GLOB_CACHE.with(|cache| {
+        let mut map = cache.borrow_mut();
+        let matcher =
+            map.entry(glob.0.clone())
+                .or_insert_with(|| match globset::Glob::new(&glob.0) {
+                    Ok(g) => Some(g.compile_matcher()),
+                    Err(e) => {
+                        tracing::warn!("invalid glob {:?}: {e}; treating as no-match", glob.0);
+                        None
+                    }
+                });
+        let Some(matcher) = matcher.as_ref() else {
+            return false;
+        };
+        // `ancestors()` yields cwd, its parent, …, up to the filesystem
+        // root. Lexical-only: immune to symlink cycles, always terminating.
+        cwd.ancestors().any(|dir| {
+            // Best-effort: an unreadable dir yields an empty iterator, so it
+            // simply contributes no match and the walk proceeds upward.
+            std::fs::read_dir(dir)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .any(|entry| matcher.is_match(entry.file_name()))
+        })
     })
 }
 
@@ -2197,6 +2262,110 @@ fn resolve_shell_integration<F: Fn(&str) -> Option<String>>(
                 || env("GHOSTTY_RESOURCES_DIR").is_some()
                 || env("KITTY_WINDOW_ID").is_some()
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod upglob_gate_tests {
+    //! `show_on_upglob` segment-visibility gate (the third "show-*" gate).
+    //!
+    //! Proves the include-semantics walk: a segment carrying
+    //! `show_on_upglob = ["package.json"]` is HIDDEN when neither the cwd
+    //! nor any ancestor has a matching entry, and SHOWN when the marker
+    //! lives at the cwd or an ancestor directory.
+
+    use super::assemble_segments;
+    use p10k_rs_config::{Config, SegmentRef};
+    use std::path::{Path, PathBuf};
+
+    /// Unique scratch root under the system temp dir (std-only; no tempfile
+    /// dev-dep). Mirrors `scratch_path` elsewhere in this file.
+    fn scratch_root(tag: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "p10k-rs-upglob-test-{tag}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    /// A config with a single `dir` segment gated by
+    /// `show_on_upglob = ["package.json"]`.
+    fn gated_config() -> Config {
+        let src = "schema_version = 1\n\
+                   [layout]\n\
+                   left = [\"dir\"]\n\
+                   [segment.dir]\n\
+                   show_on_upglob = [\"package.json\"]\n";
+        Config::from_toml(src).expect("parse gated config")
+    }
+
+    fn refs() -> Vec<SegmentRef> {
+        vec![SegmentRef("dir".to_owned())]
+    }
+
+    fn assemble_at(cfg: &Config, cwd: &Path) -> usize {
+        assemble_segments(cfg, cwd, &refs(), "").len()
+    }
+
+    #[test]
+    fn hidden_when_no_ancestor_matches() {
+        // A deep cwd with no `package.json` anywhere on the path → the
+        // gated segment is dropped.
+        let root = scratch_root("no-match");
+        let cwd = root.join("a").join("b").join("c");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let n = assemble_at(&gated_config(), &cwd);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(n, 0, "segment must be hidden when no ancestor matches");
+    }
+
+    #[test]
+    fn shown_when_cwd_contains_match() {
+        // The marker lives in the cwd itself.
+        let root = scratch_root("cwd-match");
+        let cwd = root.join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(cwd.join("package.json"), b"{}").unwrap();
+
+        let n = assemble_at(&gated_config(), &cwd);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(n, 1, "segment must be shown when the cwd has the marker");
+    }
+
+    #[test]
+    fn shown_when_ancestor_contains_match() {
+        // The marker lives at the project root; the cwd is several levels
+        // deeper. The upward walk must find it.
+        let root = scratch_root("ancestor-match");
+        let proj = root.join("proj");
+        let cwd = proj.join("src").join("lib").join("deep");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(proj.join("package.json"), b"{}").unwrap();
+
+        let n = assemble_at(&gated_config(), &cwd);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(
+            n, 1,
+            "segment must be shown when an ancestor has the marker"
+        );
+    }
+
+    #[test]
+    fn ungated_segment_is_unaffected() {
+        // No `show_on_upglob` → the gate is a no-op and the segment renders
+        // regardless of the cwd contents.
+        let cfg = Config::from_toml("schema_version = 1\n[layout]\nleft = [\"dir\"]\n")
+            .expect("parse ungated config");
+        let cwd = scratch_root("ungated");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let n = assemble_at(&cfg, &cwd);
+        let _ = std::fs::remove_dir_all(&cwd);
+        assert_eq!(n, 1, "ungated segment renders with no upglob constraint");
     }
 }
 

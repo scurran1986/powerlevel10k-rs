@@ -321,6 +321,16 @@ pub struct SegmentConfig {
     pub show_on_command: Option<Vec<String>>,
     /// Render only when the cwd matches one of these globs.
     pub show_in_dir: Option<Vec<Glob>>,
+    /// Render only when a file or directory matching one of these globs
+    /// exists in the cwd or any ancestor directory (walking upward toward
+    /// the filesystem root).
+    ///
+    /// The classic use is gating a language segment to a project tree, e.g.
+    /// `show_on_upglob = ["package.json"]` shows the segment anywhere inside
+    /// a Node project. Composes with [`Self::show_in_dir`] using the same
+    /// include semantics: when `Some`, the segment is kept only if at least
+    /// one pattern matches a directory entry at or above the cwd.
+    pub show_on_upglob: Option<Vec<Glob>>,
     /// Disable the segment when the cwd matches this glob.
     pub disabled_dir_pattern: Option<Glob>,
     /// Optional foreground color for status markers (`* ! + ~ ? ≡`).
@@ -592,7 +602,8 @@ pub enum DirTruncateStrategy {
     ToUnique,
 }
 
-/// Glob string used by `show_in_dir` and friends. Validated lazily.
+/// Glob string used by `show_in_dir`, `show_on_upglob`, and friends.
+/// Validated lazily.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct Glob(pub String);
@@ -1160,6 +1171,29 @@ left = ["dir"]
         assert_eq!(cfg.colors, ColorMode::Ansi8);
         assert_eq!(cfg.layout.left.len(), 1);
         assert_eq!(cfg.layout.left[0].0, "dir");
+    }
+
+    #[test]
+    fn from_toml_parses_show_on_upglob_into_globs() {
+        // The upward-glob gate carries `Vec<Glob>` (strings), mirroring
+        // `show_in_dir`. Parsing must land it in `Some(vec![Glob(...)])`.
+        let src = "schema_version = 1\n\
+                   [segment.node]\n\
+                   show_on_upglob = [\"package.json\"]\n";
+        let cfg = Config::from_toml(src).expect("parse show_on_upglob");
+        let node = cfg.segments.get("node").expect("node segment");
+        assert_eq!(
+            node.show_on_upglob,
+            Some(vec![Glob("package.json".to_owned())]),
+            "show_on_upglob must round-trip into Some(vec![Glob(..)])"
+        );
+        // Absent by default on a segment that doesn't set it.
+        let absent = Config::from_toml("schema_version = 1\n[segment.dir]\n")
+            .expect("parse")
+            .segments
+            .get("dir")
+            .and_then(|s| s.show_on_upglob.clone());
+        assert_eq!(absent, None, "unset show_on_upglob stays None");
     }
 
     #[test]
