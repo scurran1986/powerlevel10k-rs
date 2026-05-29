@@ -1,0 +1,42 @@
+name: msrv
+
+# Dedicated MSRV (minimum supported Rust version) gate. The floor is
+# 1.88.0 (pinned in rust-toolchain.toml; policy: stable - 2). The main
+# `ci.yml` clippy+test jobs run on `@stable`, so without this job a change
+# that quietly relies on a post-1.88 stdlib API or language feature would
+# pass CI and only break for users on the MSRV. This job pins 1.88.0
+# explicitly and compiles + tests the whole workspace against it.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: msrv-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  msrv:
+    name: check + test on 1.88.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Floating toolchain ref, matching the repo convention for
+      # dtolnay/rust-toolchain (other actions are SHA-pinned). Pinned to
+      # the exact MSRV, not `@stable`, so this gate is independent of
+      # whatever stable drifts to.
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: check (all targets)
+        run: cargo check --workspace --all-targets --locked
+      - name: test
+        run: cargo test --workspace --locked
