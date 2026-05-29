@@ -26,6 +26,9 @@ pub enum Shell {
     Bash,
     /// `PowerShell` (Core / 7+). Native Windows + cross-platform.
     Pwsh,
+    /// Nushell. Structured-data shell with native command-duration and
+    /// right-prompt support.
+    Nu,
 }
 
 impl FromStr for Shell {
@@ -41,6 +44,8 @@ impl FromStr for Shell {
             // it targets the 5.1 / 7+ intersection and feature-probes
             // the rest at load time.
             "pwsh" | "powershell" => Ok(Self::Pwsh),
+            // Accept both `nu` and the long form `nushell`.
+            "nu" | "nushell" => Ok(Self::Nu),
             other => Err(UnsupportedShell(other.to_owned())),
         }
     }
@@ -48,7 +53,7 @@ impl FromStr for Shell {
 
 /// Returned when [`Shell::from_str`] gets a string we don't support.
 #[derive(Debug, thiserror::Error)]
-#[error("unknown shell '{0}': supported = zsh, fish, bash, pwsh")]
+#[error("unknown shell '{0}': supported = zsh, fish, bash, pwsh, nu")]
 pub struct UnsupportedShell(pub String);
 
 /// Returns the init script for the requested shell.
@@ -63,6 +68,7 @@ pub fn init_script(shell: Shell) -> &'static str {
         Shell::Bash => include_str!("../shells/bash/init.bash"),
         Shell::Fish => include_str!("../shells/fish/init.fish"),
         Shell::Pwsh => include_str!("../shells/pwsh/init.ps1"),
+        Shell::Nu => include_str!("../shells/nu/init.nu"),
     }
 }
 

@@ -1587,6 +1587,9 @@ pub enum Shell {
     Bash,
     /// `PowerShell` (Core / 7+). Native Windows + cross-platform.
     Pwsh,
+    /// Nushell. Structured-data shell with native command-duration and
+    /// right-prompt support.
+    Nu,
 }
 
 /// Detected AI host environment.

@@ -109,7 +109,7 @@ enum Command {
     },
     /// Print the per-shell init script. `eval` / `source` from your rc file.
     Init {
-        /// Target shell: zsh, fish, or bash.
+        /// Target shell: zsh, fish, bash, pwsh, or nu.
         shell: String,
     },
     /// Run the interactive configuration wizard.
@@ -1789,7 +1789,8 @@ fn parse_core_shell(s: &str) -> Result<CoreShell> {
         "fish" => Ok(CoreShell::Fish),
         "bash" => Ok(CoreShell::Bash),
         "pwsh" | "powershell" => Ok(CoreShell::Pwsh),
-        other => anyhow::bail!("unknown shell '{other}': supported = zsh, fish, bash"),
+        "nu" | "nushell" => Ok(CoreShell::Nu),
+        other => anyhow::bail!("unknown shell '{other}': supported = zsh, fish, bash, pwsh, nu"),
     }
 }
 
