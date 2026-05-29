@@ -580,6 +580,71 @@ fn segment_show_in_dir_includes_only_matching() {
 }
 
 #[test]
+fn segment_show_on_upglob_includes_only_with_marker() {
+    // v0.3: `[segment.<name>].show_on_upglob = ["package.json"]` keeps the
+    // segment only when the marker exists in the cwd OR any ancestor (the
+    // upward walk). Mirror the show_in_dir gate test: the dir segment's
+    // folder glyph (U+F07B) is the presence marker, and prompt_char's
+    // U+276F confirms other segments survive when dir is gated out.
+    let home = scratch_dir("upglob-home");
+    let proj = scratch_dir("upglob-proj");
+    let deep = proj.join("src").join("lib");
+    std::fs::create_dir_all(&deep).expect("mkdir deep cwd");
+    std::fs::write(proj.join("package.json"), b"{}").expect("write marker");
+
+    let cfg = home.join("config.toml");
+    std::fs::write(
+        &cfg,
+        "schema_version = 1\n\
+         [layout]\n\
+         left = [\"dir\", \"prompt_char\"]\n\
+         [segment.dir]\n\
+         show_on_upglob = [\"package.json\"]\n"
+            .as_bytes(),
+    )
+    .expect("write fixture");
+
+    // An ancestor (proj) holds the marker — dir must render from the deep
+    // cwd several levels below it.
+    let shown_out = run_prompt(
+        &deep,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let shown_str = String::from_utf8_lossy(&shown_out);
+    assert!(
+        shown_str.contains('\u{f07b}'),
+        "dir must render when an ancestor holds the upglob marker: {shown_str:?}"
+    );
+
+    // A marker-free scratch tree — no package.json from the cwd up to the
+    // filesystem root — so the gated segment drops out.
+    let bare = scratch_dir("upglob-bare");
+    let bare_out = run_prompt(
+        &bare,
+        &[
+            ("P10K_RS_CONFIG", cfg.to_str().expect("utf8")),
+            ("HOME", home.to_str().expect("utf8")),
+        ],
+    );
+    let bare_str = String::from_utf8_lossy(&bare_out);
+    assert!(
+        !bare_str.contains('\u{f07b}'),
+        "dir must NOT render when no ancestor holds the upglob marker: {bare_str:?}"
+    );
+    assert!(
+        bare_str.contains('\u{276f}'),
+        "prompt_char must still render when dir is gated out: {bare_str:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&proj);
+    let _ = std::fs::remove_dir_all(&bare);
+}
+
+#[test]
 fn segment_disabled_dir_pattern_excludes_matching() {
     // Slice 32: `[segment.<name>].disabled_dir_pattern = "..."` drops the
     // segment when the cwd matches the glob. Build a `secret/` and a
