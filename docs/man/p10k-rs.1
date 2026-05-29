@@ -54,6 +54,22 @@ Both
 and
 .B powershell
 are accepted as the shell argument; both target the same script.
+.IP \fBnu\fR 6
+Nushell's parser is static, so it can't source a string off a pipe;
+the bootstrap is a two-step "save then source". On Nushell 0.97+ save
+into the vendor autoload dir, which is sourced automatically:
+.br
+\fBp10k\-rs init nu | save \-f ($nu.data\-dir | path join vendor autoload p10k\-rs.nu)\fR
+.br
+On older Nushell save the script anywhere and
+.B source
+it from
+.IR config.nu .
+Both
+.B nu
+and
+.B nushell
+are accepted as the shell argument.
 .RE
 .TP
 .B configure
@@ -177,7 +193,8 @@ page in the mdBook for the per-feature table.
 .BR zsh (1),
 .BR bash (1),
 .BR fish (1),
-.BR pwsh (1)
+.BR pwsh (1),
+.BR nu (1)
 .PP
 mdBook documentation:
 .UR https://scurran1986.github.io/powerlevel10k\-rs/
