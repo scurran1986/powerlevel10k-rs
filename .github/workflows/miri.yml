@@ -1,0 +1,46 @@
+name: miri
+
+# Miri (UB detection under the experimental MIR interpreter) on the
+# crates whose tests are pure enough to run under it.
+#
+# Scope is deliberately just `p10k-rs-config`: it's the TOML-config parse
+# boundary (attacker-influenceable input) and its tests touch no syscalls.
+# The rest of the workspace can't run under Miri today — `p10k-rs-core`
+# exercises its documented I/O exceptions in tests (fstat via
+# `open_owned_safely`, subprocess spawn in `proc`, `/dev/tty` DECRQM/OSC
+# probes in `term_caps`/`term_query`), and `p10k-rs-segments` / `-git` /
+# `-jj` shell out or hit the filesystem. Miri can't emulate those foreign
+# calls, so widening the scope would only add spurious "unsupported
+# operation" failures, not coverage. Every crate is `#![forbid(unsafe_code)]`
+# so Miri's job here is catching UB in the dependency unsafe (serde / toml
+# internals) that the config parser exercises.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: miri-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  # Pure parse tests don't need host isolation off, but disabling it keeps
+  # the job robust if a future config test reads the clock or an env var.
+  MIRIFLAGS: "-Zmiri-disable-isolation"
+
+jobs:
+  miri:
+    name: miri (p10k-rs-config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - run: cargo miri test -p p10k-rs-config
