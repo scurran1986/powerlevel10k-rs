@@ -1,0 +1,50 @@
+name: semver-checks
+
+# API-compatibility gate (load-bearing for the v1.0 SemVer commitment,
+# roadmap criterion #2). cargo-semver-checks compares the public API of
+# every library crate against the last release and fails if a breaking
+# change isn't matched by an appropriate version bump.
+#
+# Baseline: the latest release tag (these crates aren't published to
+# crates.io individually, so the usual crates.io baseline is unavailable
+# — we diff against the last `vMAJOR.MINOR.PATCH` git tag instead). That's
+# why the checkout needs full history + tags (`fetch-depth: 0`).
+#
+# In 0.x, a breaking change requires a minor bump (0.3 -> 0.4); after 1.0
+# it requires a major. Either way: break the API and you must bump, or
+# this job goes red.
+#
+# The tool is pinned to 0.44.0 — the last release that builds on the
+# project MSRV (1.88); 0.47+ needs rustc 1.91. Matches the pinning
+# discipline of the cargo-machete job in ci.yml.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: semver-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  semver-checks:
+    name: cargo-semver-checks (vs last release tag)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0 # full history + tags for the --baseline-rev diff
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - run: cargo install cargo-semver-checks --version 0.44.0 --locked
+      - name: resolve last release tag
+        id: baseline
+        run: echo "tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')" >> "$GITHUB_OUTPUT"
+      - name: check against ${{ steps.baseline.outputs.tag }}
+        run: cargo semver-checks check-release --workspace --baseline-rev "${{ steps.baseline.outputs.tag }}"

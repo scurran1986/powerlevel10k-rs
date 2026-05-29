@@ -27,7 +27,7 @@ members = [
 
 # Shared metadata. Individual crate manifests inherit via `package.<key>.workspace = true`.
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -131,15 +131,15 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # `gix-status` correctness fallback or daemon-respawn cache lands.
 
 # Internal crates — referenced via `path` so cargo resolves locally.
-p10k-rs-core = { path = "crates/p10k-rs-core", version = "0.3.0" }
-p10k-rs-config = { path = "crates/p10k-rs-config", version = "0.3.0" }
-p10k-rs-segments = { path = "crates/p10k-rs-segments", version = "0.3.0" }
-p10k-rs-git = { path = "crates/p10k-rs-git", version = "0.3.0" }
-p10k-rs-jj = { path = "crates/p10k-rs-jj", version = "0.3.0" }
-p10k-rs-shell = { path = "crates/p10k-rs-shell", version = "0.3.0" }
-p10k-rs-wizard = { path = "crates/p10k-rs-wizard", version = "0.3.0" }
-p10k-rs-ai = { path = "crates/p10k-rs-ai", version = "0.3.0" }
-p10k-rs-ipc = { path = "crates/p10k-rs-ipc", version = "0.3.0" }
+p10k-rs-core = { path = "crates/p10k-rs-core", version = "0.4.0" }
+p10k-rs-config = { path = "crates/p10k-rs-config", version = "0.4.0" }
+p10k-rs-segments = { path = "crates/p10k-rs-segments", version = "0.4.0" }
+p10k-rs-git = { path = "crates/p10k-rs-git", version = "0.4.0" }
+p10k-rs-jj = { path = "crates/p10k-rs-jj", version = "0.4.0" }
+p10k-rs-shell = { path = "crates/p10k-rs-shell", version = "0.4.0" }
+p10k-rs-wizard = { path = "crates/p10k-rs-wizard", version = "0.4.0" }
+p10k-rs-ai = { path = "crates/p10k-rs-ai", version = "0.4.0" }
+p10k-rs-ipc = { path = "crates/p10k-rs-ipc", version = "0.4.0" }
 
 # Workspace-wide lints. Crates opt in via `[lints] workspace = true`.
 [workspace.lints.rust]
