@@ -1101,6 +1101,10 @@ fn cmd_prompt(
         env: &env,
         upcoming_command,
         shell_integration_active,
+        // Probe DECSET 2026 sync-output support once at the producer
+        // boundary (cached via OnceLock) and thread it into the render
+        // ctx, keeping `render_prompt` a pure function of its inputs.
+        sync_output: p10k_rs_core::term_caps::capabilities().sync_output,
     };
 
     let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left, upcoming_command);
@@ -1216,6 +1220,10 @@ fn cmd_prompt_json(
         env: &env,
         upcoming_command,
         shell_integration_active,
+        // Probe DECSET 2026 sync-output support once at the producer
+        // boundary (cached via OnceLock) and thread it into the render
+        // ctx, keeping `render_prompt` a pure function of its inputs.
+        sync_output: p10k_rs_core::term_caps::capabilities().sync_output,
     };
 
     let left_segments = assemble_segments(&cfg, cwd.as_path(), &cfg.layout.left, upcoming_command);

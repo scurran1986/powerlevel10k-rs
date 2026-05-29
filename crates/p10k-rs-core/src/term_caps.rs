@@ -116,15 +116,6 @@ pub fn capabilities() -> TermCaps {
     })
 }
 
-/// Force a value into the cache for tests / diagnostics.
-///
-/// No-op if the cache has already been populated; the first writer wins
-/// per [`OnceLock`] semantics. Tests use this to lock in a known answer
-/// without running the probe.
-pub fn set_cached_for_test(caps: TermCaps) -> bool {
-    CAPS_CACHE.set(caps).is_ok()
-}
-
 /// Drop guard that pairs the begin / end synchronized-update sequences
 /// around a render scope.
 ///

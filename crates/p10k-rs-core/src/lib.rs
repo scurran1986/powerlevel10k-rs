@@ -161,6 +161,16 @@ pub struct RenderCtx<'a> {
     /// crate's invariant — env probes happen at the producer
     /// boundary, the renderer just consumes the decision.
     pub shell_integration_active: bool,
+    /// Whether the terminal supports DECSET 2026 synchronized output, so
+    /// the render can wrap its body in BSU/ESU (see [`term_caps`]).
+    ///
+    /// Resolved by the binary via [`term_caps::capabilities`] at the
+    /// producer boundary and threaded in here — same rationale as
+    /// [`shell_integration_active`](Self::shell_integration_active): the
+    /// renderer stays a pure function of its inputs rather than reading
+    /// a process-global capability cache mid-render (which also made the
+    /// render-path tests order-dependent under `cargo test` parallelism).
+    pub sync_output: bool,
 }
 
 /// Result of [`Segment::render`].
@@ -334,17 +344,20 @@ pub fn render_prompt(
     // sync-mode implementations buffer the whole payload until ESU,
     // which would delay the host's "prompt started" callback.
     //
-    // Gate: capability probe says yes AND shell-integration is active.
-    // The integration gate keeps plain-terminal users on their exact
-    // historical byte sequence; the capability gate keeps the wrap off
-    // terminals that would render the BSU/ESU as visible garbage.
+    // Gate: ctx says the terminal supports sync output AND
+    // shell-integration is active. The integration gate keeps
+    // plain-terminal users on their exact historical byte sequence; the
+    // capability gate keeps the wrap off terminals that would render the
+    // BSU/ESU as visible garbage. `ctx.sync_output` is resolved by the
+    // binary via `term_caps::capabilities()` at the producer boundary —
+    // the renderer stays a pure function of its inputs.
     //
     // The guard does NOT hold `&mut left` — it owns a side trailer
     // that `finish` (or its Drop on panic) records the matching ESU
     // into. That way the render helpers below can keep mutating
     // `left` freely; we splice the trailer in right after rendering
     // completes and before the closing OSC 133 `B`.
-    let sync_supported = term_caps::capabilities().sync_output;
+    let sync_supported = ctx.sync_output;
     let sync_active = sync_supported && ctx.shell_integration_active;
     let sync_guard = term_caps::SyncOutputGuard::wrap_if(&mut left, sync_active);
 
@@ -1218,6 +1231,7 @@ mod tests {
             env,
             upcoming_command: "",
             shell_integration_active,
+            sync_output: false,
         }
     }
 
@@ -1458,30 +1472,22 @@ mod tests {
     fn render_prompt_wraps_payload_in_bsu_esu_when_sync_supported() {
         // T1.23: with sync-output supported AND shell-integration on,
         // the body between OSC 133 `A` and `B` is wrapped in BSU/ESU.
-        // We lock the answer into the in-process cache so the test
-        // doesn't depend on a real TTY.
-        let _ = term_caps::set_cached_for_test(term_caps::TermCaps {
-            sync_output: true,
-            truecolor: false,
-        });
-        // If another test populated the cache first with a different
-        // value, the assert below would fail spuriously. Read the cache
-        // back and skip the byte-pattern assertion in that case — the
-        // OnceLock semantics make this best-effort.
-        let caps = term_caps::capabilities();
-        if !caps.sync_output {
-            return;
-        }
+        // `sync_output` is a `RenderCtx` field set by the producer, so
+        // the test pins it directly — no process-global cache, no
+        // dependency on test execution order under `cargo test`
+        // parallelism (this was the prior source of a flaky byte-exact
+        // pin in `render_prompt_pins_exact_bytes_around_left_prompt`).
         let cfg = Config::default();
         let env = EnvSnapshot::default();
         let cwd = Path::new("/tmp/work");
-        let ctx = render_ctx_for_host_and_integration(
+        let mut ctx = render_ctx_for_host_and_integration(
             &cfg,
             &env,
             cwd,
             HostKind::None,
             /* active = */ true,
         );
+        ctx.sync_output = true;
         let prompt = render_prompt(&[], &[], &ctx);
         assert!(
             prompt.left.contains(term_caps::BSU),

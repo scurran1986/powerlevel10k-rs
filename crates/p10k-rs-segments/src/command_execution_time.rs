@@ -101,6 +101,7 @@ mod tests {
             env,
             upcoming_command: "",
             shell_integration_active: false,
+            sync_output: false,
         }
     }
 

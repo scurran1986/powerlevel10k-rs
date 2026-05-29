@@ -165,6 +165,7 @@ mod tests {
             env: &env,
             upcoming_command: "",
             shell_integration_active: false,
+            sync_output: false,
         };
         let out = Pyenv.render(&ctx);
         assert!(
