@@ -50,7 +50,10 @@ categories = ["command-line-utilities"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
-thiserror = "2.0"
+# Lower bound is 2.0.18, not 2.0: `gix =0.83.0` already requires
+# `thiserror ^2.0.18`, so declaring `2.0` understated the real floor.
+# Aligning it keeps the manifest honest about what the tree needs.
+thiserror = "2.0.18"
 anyhow = "1.0" # binary glue only — never in libraries
 # `sha2` powers the T0.5 `p10k-rs verify` subcommand — re-hashes the
 # gitstatusd helper on disk and compares against the committed pin in
