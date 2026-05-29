@@ -42,7 +42,7 @@ All scripts are idempotent — re-sourcing is a no-op.
 | `command_execution_time` | yes | no (no clean preexec; passes `--last-duration-ms 0`) | yes (uses `fish_preexec` event) | no — no clean preexec analogue; passes `--last-duration-ms 0` | yes — `$env.CMD_DURATION_MS` is native wall-clock duration |
 | `gitstatusd` daemon backend | yes | no (FIFO plumbing is zsh-specific) | no (FIFO plumbing is zsh-specific) | no — falls back to `git` shell-out automatically | no — falls back to `git` shell-out / gitoxide automatically |
 | `git` shell-out fallback | yes | yes | yes | yes | yes |
-| Transient prompt | yes (via ZLE widgets) | no (readline has no comparable redraw hook) | wired — Enter-key bind sets `_p10k_rs_transient=1` then `commandline -f repaint` redraws (since `8ad919b`) | no — PSReadLine's `OnEnterKeyDown` hook exists but the redraw model differs from zsh's `zle reset-prompt` | no — `$env.TRANSIENT_PROMPT_COMMAND` exists; wiring the four modes is a later slice |
+| Transient prompt | yes (via ZLE widgets) | partial (Return-bind redraws collapsed prompt via cursor escapes; single-row prompts only — see caveat) | wired — Enter-key bind sets `_p10k_rs_transient=1` then `commandline -f repaint` redraws (since `8ad919b`) | no — PSReadLine's `OnEnterKeyDown` hook exists but the redraw model differs from zsh's `zle reset-prompt` | no — `$env.TRANSIENT_PROMPT_COMMAND` exists; wiring the four modes is a later slice |
 | Instant prompt | yes (cached PROMPT-SUBST dump) | no (does not map onto bash's prompt model) | no (does not map onto fish's prompt model) | no — does not map onto pwsh's prompt model | no — Nushell startup is fast; no dump-sourcing path |
 
 ## bash specifics
@@ -55,6 +55,28 @@ All scripts are idempotent — re-sourcing is a no-op.
 - `command_execution_time`: bash has no clean preexec hook (a `trap
   DEBUG` workaround interacts badly with completion and subshells), so
   the segment stays below its 3-second threshold and hides.
+- **Transient prompt (partial)**: bash readline has no `zle
+  reset-prompt` (zsh) or `commandline -f repaint` (fish) hook, so there
+  is no built-in way to re-render the prompt before the accepted line
+  runs. The init script binds Return (`\C-m`) to a `bind -x` function
+  that asks the binary for the collapsed render and overwrites the
+  current prompt with cursor-control escapes, then chains `accept-line`
+  so the command still executes normally. Re-sourcing rebinds cleanly
+  (no stacked bindings), and the binding is only wired for interactive
+  shells (`$-` contains `i`) so non-interactive sourcing stays quiet.
+  The full wire contract is honored — all four `TransientPromptMode`
+  variants (Off / Always / SameDir / UniqueDir) are gated by the binary
+  exactly as in zsh and fish, including `--last-prompt-cwd` and the
+  per-shell `--prompt-cwd-history-file` for `unique-dir`, and the
+  exit-code-2 KeepPrompt fall-through leaves the full ribbon in
+  scrollback. **Caveat:** the cursor redraw is robust only for a
+  single-row prompt with single-line input (the common case). When the
+  prompt spans multiple rows, or the typed line soft-wrapped past the
+  terminal width, bash gives the script no reliable row count to move
+  up, so the script declines to collapse and leaves the full ribbon in
+  scrollback — the same visible outcome as a KeepPrompt. The binary-side
+  mode gating and cwd-history round-trip are complete; only the terminal
+  redraw is conservative.
 
 ## fish specifics
 

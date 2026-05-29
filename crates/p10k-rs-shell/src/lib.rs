@@ -507,6 +507,99 @@ mod tests {
         );
     }
 
+    // --- v0.3: bash transient prompt -------------------------------------------
+
+    #[test]
+    fn bash_init_declares_transient_flag() {
+        // v0.3 — bash transient rides a flag/var the Enter-key wrapper
+        // and redraw consult. Pin the flag name and the `bind -x`
+        // wrapper that runs the redraw before accept-line. bash has no
+        // `zle reset-prompt` / `commandline -f repaint`, so the wrapper
+        // is a `bind -x`-driven function chained to accept-line.
+        let bash = init_script(Shell::Bash);
+        assert!(
+            bash.contains("_P10K_RS_TRANSIENT"),
+            "bash init must declare the transient flag variable"
+        );
+        assert!(
+            bash.contains("__p10k_rs_transient_redraw"),
+            "bash init must define the transient redraw function"
+        );
+        assert!(
+            bash.contains("bind -x"),
+            "bash transient wrapper must bind the redraw via `bind -x`"
+        );
+        assert!(
+            bash.contains(r#"bind '"\C-m""#),
+            "bash init must rebind Return (\\C-m) to chain the redraw then accept-line"
+        );
+    }
+
+    #[test]
+    fn bash_init_honors_all_four_transient_modes() {
+        // v0.3 — bash transient must honor the same four
+        // `TransientPromptMode` variants the zsh and fish sides do. The
+        // modes are gated by the binary at `--render-side transient`
+        // (Off → empty stdout, Always/SameDir-match/UniqueDir-match →
+        // emit, mismatch → exit 2). Pin the wire surface the bash init
+        // forwards: `--render-side transient`, `--last-prompt-cwd`,
+        // `--prompt-cwd-history-file`, and the exit-code-2 KeepPrompt
+        // fall-through that leaves the full ribbon in scrollback. The
+        // four mode-name strings live in the binary; the shell side just
+        // round-trips the wire bits intact.
+        let bash = init_script(Shell::Bash);
+        assert!(
+            bash.contains("--render-side transient"),
+            "bash init must invoke the binary with --render-side transient"
+        );
+        assert!(
+            bash.contains("--last-prompt-cwd"),
+            "bash init must forward --last-prompt-cwd for same-dir / unique-dir modes"
+        );
+        assert!(
+            bash.contains("--prompt-cwd-history-file"),
+            "bash init must forward --prompt-cwd-history-file for unique-dir mode"
+        );
+        // KeepPrompt contract (rc == 2 → full ribbon in scrollback) is a
+        // guard on the redraw: only when the binary exits 0 with
+        // non-empty stdout do we collapse. Pin the rc-check so a refactor
+        // that drops it breaks the suite rather than silently blanking
+        // SameDir/UniqueDir mismatches.
+        assert!(
+            bash.contains("rc != 0"),
+            "bash transient must gate the collapsed redraw on rc == 0 (KeepPrompt fall-through)"
+        );
+        // All four mode-name slugs must appear somewhere in the script —
+        // in the header / wire-protocol docs as the contract reference.
+        // A refactor that drops a mode from the contract docs surfaces
+        // here, same belt-and-braces pin as the fish suite.
+        for mode in ["Off", "Always", "SameDir", "UniqueDir"] {
+            assert!(
+                bash.contains(mode),
+                "bash init must reference TransientPromptMode::{mode} in its contract docs"
+            );
+        }
+    }
+
+    #[test]
+    fn bash_init_shifts_cwd_history_slots() {
+        // Same `prev / curr` discipline the zsh precmd and fish
+        // full-render path use. The transient redraw reads
+        // `_P10K_RS_PREV_PROMPT_CWD` (via `--last-prompt-cwd`) to decide
+        // whether to collapse; the PROMPT_COMMAND shifts it forward by
+        // reading `_P10K_RS_CURR_PROMPT_CWD` into prev and stamping the
+        // current `$PWD` into curr.
+        let bash = init_script(Shell::Bash);
+        assert!(
+            bash.contains("_P10K_RS_PREV_PROMPT_CWD"),
+            "bash init must track the previous prompt's cwd"
+        );
+        assert!(
+            bash.contains("_P10K_RS_CURR_PROMPT_CWD"),
+            "bash init must track the current prompt's cwd"
+        );
+    }
+
     // --- Slice 63: instant-prompt $TERM-aware cache key --------------------------
 
     #[test]
