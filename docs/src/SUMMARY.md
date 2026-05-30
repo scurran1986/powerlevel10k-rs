@@ -7,6 +7,7 @@
 - [WSL2 + Windows Terminal](./wsl-windows.md)
 - [Windows status](./windows.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Upgrading from v0.1](./migration.md)
 
 # User guide
 
