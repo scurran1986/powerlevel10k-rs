@@ -61,7 +61,7 @@ anyhow = "1.0" # binary glue only — never in libraries
 # is the standard pure-Rust sha2 implementation (used by cargo, rustup,
 # git2-rs, etc.). Tiny transitive surface (digest + generic-array +
 # crypto-common + cpufeatures). MSRV-clean at 1.88.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Slice 60: gitoxide for the pure-Rust git-status fallback.
 #
