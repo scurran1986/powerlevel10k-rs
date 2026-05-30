@@ -23,10 +23,14 @@
 //!
 //! Both `$USER`/`$LOGNAME` and `$HOSTNAME`/`uname(2).nodename` are
 //! attacker-shaped input on shared systems, so all four pass through
-//! [`sanitize_for_terminal`] before they reach `text` — see `dir.rs` /
-//! `virtualenv.rs` for the same pattern.
+//! [`SafeText::from_untrusted`] (which delegates to
+//! [`sanitize_for_terminal`]) before they reach `text` — see `dir.rs` /
+//! `virtualenv.rs` for the same pattern. `$SSH_CONNECTION` /
+//! `$SSH_CLIENT` / `$SSH_TTY` are state-only (never displayed), so they
+//! deliberately stay untyped — wrapping them would imply a render edge
+//! that does not exist.
 
-use p10k_rs_core::safety::sanitize_for_terminal;
+use p10k_rs_core::safety::{sanitize_for_terminal, SafeText};
 use p10k_rs_core::style::{self, Color};
 use p10k_rs_core::{RenderCtx, Segment, SegmentOutput};
 
@@ -68,22 +72,29 @@ impl Segment for Context {
         // User: $USER wins; fall back to $LOGNAME; final fallback "?". The
         // empty/None case is already filtered by `enabled()`, but render
         // must stay safe if called standalone (matches `virtualenv.rs`).
+        // `SafeText::from_untrusted` re-runs the sanitiser — idempotent
+        // on the already-cleaned value from `user_or_fallback`, but it
+        // pins the boundary at the type level so future refactors can't
+        // forget the wrap.
         let user_env = std::env::var("USER").ok();
         let logname_env = std::env::var("LOGNAME").ok();
-        let user = user_or_fallback(user_env.as_deref(), logname_env.as_deref());
+        let user = SafeText::from_untrusted(&user_or_fallback(
+            user_env.as_deref(),
+            logname_env.as_deref(),
+        ));
 
         // Hostname: `$HOSTNAME` first (some shells export it, some don't —
         // zsh does, bash on Linux doesn't unless you `export` it), then
         // `uname(2).nodename`. Empty `$HOSTNAME` is treated as unset so
         // `env -i` style runs still fall through to uname.
         let host_env = std::env::var("HOSTNAME").ok();
-        let host = host_or_uname(host_env.as_deref());
+        let host = SafeText::from_untrusted(&host_or_uname(host_env.as_deref()));
 
         let euid = current_euid();
         let ssh_set = ssh_session_active();
         let state = detect_state(euid, ssh_set);
 
-        let plain = format!("{user}@{host}");
+        let plain = format!("{}@{}", user.as_str(), host.as_str());
         let icon = style::resolve_icon(ctx.config, self.name(), Some(state), DEFAULT_ICON);
         let plain_len = u16::try_from(plain.chars().count())
             .unwrap_or(u16::MAX)
@@ -280,6 +291,36 @@ mod tests {
         // CR injection guard: a username with `\r` would otherwise
         // overwrite the prompt line on render.
         assert_eq!(user_or_fallback(Some("alice\rEVIL"), None), "aliceEVIL");
+    }
+
+    #[test]
+    fn user_or_fallback_then_safetext_strips_ansi() {
+        // The render path wraps `user_or_fallback`'s output in
+        // `SafeText::from_untrusted`. Walk that exact composition with a
+        // hostile `$USER` (ESC sequence) and confirm no ANSI escape
+        // bytes survive into the SafeText payload — the malicious red
+        // SGR would otherwise colour-bleed the rest of the prompt.
+        let raw = user_or_fallback(Some("alice\x1b[31mEVIL"), None);
+        let safe = SafeText::from_untrusted(&raw);
+        assert!(
+            !safe.as_str().contains('\x1b'),
+            "ESC leaked into SafeText: {:?}",
+            safe.as_str()
+        );
+        // The visible payload is allowed to remain (terminals show the
+        // letters); only the control byte must be gone.
+        assert!(safe.as_str().contains("alice"));
+        assert!(safe.as_str().contains("EVIL"));
+    }
+
+    #[test]
+    fn host_or_uname_then_safetext_strips_bidi() {
+        // BiDi override in `$HOSTNAME` could flip the display order of
+        // adjacent prompt characters (`host.local` → `lacol.tsoh`).
+        // Confirm the SafeText wrap kills U+202E.
+        let raw = host_or_uname(Some("host\u{202E}local"));
+        let safe = SafeText::from_untrusted(&raw);
+        assert!(!safe.as_str().contains('\u{202E}'));
     }
 
     #[test]

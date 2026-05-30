@@ -490,9 +490,15 @@ fn open_owned_inner(path: &Path, max_mode: Option<u32>) -> Result<File, SafetyEr
     use std::os::unix::fs::OpenOptionsExt;
     let mut opts = OpenOptions::new();
     opts.read(true);
+    // `O_CLOEXEC` is OR'd in alongside `O_NOFOLLOW` so any descendant
+    // process the shell may fork off (between our `precmd` return and
+    // the user's command exec) does not inherit a handle to whatever
+    // owner-checked config / binary we just opened. Without it the
+    // shell's normal fd inheritance leaks our fd into the user's
+    // command, which is both an info leak and a fd-budget waste.
     #[allow(clippy::cast_possible_wrap)]
-    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
-    opts.custom_flags(nofollow);
+    let flags = (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC).bits() as i32;
+    opts.custom_flags(flags);
     let f = opts.open(path)?;
     let stat = rustix::fs::fstat(&f).map_err(SafetyError::Stat)?;
     // `st_mode` is `u32` on Linux and `u16` on macOS; `u32::from`
@@ -913,6 +919,25 @@ mod tests {
             }
             other => panic!("expected Open(NotFound), got {other:?}"),
         }
+        rm_rf(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn open_owned_safely_sets_cloexec() {
+        // P2 hardening: the fd must have FD_CLOEXEC so a fork between
+        // our prompt return and the user's command exec does not leak
+        // a handle to whatever owner-checked file we just opened.
+        use std::os::fd::AsFd;
+        let dir = scratch_dir("owned-cloexec");
+        let p = dir.join("ours.toml");
+        std::fs::write(&p, b"hello").unwrap();
+        let f = open_owned_safely(&p).expect("open must succeed");
+        let flags = rustix::io::fcntl_getfd(f.as_fd()).expect("fcntl_getfd");
+        assert!(
+            flags.contains(rustix::io::FdFlags::CLOEXEC),
+            "FD_CLOEXEC not set on fd returned by open_owned_safely: {flags:?}"
+        );
         rm_rf(&dir);
     }
 }

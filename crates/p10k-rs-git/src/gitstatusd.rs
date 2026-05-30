@@ -250,9 +250,15 @@ fn open_fifo_safely(path: &Path, mode: FifoMode) -> Option<std::fs::File> {
             opts.write(true);
         }
     }
+    // `O_CLOEXEC` joins `O_NOFOLLOW` so the request/response FIFO
+    // descriptors don't leak into whatever command the shell forks
+    // immediately after `precmd` returns. A leaked FIFO read fd would
+    // let a child see (and consume) the next daemon reply; a leaked
+    // write fd would let a child inject bytes into the daemon's input
+    // stream.
     #[allow(clippy::cast_possible_wrap)]
-    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
-    opts.custom_flags(nofollow);
+    let flags = (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC).bits() as i32;
+    opts.custom_flags(flags);
     let f = opts.open(path).ok()?;
     let stat = rustix::fs::fstat(&f).ok()?;
     // Re-verify file type via the canonical mode mask. Using bitmask

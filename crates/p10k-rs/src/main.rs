@@ -1586,6 +1586,18 @@ fn write_instant_dump(
     let content = zsh_dump_line(rendered);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
+        // P2 hardening: verify the parent dir isn't a symlink (someone
+        // pre-planted the parent as a link into attacker-controlled
+        // space) and is owned by us. `create_dir_all` is a no-op if the
+        // parent already exists, so a co-tenant who pre-created it
+        // could otherwise steer our dump file into a directory whose
+        // contents they read or write. The existing `open_owned_safely`
+        // helper is regular-file-only (its post-open fstat rejects
+        // directories), so we open with `O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`
+        // and fstat for ownership against the resulting fd — same TOCTOU
+        // shape, different file-type predicate.
+        #[cfg(unix)]
+        check_dump_parent_safe(parent)?;
     }
     // Atomic write: same-directory tempfile + rename. The tempfile must
     // be on the same filesystem as the destination for `rename` to be
@@ -1646,16 +1658,88 @@ impl Drop for TmpGuard {
     }
 }
 
+/// Verify the dump-file parent directory is a real, owner-controlled
+/// directory before we drop a tempfile + rename inside it.
+///
+/// `open(2)` with `O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`, then `fstat(2)`
+/// the resulting fd to confirm the inode behind the path is a
+/// directory (not a FIFO, not a socket, not a regular file the rename
+/// would clobber) and the owner uid is our effective uid (or root, to
+/// match `open_owned_safely`'s ownership predicate). A co-tenant who
+/// pre-creates the parent gets refused — they could otherwise read or
+/// manipulate the dump's contents.
+///
+/// `O_NOFOLLOW` short-circuits a symlinked parent at `ELOOP`. The
+/// resulting fd is dropped immediately; we only needed the inode
+/// stat. Errors surface as `PermissionDenied` so the existing
+/// `tracing::warn!` callers log them without escalating to a panic.
+#[cfg(unix)]
+fn check_dump_parent_safe(parent: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let parent_disp = parent.display();
+    #[allow(clippy::cast_possible_wrap)]
+    let flags = (rustix::fs::OFlags::DIRECTORY
+        | rustix::fs::OFlags::NOFOLLOW
+        | rustix::fs::OFlags::CLOEXEC)
+        .bits() as i32;
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flags)
+        .open(parent)
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("dump parent {parent_disp} failed safety open: {e}"),
+            )
+        })?;
+    let stat = rustix::fs::fstat(&f).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("dump parent {parent_disp} fstat failed: {e}"),
+        )
+    })?;
+    // S_IFDIR = 0o040000 in the masked file-type bits. `O_DIRECTORY`
+    // already enforces this at open time on every relevant Unix, but
+    // we re-check on the fd as belt-and-suspenders against the same
+    // class of TOCTOU the regular-file helper guards against.
+    #[allow(clippy::useless_conversion)]
+    let mode_bits: u32 = u32::from(stat.st_mode);
+    if mode_bits & 0o170_000 != 0o040_000 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("dump parent {parent_disp} is not a directory"),
+        ));
+    }
+    let my_uid = rustix::process::geteuid().as_raw();
+    // Accept us-or-root, matching `open_owned_safely`. Root-owned
+    // parents are the realistic case for system-staged caches, and a
+    // user who can't trust root-owned dirs on their own host has lost
+    // already.
+    if stat.st_uid != my_uid && stat.st_uid != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "dump parent {parent_disp} owned by uid {}, not us ({my_uid}) or root",
+                stat.st_uid
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Write `content` to `tmp` with paranoid open flags.
 ///
-/// On unix the open is `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW` at mode
-/// `0o600`, and we `fsync(2)` the fd before returning. Rationale:
+/// On unix the open is `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`
+/// at mode `0o600`, and we `fsync(2)` the fd before returning.
+/// Rationale:
 ///
 /// - `O_CREAT|O_EXCL` (Rust `create_new(true)`) refuses to open an
 ///   existing path. POSIX says a symlink "counts as existing" for this
 ///   check regardless of the target, so this alone defeats classic
 ///   `/tmp/foo.tmp` → `/etc/shadow` pre-plant attacks.
 /// - `O_NOFOLLOW` is belt-and-suspenders for the same threat.
+/// - `O_CLOEXEC` keeps the writable fd from leaking into any forked
+///   child between the open and the close.
 /// - Mode `0o600`: the dump line contains the literal rendered PROMPT,
 ///   which can include cwd path components users may consider sensitive
 ///   on a multi-user host. The default umask of `0o022` would leak the
@@ -1667,12 +1751,17 @@ impl Drop for TmpGuard {
 fn write_dump_tmp_atomic(tmp: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
+    // `O_CLOEXEC` alongside `O_NOFOLLOW`: the dump tempfile fd is only
+    // ever touched by this function and dropped after `sync_all`, but
+    // if any code path were to fork between the open and the close,
+    // the writable fd at mode 0o600 would otherwise leak into the
+    // child. Cheaper to set the bit than to audit every future path.
     #[allow(clippy::cast_possible_wrap)]
-    let nofollow = rustix::fs::OFlags::NOFOLLOW.bits() as i32;
+    let flags = (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC).bits() as i32;
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .custom_flags(nofollow)
+        .custom_flags(flags)
         .mode(0o600)
         .open(tmp)?;
     f.write_all(content)?;
@@ -2557,9 +2646,9 @@ mod instant_dump_path_tests {
 
 #[cfg(test)]
 #[cfg(unix)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod write_dump_tests {
-    use super::{write_instant_dump, CoreShell};
+    use super::{check_dump_parent_safe, write_instant_dump, CoreShell};
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
@@ -2669,5 +2758,60 @@ mod write_dump_tests {
             !dump.exists(),
             "panic-mid-write left a partial dump at {dump:?}",
         );
+    }
+
+    #[test]
+    fn check_dump_parent_safe_rejects_symlinked_parent() {
+        // P2 hardening: a co-tenant who pre-creates the dump parent as
+        // a symlink into attacker-controlled space could otherwise have
+        // our `create_dir_all` no-op and our rename plant the dump in
+        // their directory. `check_dump_parent_safe` must refuse the
+        // symlink at the `O_NOFOLLOW` open.
+        let real = scratch_path("real-parent");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = scratch_path("symlinked-parent");
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = check_dump_parent_safe(&link).expect_err("symlinked parent must be refused");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&real);
+    }
+
+    #[test]
+    fn check_dump_parent_safe_accepts_owned_dir() {
+        // Sanity-check the positive path so we know the test above
+        // isn't accidentally rejecting every input.
+        let dir = scratch_path("owned-parent");
+        std::fs::create_dir_all(&dir).unwrap();
+        check_dump_parent_safe(&dir).expect("owned dir must pass");
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn write_instant_dump_rejects_symlinked_parent() {
+        // End-to-end: write_instant_dump must propagate the
+        // check_dump_parent_safe error rather than write into the
+        // symlink target.
+        let real = scratch_path("e2e-real-parent");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = scratch_path("e2e-symlinked-parent");
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let dump = link.join("dump.zsh");
+        let err = write_instant_dump(&dump, "x", CoreShell::Zsh)
+            .expect_err("symlinked parent must propagate as Err");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        // The "real" dir behind the symlink must not have received the
+        // dump — the safety check fires before any write.
+        let leaked = real.join("dump.zsh");
+        assert!(
+            !leaked.exists(),
+            "dump leaked into symlink target at {leaked:?}"
+        );
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&real);
     }
 }
