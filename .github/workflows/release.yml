@@ -283,3 +283,28 @@ jobs:
           # version-pinned notes file is the source of truth.
           body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: false
+
+  # SBOM (Software Bill of Materials) — single-shot, attached once per
+  # release. `needs: build` ensures every per-target build finished and
+  # the release exists before we upload; the SBOM itself is dep-tree
+  # data, target-independent, so generating it once is correct.
+  #
+  # `cargo sbom` (cargo-sbom 0.10.x) emits SPDX 2.3 JSON over the
+  # locked dependency graph. Same `contents: write` perm as the build
+  # job inherits from the workflow-level permissions block above.
+  sbom:
+    name: sbom
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - run: cargo install cargo-sbom --locked
+      - name: generate SBOM
+        run: cargo sbom > "p10k-rs-${{ github.ref_name }}.spdx.json"
+      - name: attach SBOM to release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: p10k-rs-${{ github.ref_name }}.spdx.json
