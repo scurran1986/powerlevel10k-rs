@@ -1,0 +1,48 @@
+# Dracula — high-contrast purple-tinted dark palette.
+# Palette source: https://draculatheme.com/contribute
+#
+# Best for: anyone running the Dracula terminal/editor theme. Truecolor
+# recommended.
+#
+# Install:
+#   p10k-rs theme install dracula
+
+schema_version = 1
+mode = "nerd-font-v3"
+colors = "true-color"
+transient_prompt = "same-dir"
+
+[layout]
+left = ["context", "dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[layout.frame]
+glyph = "╭─"
+foreground = "#bd93f9"      # purple
+
+[segment.context]
+foreground = "#ffb86c"      # orange
+
+[segment.dir]
+foreground = "#8be9fd"      # cyan
+
+[segment.vcs]
+foreground = "#50fa7b"      # green
+
+[segment.vcs.states.dirty]
+foreground = "#f1fa8c"      # yellow
+
+[segment.prompt_char]
+foreground = "#50fa7b"
+
+[segment.prompt_char.states.error]
+foreground = "#ff5555"      # red
+
+[segment.status.states.error]
+foreground = "#ff5555"
+
+[segment.command_execution_time]
+foreground = "#ffb86c"      # orange
+
+[segment.time]
+foreground = "#6272a4"      # comment

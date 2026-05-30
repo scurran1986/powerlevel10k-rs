@@ -1,0 +1,12 @@
+target
+artifacts
+coverage
+
+# corpus/ holds run-time inputs that libFuzzer accumulates on top of the
+# seed inputs we DO check in. Keep the seed files (corpus/<target>/seed-*)
+# tracked; ignore everything libFuzzer adds at run time. The negative
+# pattern below preserves the seeds.
+corpus/**
+!corpus/
+!corpus/*/
+!corpus/*/seed-*

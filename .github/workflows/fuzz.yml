@@ -1,0 +1,116 @@
+name: fuzz
+
+# PR smoke: 60s per target, fast-fail if any panic surfaces.
+# Weekly schedule: 600s per target, slower drift catcher.
+# Manual dispatch: same as PR smoke (cheap to re-run).
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'fuzz/**'
+      - 'crates/p10k-rs-core/**'
+      - 'crates/p10k-rs-config/**'
+      - 'crates/p10k-rs-git/**'
+      - '.github/workflows/fuzz.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'fuzz/**'
+      - 'crates/p10k-rs-core/**'
+      - 'crates/p10k-rs-config/**'
+      - 'crates/p10k-rs-git/**'
+      - '.github/workflows/fuzz.yml'
+  workflow_dispatch:
+  schedule:
+    # Mondays 12:00 UTC. Lower-traffic window; the deeper smoke runs
+    # in this slot so the PR queue stays snappy.
+    - cron: '0 12 * * 1'
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  fuzz-smoke:
+    name: cargo-fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - gitstatusd_wire
+          - toml_config
+          - sanitize_for_terminal
+          - wrap_for_shell_zsh
+          - p9k_importer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Stable for cargo-fuzz install; nightly for `fuzz run` (libFuzzer
+      # compiler-rt + sanitiser flags need a nightly toolchain).
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          # Fuzz binaries don't share the workspace's target dir; cache
+          # them under a separate key so a workspace rebuild doesn't
+          # blow them away.
+          workspaces: |
+            .
+            fuzz
+          key: fuzz-${{ matrix.target }}
+
+      # Install cargo-fuzz with stable. If a future cargo-fuzz release
+      # breaks against the latest stable (as 0.13.x did against an old
+      # nightly via `proc-macro-error`), pin to a known-good version
+      # here. Today 0.13.1 builds clean.
+      - name: install cargo-fuzz
+        run: |
+          if ! command -v cargo-fuzz >/dev/null 2>&1; then
+            cargo install cargo-fuzz --locked \
+              || cargo install cargo-fuzz --version 0.12.0 --locked
+          fi
+          cargo fuzz --version
+
+      # Compile-check ALL targets first so a wiring break shows up
+      # under one log entry instead of N. `check` builds with the same
+      # sanitiser flags as `run` so the runtime job below picks up a
+      # warm target/ directory.
+      - name: cargo fuzz check (all targets)
+        working-directory: fuzz
+        run: cargo +nightly fuzz check
+
+      # 60s smoke on PRs / push; 600s on the weekly cron so the deeper
+      # run catches drift the smoke misses without holding up PRs.
+      - name: cargo fuzz run ${{ matrix.target }}
+        working-directory: fuzz
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            DURATION=600
+          else
+            DURATION=60
+          fi
+          echo "smoke duration: ${DURATION}s"
+          cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time="${DURATION}"
+
+      # If libFuzzer found a crash it dumps the failing input under
+      # fuzz/artifacts/<target>/crash-<sha>. Surface those as a CI
+      # artifact so the reporter can pull the exact bytes.
+      - name: upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/**
+          if-no-files-found: ignore
+          retention-days: 14

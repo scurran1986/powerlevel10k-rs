@@ -1,0 +1,66 @@
+[package]
+name = "p10k-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone crate; explicitly NOT a workspace member so the root workspace
+# (with its `members = [...]` allowlist) stays untouched. The empty
+# `[workspace]` table here pins this fuzz crate as its own one-package
+# workspace so cargo never walks up into the parent manifest.
+[workspace]
+members = []
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.p10k-rs-core]
+path = "../crates/p10k-rs-core"
+
+[dependencies.p10k-rs-config]
+path = "../crates/p10k-rs-config"
+
+[dependencies.p10k-rs-git]
+path = "../crates/p10k-rs-git"
+
+# Each target compiles as its own binary; libFuzzer wires the entrypoint.
+# `test = false / doc = false / bench = false` keeps cargo from trying to
+# build them with the regular harness (which would re-define `main`).
+
+[[bin]]
+name = "gitstatusd_wire"
+path = "fuzz_targets/gitstatusd_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "toml_config"
+path = "fuzz_targets/toml_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sanitize_for_terminal"
+path = "fuzz_targets/sanitize_for_terminal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wrap_for_shell_zsh"
+path = "fuzz_targets/wrap_for_shell_zsh.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "p9k_importer"
+path = "fuzz_targets/p9k_importer.rs"
+test = false
+doc = false
+bench = false

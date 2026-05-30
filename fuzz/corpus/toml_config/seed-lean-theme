@@ -1,0 +1,42 @@
+# Lean — single-line minimal, no frame, no powerline ribbons.
+#
+# Best for: dumb terminals, low-distraction setups, anyone who finds the
+# default two-line frame too busy.
+#
+# Install:
+#   p10k-rs theme install lean
+# Or manually:
+#   cp themes/lean.toml ~/.config/p10k-rs/config.toml
+
+schema_version = 1
+mode = "compatible"
+colors = "follow_terminal"
+transient_prompt = "off"
+
+[layout]
+left = ["dir", "vcs", "prompt_char"]
+right = ["status", "command_execution_time", "time"]
+
+[segment.dir]
+foreground = "blue"
+
+[segment.vcs]
+foreground = "green"
+
+[segment.vcs.states.dirty]
+foreground = "yellow"
+
+[segment.prompt_char]
+foreground = "green"
+
+[segment.prompt_char.states.error]
+foreground = "red"
+
+[segment.status.states.error]
+foreground = "red"
+
+[segment.command_execution_time]
+foreground = "yellow"
+
+[segment.time]
+foreground = "white"
