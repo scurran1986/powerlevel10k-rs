@@ -1,0 +1,149 @@
+---
+source: crates/p10k-rs-config/tests/schema_snapshot.rs
+expression: "SortedConfig::from(&cfg)"
+---
+schema_version: 1
+mode: compatible
+colors: follow_terminal
+layout:
+  left:
+    - dir
+    - vcs
+    - prompt_char
+  right:
+    - status
+    - command_execution_time
+    - time
+  left_top_only: []
+  right_top_only: []
+  frame: ~
+  ruler: ~
+  separators:
+    left: ~
+    right: ~
+    subsegment: ~
+instant_prompt: verbose
+transient_prompt: "off"
+segment:
+  command_execution_time:
+    disabled: false
+    foreground: yellow
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states: {}
+  dir:
+    disabled: false
+    foreground: blue
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states: {}
+  prompt_char:
+    disabled: false
+    foreground: green
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states:
+      error:
+        foreground: red
+        background: ~
+        icon: ~
+  status:
+    disabled: false
+    foreground: ~
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states:
+      error:
+        foreground: red
+        background: ~
+        icon: ~
+  time:
+    disabled: false
+    foreground: white
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states: {}
+  vcs:
+    disabled: false
+    foreground: green
+    background: ~
+    icon: ~
+    padding:
+      left: 0
+      right: 0
+    truncate:
+      strategy: none
+      length: 0
+    show_on_command: ~
+    show_in_dir: ~
+    show_on_upglob: ~
+    disabled_dir_pattern: ~
+    marker_foreground: ~
+    states:
+      dirty:
+        foreground: yellow
+        background: ~
+        icon: ~
+ai:
+  osc7: false
+  osc133: false
+  host: {}
+  model: ~
+  context_tokens: ~
+shell_integration:
+  mode: auto

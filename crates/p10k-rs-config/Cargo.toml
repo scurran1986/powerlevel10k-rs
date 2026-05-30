@@ -22,5 +22,14 @@ thiserror = { workspace = true }
 # helper unsafe-free without inverting the `core → config` dep direction.
 rustix = { workspace = true }
 
+[dev-dependencies]
+# `insta` powers the schema-freeze snapshot tests in
+# `tests/schema_snapshot.rs`. They complement `cargo-semver-checks`:
+# the gate guards the public Rust API; the snapshot guards the
+# user-visible TOML surface (default values, enum tag spellings,
+# field names under `#[serde(rename)]`) so an accidental serde-only
+# break surfaces as a diff rather than a silent rename.
+insta = { workspace = true }
+
 [lints]
 workspace = true

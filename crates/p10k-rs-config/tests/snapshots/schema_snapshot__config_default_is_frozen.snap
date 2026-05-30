@@ -1,0 +1,29 @@
+---
+source: crates/p10k-rs-config/tests/schema_snapshot.rs
+expression: "SortedConfig::from(&cfg)"
+---
+schema_version: 0
+mode: nerd-font-v3
+colors: ansi256
+layout:
+  left: []
+  right: []
+  left_top_only: []
+  right_top_only: []
+  frame: ~
+  ruler: ~
+  separators:
+    left: ~
+    right: ~
+    subsegment: ~
+instant_prompt: verbose
+transient_prompt: "off"
+segment: {}
+ai:
+  osc7: false
+  osc133: false
+  host: {}
+  model: ~
+  context_tokens: ~
+shell_integration:
+  mode: auto
