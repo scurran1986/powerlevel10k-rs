@@ -17,26 +17,98 @@ concerned with.
 
 ## Supported versions
 
-Only the latest minor release receives security fixes. Older
-minors do not — upgrade.
+Only the **latest `0.x` minor release** receives security fixes during the
+v0 series. Older minors do not — upgrade. Once `v1.0` ships, the
+supported window becomes **the latest `1.x.*` minor**, and a deprecation
+notice will land in the next release notes for any pre-`1.0` line that
+loses support.
 
-| Version | Supported |
-|---|---|
-| 0.1.x (latest) | yes |
-| < 0.1 (latest) | no |
+| Series | Window | Supported |
+|---|---|---|
+| `0.x` (latest minor) | until v1.0 ships | yes |
+| `0.x` (older minor) | n/a | no |
+| `1.x` (latest minor) | once v1.0 ships | yes |
+| `1.x` (older minor) | once v1.0 ships | no |
+| pre-`1.0` minors | after v1.0 ships | best-effort for one release cycle, then no |
+
+"Latest minor" is whatever `git describe --tags --abbrev=0` resolves to
+on `main` at the time the report is triaged.
+
+## Bug bounty
+
+There is **no monetary bug bounty.** This is a small open-source
+project with no revenue. Reporters get credit in the release notes for
+the version that ships the fix (see below), a public thank-you in
+the CHANGELOG, and the right to coordinate the disclosure timeline
+within the 90-day window in the next section.
 
 ## Reporting a vulnerability
 
-Use **GitHub Security Advisories** (private vulnerability
-reporting):
+Preferred channel: **GitHub Security Advisories** (private
+vulnerability reporting). GHSA encrypts the report contents in
+transit and at rest, scopes maintainer access to the advisory's
+collaborators, and provides a coordinated-disclosure workflow with
+CVE assignment.
 
 <https://github.com/scurran1986/powerlevel10k-rs/security/advisories/new>
 
-Expect an initial response within 72 hours. If GHSA is unavailable
-and the issue is **not** sensitive (no exploit details, no
-embargoed third-party), a public issue tagged `security` is an
+If GHSA is unavailable and you have a strict requirement for an
+out-of-band channel, email the maintainer at the address on the
+git commit log of any release-tagged commit on `main`. PGP is not
+required — GHSA's private reporting is the recommended secure
+channel — but if you want to encrypt out-of-band correspondence,
+mention it in your first message and we will exchange keys.
+
+### Disclosure window
+
+- **Initial acknowledgement: within 72 hours.** A human will reply
+  confirming receipt; it may not contain triage yet.
+- **Triage: within 7 days.** We will share whether the issue is
+  reproducible, our preliminary severity assessment, and the
+  expected fix-and-release timeline.
+- **Coordinated disclosure: 90 days from initial report, by default.**
+  Earlier if a fix has shipped to all supported versions and a
+  CVE has been assigned. Later only with the reporter's explicit
+  agreement (e.g. for an embargoed cross-vendor issue).
+- **Public disclosure** lands as a release advisory plus a
+  CHANGELOG entry on the release that ships the fix.
+
+### What's in scope
+
+The threat model above. Concretely: the render path, the FIFO IPC,
+the config file handling, the `gitstatusd` invocation, the
+instant-prompt dump, the install scripts, and the release pipeline.
+
+### What's out of scope
+
+Repeated from "Out of scope" above for clarity in the reporter's
+context: attacks requiring local root or a same-uid privilege the
+attacker had to obtain elsewhere, hardware fault injection, trust-
+root compromise (Fulcio / Rekor / rustc / crates.io / the GitHub
+Actions OIDC issuer), and denial-of-service in the prompt render
+path that does not propagate to the parent shell.
+
+If your finding is **not** sensitive (no exploit, no embargoed
+third-party impact), a public issue tagged `security` is an
 acceptable fallback. Do not post exploit details to a public
 issue.
+
+## Credit and acknowledgements
+
+Reporters are credited by name (or pseudonym, or anonymously — your
+choice) in:
+
+1. The CHANGELOG entry for the release that ships the fix.
+2. The GitHub Security Advisory itself.
+3. Any `crates.io` `RUSTSEC-…` advisory we file, if applicable.
+
+Opt out at report time by saying so. We will then mark the credit
+as "an anonymous reporter" or omit it entirely. No retroactive
+credit changes once a release is cut.
+
+We do not require reporters to wait for a fix before claiming
+public credit; we do ask that exploit details stay private until
+the disclosure window above closes.
 
 ## Signing identity
 
@@ -167,6 +239,21 @@ The threat model does not cover:
   Actions OIDC issuer, rustc, crates.io).
 - Denial of service in the prompt render path that does not
   affect the parent shell.
+
+## Self-audit
+
+A **self-audit** (Phase 5 of the v1.0 plan) covering all five
+attacker models in the threat model lives at
+[`.review/2026-05-30T-self-audit/INDEX.md`](.review/2026-05-30T-self-audit/INDEX.md).
+It walks every untrusted-input source from the threat model, cites
+the file:line of each mitigation against the audited HEAD, and
+ranks the residual gaps. This is a maintainer-supervised
+LLM-assisted self-audit, **not** a paid third-party audit; the
+distinction is called out in the audit's INDEX.md.
+
+The audit cadence target is per-minor-release for v0.x and per-quarter
+for v1.x; the index file documents the auditor identity and the
+HEAD commit for each cycle.
 
 ## Past advisories
 
