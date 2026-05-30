@@ -43,10 +43,11 @@ crates/
   p10k-rs-core       # Segment trait, render pipeline (no I/O)
   p10k-rs-config     # TOML schema + Powerlevel9k import (data only)
   p10k-rs-segments   # segment implementations
-  p10k-rs-git        # gitstatusd client + git shell-out fallback (the only `unsafe` budget)
-  p10k-rs-shell      # per-shell init scripts (zsh today, bash/fish stubs)
-  p10k-rs-wizard     # `configure` TUI (stub)
-  p10k-rs-ai         # AI-host detection / OSC emission (stub)
+  p10k-rs-git        # gitstatusd client + git shell-out + gix fallback (reserved unsafe budget, see below)
+  p10k-rs-jj         # jujutsu VCS detection (sibling to p10k-rs-git, shell-out to `jj`, no daemon)
+  p10k-rs-shell      # per-shell init scripts (zsh, bash, fish, pwsh — all shipping)
+  p10k-rs-wizard     # `configure` Q&A wizard (3-question stdin: preset / glyph mode / palette → TOML on stdout; raw-mode TUI deferred)
+  p10k-rs-ai         # AI host detection (ClaudeCode/Goose/Aider/Cursor/Warp/Generic) + OSC 7/133 emission + `--host` statusline
   p10k-rs-ipc        # FIFO plumbing
 ```
 
@@ -69,8 +70,10 @@ root `Cargo.toml`. Don't `#[allow]` them away — fix the code.
    If it has <3 reverse-deps on crates.io and you can write the
    equivalent in 50 lines, write it. New deps need rationale in the
    PR.
-2. **No `unsafe` without justification.** Only `p10k-rs-git` has the
-   `unsafe` budget. Every `unsafe` block needs a safety comment that
+2. **No `unsafe` without justification.** `p10k-rs-git` is the only crate
+   cleared to reach for `unsafe` if syscall needs ever grow past `rustix`
+   wrappers; today it ships zero `unsafe` blocks and `#![forbid(unsafe_code)]`
+   crate-wide. Every future `unsafe` block needs a safety comment that
    states why the safe alternative is unfit, what invariants the call
    site upholds, and what would have to change to make the block
    unsound.
