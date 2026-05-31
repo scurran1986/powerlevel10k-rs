@@ -421,6 +421,14 @@ fn parse_hex_color(s: &str) -> std::result::Result<Option<[u8; 3]>, String> {
     let Some(hex) = s.strip_prefix('#') else {
         return Ok(None);
     };
+    // Hex literals are ASCII by definition. Without this gate, a
+    // non-ASCII byte after `#` (e.g. `"#5ƙa7b"`) lands in a 6-byte
+    // string and the subsequent byte-range slices (`&hex[0..2]`
+    // etc.) panic at a UTF-8 char boundary. Caught by cargo-fuzz
+    // `toml_config` against the v0.4 hex-literal Visitor.
+    if !hex.is_ascii() {
+        return Err(format!("hex colour must be ASCII, got {s:?}"));
+    }
     match hex.len() {
         3 => {
             // `#rgb` → `#rrggbb` per CSS convention (`0xf` → `0xff`).
@@ -1651,6 +1659,21 @@ left = ["dir"]
         assert!(
             msg.contains("hex") || msg.contains("#rrggbb"),
             "expected hex parse error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn color_hex_non_ascii_errors() {
+        // Regression: cargo-fuzz `toml_config` panicked on a non-ASCII
+        // byte after `#` because `hex.len()` is byte-length and the
+        // 6-arm tried `&hex[0..2]` across a UTF-8 char boundary. The
+        // ASCII gate in `parse_hex_color` must reject this cleanly.
+        let toml = "schema_version = 1\n[segment.dir]\nforeground = \"#5\u{0199}a7b\"\n";
+        let err = Config::from_toml(toml).expect_err("must reject non-ASCII hex");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("ASCII") || msg.contains("hex"),
+            "expected non-ASCII hex parse error, got: {msg}"
         );
     }
 }
