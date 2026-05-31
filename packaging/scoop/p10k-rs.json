@@ -1,5 +1,5 @@
 {
-    "version": "0.2.7",
+    "version": "1.0.0",
     "description": "Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust",
     "homepage": "https://github.com/scurran1986/powerlevel10k-rs",
     "license": {
@@ -18,14 +18,14 @@
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.7/p10k-rs-0.2.7-x86_64-pc-windows-msvc.zip",
-            "hash": "4b9989ab763a8e0f98502816335b1a8a36f5502408725eb7dface4cf8e3b8bc8",
-            "extract_dir": "p10k-rs-0.2.7-x86_64-pc-windows-msvc"
+            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v1.0.0/p10k-rs-1.0.0-x86_64-pc-windows-msvc.zip",
+            "hash": "2ce78fc9f1489d5318221d06b581c220cdab41c95db0cf4d2e9510ace4c4a7f5",
+            "extract_dir": "p10k-rs-1.0.0-x86_64-pc-windows-msvc"
         },
         "arm64": {
-            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.7/p10k-rs-0.2.7-aarch64-pc-windows-msvc.zip",
-            "hash": "834af14a882cac827406af9cab0126374e64dbc255787f23d76a9c6884e43590",
-            "extract_dir": "p10k-rs-0.2.7-aarch64-pc-windows-msvc"
+            "url": "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v1.0.0/p10k-rs-1.0.0-aarch64-pc-windows-msvc.zip",
+            "hash": "97c786d8352d240308ea5b3c543070b3589b5c62392d425928d1d760bab0e333",
+            "extract_dir": "p10k-rs-1.0.0-aarch64-pc-windows-msvc"
         }
     },
     "bin": "p10k-rs.exe",
