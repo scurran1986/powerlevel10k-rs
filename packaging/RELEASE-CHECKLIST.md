@@ -242,11 +242,16 @@ curl -sSL https://raw.githubusercontent.com/seaburdz/powerlevel10k-rs/v${ver}/in
 ## 5. crates.io
 
 **Current state: NOT published.** `cargo search p10k-rs` returns no
-results as of the v0.4.0 cycle. This is a v1.0 criterion #5
-prerequisite ("drop-in installs on every major distribution channel")
-and is still TODO.
+results as of v1.0.0. This is now **deliberate** per
+[STABILITY.md](../STABILITY.md): the Rust crate API is binary-only
+and the workspace crates' Rust API is explicitly not committed to
+SemVer. Publishing the crates would create an external expectation
+that conflicts with that stance. The earlier framing of "v1.0
+criterion #5 prerequisite" has been replaced by the STABILITY.md
+contract.
 
-When the maintainer is ready to publish, the path is:
+When the maintainer is ready to publish anyway (e.g. for a future
+plugin API in a later major release), the path is:
 
 ```sh
 cargo login                                    # one-time, store API token
