@@ -17,7 +17,7 @@
 
 pkgname=p10k-rs-bin
 _upstream=p10k-rs
-pkgver=0.2.7
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust (prebuilt)"
 arch=('x86_64' 'aarch64')
@@ -45,8 +45,8 @@ source_aarch64=(
 # the v${pkgver} release page. Defence in depth: each tarball also has a
 # sigstore-signed `.cosign.bundle`; verification recipe lives in
 # packaging/aur/README.md.
-sha256sums_x86_64=('159ea6f880a23b81eb92547f66793748fdd3633e781b78bd409311a6819940bf')
-sha256sums_aarch64=('438650006f1ca172ba8cf1007bd813f9ee2547398735d58f79c2f4020ffd9e1f')
+sha256sums_x86_64=('42be99d1bcde5963458ede43cf5f3007c3ed075cc4a87d3a351e4741b95c6cd0')
+sha256sums_aarch64=('ed7980d90fa7d3c56958f9fb37d63293e9eb95da0f4058bef3ee1405a7b1d9e5')
 
 package() {
   # makepkg unpacks the tarball into a single top-level directory named
