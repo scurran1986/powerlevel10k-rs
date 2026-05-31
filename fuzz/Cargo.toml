@@ -23,8 +23,12 @@ path = "../crates/p10k-rs-core"
 [dependencies.p10k-rs-config]
 path = "../crates/p10k-rs-config"
 
-[dependencies.p10k-rs-git]
-path = "../crates/p10k-rs-git"
+# `p10k-rs-git` is intentionally NOT a dependency here.
+# `gitstatusd_wire.rs` fuzzes `p10k_rs_core::safety::SafeText::from_untrusted_bytes`
+# as a surrogate because the underlying `parse_response` in
+# `crates/p10k-rs-git/src/gitstatusd.rs` is private. Re-add this
+# dependency the same slice that exposes `parse_response`. See
+# `fuzz/README.md` § Deferred and the target's module docs.
 
 # Each target compiles as its own binary; libFuzzer wires the entrypoint.
 # `test = false / doc = false / bench = false` keeps cargo from trying to
