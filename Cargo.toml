@@ -125,7 +125,7 @@ time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 
 # --- dev / test ---
 insta = { version = "1.40", features = ["yaml"] }
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 # `gix`, `bincode`, `humantime`, `tempfile` were spike-only and went away
 # with the spike crate in slice 9. They will come back individually if a
 # `gix-status` correctness fallback or daemon-respawn cache lands.
