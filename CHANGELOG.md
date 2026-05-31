@@ -4,9 +4,26 @@ All notable changes to `p10k-rs` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
+From v1.0.0 onward this project follows SemVer for the surfaces listed in
+[STABILITY.md](STABILITY.md).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-05-31
+
+Theme: **Stability commitment.** No code changes from v0.4.0 (`664aba0`).
+The Security-MAX verification toolchain and P2 hardening shipped in
+v0.4.0; v1.0.0 is the soak — the API has settled and this tag
+commits to SemVer for the surfaces enumerated in
+[STABILITY.md](STABILITY.md).
+
+See `.github/release-notes/v1.0.0.md` for the full narrative.
+
+### Changed
+
+- CHANGELOG header: pre-1.0 "minor bumps may be breaking" caveat
+  replaced with the SemVer commitment for the surfaces listed in
+  STABILITY.md.
 
 ## [0.4.0] - 2026-05-31
 
