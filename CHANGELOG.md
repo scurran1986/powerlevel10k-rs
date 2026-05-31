@@ -8,6 +8,82 @@ Pre-1.0 minor bumps may be breaking; breakage is documented when it occurs.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-31
+
+Theme: **Reach + hardening.** v0.4 finishes the v0.3 "reach" theme
+(Nushell + bash transient) and folds in the bulk of the v1.0
+"Security MAX" verification toolchain (MSRV / miri / semver-checks /
+SBOM / Windows compile-check / cargo-fuzz scaffold) plus a P2
+hardening batch (`O_CLOEXEC` everywhere on the hot path, dump-parent
+ownership check, context-segment `SafeText` hygiene) and a 5-doc
+self-audit against THREAT-MODEL.md A1–A5.
+
+SemVer-minor (0.x) bump for the API breaks accumulated since v0.3.0;
+`cargo-semver-checks` (now a CI gate) flagged each correctly:
+`Shell::Nu` variants, `RenderCtx::sync_output` field,
+`SegmentConfig::show_on_upglob` field, removal of
+`term_caps::set_cached_for_test`. See `.github/release-notes/v0.4.0.md`
+for the full narrative.
+
+### Added
+
+- **`p10k-rs init nu`** — Nushell init script + `Shell::Nu` in both
+  enums + `--shell nu` accepted by `parse_core_shell`. Native
+  `$env.CMD_DURATION_MS` makes `command_execution_time` live;
+  `$env.PROMPT_COMMAND_RIGHT` gives a real right prompt.
+- **bash transient prompt** — full binary-invocation wiring;
+  cursor-escape collapse is documented-partial (single-row only).
+- **`show_on_upglob` segment gate** — third "show-*" gate;
+  `Option<Vec<Glob>>`; lexical `cwd.ancestors()` walk.
+- **Insta TOML schema freeze** — snapshot tests in
+  `crates/p10k-rs-config/tests/schema_snapshot.rs`.
+- **MSRV CI gate** (`.github/workflows/msrv.yml`).
+- **Miri CI gate** (`.github/workflows/miri.yml`) on p10k-rs-config.
+- **cargo-semver-checks CI gate** vs last release tag.
+- **SBOM in release pipeline** (SPDX 2.3 attached per release).
+- **Windows compile-check** in ci.yml.
+- **cargo-fuzz scaffold** (`fuzz/`) — 5 libFuzzer targets + corpora
+  + CI smoke (60s/PR, 600s weekly).
+- **`docs/src/migration.md`** — v0.1 → v0.4 upgrade guide.
+- **`packaging/RELEASE-CHECKLIST.md`** — release runbook.
+- **Self-audit docs** in `.review/2026-05-30T-self-audit/` (5
+  per-attacker-model files + INDEX).
+- **SECURITY.md** extended with responsible-disclosure / supported
+  versions / credit / no-cash-bounty.
+
+### Changed
+
+- **`render_prompt` is pure again** — `RenderCtx.sync_output` is now
+  a producer-set field (was a process-global `OnceLock` read
+  mid-render); closes an I/O-free-rule leak and retires the
+  `render_prompt_pins_exact_bytes_around_left_prompt` parallelism
+  flake.
+- **`context.rs` env reads** wrapped in `SafeText::from_untrusted` at
+  the render boundary.
+- **`O_CLOEXEC`** on every hot-path fd open (`open_owned_inner`,
+  `open_fifo_safely`, `write_dump_tmp_atomic`) via
+  `rustix::fs::OFlags::CLOEXEC`.
+- **Instant-prompt dump parent** validated via new
+  `check_dump_parent_safe`.
+- **`thiserror` floor** `2.0` → `2.0.18` to match gix's actual
+  requirement.
+- **CLAUDE.md** refreshed (jj crate added; wizard/ai no longer
+  "(stub)"; bash/fish "stubs" wording wrong; "unsafe budget"
+  reworded).
+- **ROADMAP criterion #3 rescoped** (planning doc): plugin API
+  deferred past v1.0.
+- **SECURITY.md** stale "sigstore is future" claim fixed.
+
+### Removed
+
+- `term_caps::set_cached_for_test` (unused after the
+  `RenderCtx.sync_output` refactor).
+
+### Security
+
+- 5-doc self-audit against THREAT-MODEL.md A1–A5.
+- 90-day responsible-disclosure policy in SECURITY.md.
+
 ## [0.3.0] - 2026-05-27
 
 Theme: **v0.3 cycle opener — `p10k-rs init pwsh` lands.** Closes the
