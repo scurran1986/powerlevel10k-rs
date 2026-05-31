@@ -1,15 +1,33 @@
-# Upgrading from v0.1 to v0.4
+# Upgrading from v0.1 to v1.0
 
 This page covers upgrading an existing `p10k-rs` install across the v0.1 →
-v0.4 line. The short version: there are **no breaking config changes** in
-the 0.x line so far. Pull the new binary, re-source the init script,
+v1.0 line. The short version: there are **no breaking config changes** in
+the 0.x → 1.0 line. Pull the new binary, re-source the init script,
 verify with `p10k-rs doctor` — done.
 
-> **About v1.0.** v1.0 is intentionally still a future tag. The
-> [ROADMAP](https://github.com/scurran1986/powerlevel10k-rs/blob/main/STATUS.md)
-> requires a ≥ 6-month soak on v0.3 / v0.4 before the SemVer freeze, so
-> "v0.1 → v1.0" doesn't exist yet. The realistic migration today is
-> v0.1 → v0.4.
+## v0.4 → v1.0
+
+No user-facing migration needed. v1.0.0 is the same code as
+v0.4.0 (`664aba0`) plus the SemVer commitment and the new
+[STABILITY.md](../../STABILITY.md) document. If your
+`~/.config/p10k-rs/config.toml` loaded under v0.4.0 it loads under
+v1.0.0 unchanged.
+
+What changed at v1.0:
+
+- **SemVer is now in force** for the surfaces enumerated in
+  `STABILITY.md` — the binary CLI, TOML config schema, per-shell
+  init protocol, release artifacts.
+- **The Rust crate API stays explicitly unstable.** `p10k-rs` is
+  distributed as a binary; the workspace crates are not published
+  to crates.io and their Rust API may break in any release.
+- **No public plugin API ships at v1.0.** Deferred by design;
+  when a plugin API ships it will arrive in a minor release with
+  its own stability contract.
+
+If you ran v0.4.0 successfully, `git pull` (or your distribution
+channel's equivalent) and re-run your shell's init script. That's
+it.
 
 ## TL;DR
 

@@ -11,6 +11,13 @@
 Single static binary. Declarative TOML config. Multi-shell.
 `gitstatusd`-class git latency.
 
+> **v1.0.0 — stability commitment.** `p10k-rs` now follows
+> SemVer for the surfaces listed in [STABILITY.md](STABILITY.md):
+> the binary CLI, TOML config schema, per-shell init protocol,
+> and release artifacts. The Rust crate API is binary-only and
+> may break in minor releases. See `.github/release-notes/v1.0.0.md`
+> for the full narrative.
+
 > [!WARNING]
 > **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.**
 > Free, AI-assisted hobby project. **No warranty. No support. No SLA.
