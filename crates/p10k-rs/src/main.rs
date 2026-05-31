@@ -1452,7 +1452,7 @@ fn glob_matches_cwd(glob: &Glob, cwd: &std::path::Path) -> bool {
 /// the way a user reading "a file like this exists here" would expect.
 ///
 /// Walk bounds and safety:
-/// - The upward walk uses [`Path::ancestors`], which is purely lexical
+/// - The upward walk uses [`std::path::Path::ancestors`], which is purely lexical
 ///   (`/a/b/c` → `/a/b` → `/a` → `/`). It cannot loop through symlinks and
 ///   always terminates at the filesystem root, so no explicit depth cap is
 ///   needed and a symlinked cwd can't trap us in a cycle.
