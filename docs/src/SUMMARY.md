@@ -8,6 +8,7 @@
 - [Windows status](./windows.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Upgrading from v0.1](./migration.md)
+- [Stability](./stability.md)
 
 # User guide
 
