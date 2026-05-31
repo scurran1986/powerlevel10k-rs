@@ -16,7 +16,7 @@
 class P10kRs < Formula
   desc "Single-binary, declarative-TOML, multi-shell Powerlevel10k port in Rust"
   homepage "https://github.com/scurran1986/powerlevel10k-rs"
-  version "0.2.7"
+  version "1.0.0"
   license any_of: ["MIT", "Apache-2.0"]
 
   # The release pipeline publishes per-triple tarballs at:
@@ -27,13 +27,13 @@ class P10kRs < Formula
   # under those names.
   on_macos do
     on_arm do
-      url "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.7/p10k-rs-0.2.7-aarch64-apple-darwin.tar.gz"
-      sha256 "e428357b15934be77ad1b86401074853a95fe8e191d97cfba71c86d1adefda37"
+      url "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v1.0.0/p10k-rs-1.0.0-aarch64-apple-darwin.tar.gz"
+      sha256 "22e48cb35be40ceb25bb448813d6a6a9d3f1024d194cdfef05ce844e046e53ad"
     end
 
     on_intel do
-      url "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v0.2.7/p10k-rs-0.2.7-x86_64-apple-darwin.tar.gz"
-      sha256 "3bef90f66fbdae379dbceefc21564c1ce533dfa2eb772092d5a6ff671ba1ad08"
+      url "https://github.com/scurran1986/powerlevel10k-rs/releases/download/v1.0.0/p10k-rs-1.0.0-x86_64-apple-darwin.tar.gz"
+      sha256 "e048ba111e7b1d040dd9b1ad6138c8659b666f693d94ddd4fffa9fd84ce6a16e"
     end
   end
 

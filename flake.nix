@@ -87,7 +87,7 @@
           # Mirrors `version.workspace` in Cargo.toml. Bump this in
           # lockstep with the workspace `[workspace.package].version`
           # at each release tag.
-          version = "0.2.7";
+          version = "1.0.0";
 
           # `cargo test` is gated by the workspace test suite + CI; the
           # nix build path is for binary delivery, so skip tests here to
