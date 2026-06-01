@@ -98,11 +98,28 @@ impl Segment for NodeVersion {
 /// file is found in any ancestor directory. Bounded at 64 iterations to
 /// keep symlink loops and absurd path depths from stalling the prompt.
 fn has_package_json(start: &std::path::Path) -> bool {
+    has_package_json_bounded(start, None, 64)
+}
+
+/// Inner walker with an optional `stop_at` boundary. Production passes
+/// `None` (walk to filesystem root or depth cap, whichever comes first);
+/// tests pass a boundary directory so the walk doesn't reach
+/// `/tmp/package.json` on developer machines polluted with one. The
+/// boundary check happens *before* the file check on each iteration, so
+/// `stop_at` is the first directory NOT inspected.
+fn has_package_json_bounded(
+    start: &std::path::Path,
+    stop_at: Option<&std::path::Path>,
+    max_depth: usize,
+) -> bool {
     let mut cur = Some(start);
-    for _ in 0..64 {
+    for _ in 0..max_depth {
         let Some(dir) = cur else {
             return false;
         };
+        if Some(dir) == stop_at {
+            return false;
+        }
         if dir.join("package.json").is_file() {
             return true;
         }
@@ -148,7 +165,7 @@ mod tests {
     use p10k_rs_core::style::Color;
     use p10k_rs_core::{Config, EnvSnapshot, HostKind, RenderCtx, Segment, Shell};
 
-    use super::{has_package_json, NodeVersion};
+    use super::{has_package_json, has_package_json_bounded, NodeVersion};
 
     /// Build a unique scratch directory under `std::env::temp_dir()`. Caller
     /// is responsible for cleanup; we deliberately leak on panic so failing
@@ -187,16 +204,14 @@ mod tests {
     }
 
     #[test]
-    // Skipped by default because the walker walks `/tmp/<scratch>` → `/tmp`
-    // → `/` and trips on a stray `/tmp/package.json` on developer machines
-    // (we've seen one in the wild). The walker is bounded correctly in
-    // production (depth 64 + parent-is-None), so this is purely an
-    // environmental test issue, not a real bug. CI environments with a
-    // clean `/tmp` run this test fine — invoke with `cargo test -- --ignored`.
-    #[ignore = "fragile against /tmp pollution; see comment"]
     fn walk_returns_false_when_missing() {
+        // Use the bounded walker stopped at scratch's parent so a stray
+        // `/tmp/package.json` on a developer machine can't trip us.
+        // Production callers pass `None` for `stop_at` and walk to the
+        // filesystem root; this test asserts only the empty-scratch case.
         let dir = scratch_dir("missing");
-        assert!(!has_package_json(&dir));
+        let stop = dir.parent();
+        assert!(!has_package_json_bounded(&dir, stop, 64));
         std::fs::remove_dir_all(&dir).ok();
     }
 
