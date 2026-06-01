@@ -9,6 +9,78 @@ From v1.0.0 onward this project follows SemVer for the surfaces listed in
 
 ## [Unreleased]
 
+Post-v1.0.0 hygiene work surfaced by the v1.0-cycle CI matrix.
+Several pre-existing v0.4.0 defects landed fixes here; `./gates.sh`
+shipped so the local-vs-CI gate divergence that hid them is closed.
+
+### Added
+
+- **`./gates.sh`** — canonical local gate sweep mirroring the CI
+  main-push matrix exactly. Exit-code-safe by construction; never
+  pipes its own gate output to `tail`. `--slow` adds miri +
+  `cargo-semver-checks`. `CLAUDE.md` § "Build / test / lint" now
+  points here as the sweep of record. Closes gotcha #1 (the
+  `cargo X | tail` exit-code-mask trap) structurally.
+- **`docs/RELEASE-SWARM.md`** — multi-lane Claude Code swarm
+  runbook codifying the 2026-05-31 v1.0 ship's pattern: pre-swarm
+  gate audit, manual worktrees only (the harness auto-isolation
+  flag pins to a stale ref snapshot), Lane-B verification step,
+  Pomodoro rule, cherry-pick chain integration, packaging-as-
+  post-tag-swarm, known failure modes.
+
+### Changed
+
+- **Packaging manifests bumped v0.2.7 → v1.0.0** across all four
+  channels. They had sat untouched through the v0.3 + v0.4 cycles.
+  Homebrew formula (`packaging/homebrew/p10k-rs.rb`) takes new
+  darwin sha256s; Scoop manifest takes new Windows hashes; both
+  AUR PKGBUILDs (`packaging/aur/p10k-rs/PKGBUILD` and
+  `packaging/aur/p10k-rs-bin/PKGBUILD`) take new source-archive +
+  per-arch linux hashes; Nix flake (`flake.nix`) carries only
+  `version` since `crane` builds from source.
+- **`packaging/RELEASE-CHECKLIST.md`** crates.io note refreshed
+  to the v1.0 stance — publishing the crates is now
+  deliberately deferred per `STABILITY.md` ("Rust crate API is
+  binary-only") rather than framed as a "v1.0 criterion TODO."
+- **Fuzz crate dependency cleanup** — `p10k-rs-fuzz` dropped its
+  unused `p10k-rs-git` dependency. `gitstatusd_wire` documents
+  that it fuzzes `SafeText::from_untrusted_bytes` as a surrogate
+  for the private `parse_response`; the dep was forward-intent.
+  Re-add it the same slice that exposes `parse_response`.
+
+### Fixed
+
+- **`fix(rustdoc): qualify Path::ancestors intra-doc link`**
+  (`crates/p10k-rs/src/main.rs:1455`). The link was unresolved
+  because `Path` wasn't in scope at the doc location.
+  `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
+  --locked` caught it — same lint v0.4.0 had also been shipping.
+- **`ci(miri)`** — `dtolnay/rust-toolchain@nightly` installs the
+  nightly toolchain, but `rust-toolchain.toml`'s `1.88.0` pin
+  overrode what `cargo miri test` actually invoked, failing
+  with "the 'miri' component is not available for the
+  '1.88.0-...' toolchain". Workflow now invokes via
+  `cargo +nightly miri test`. Same workaround applied in
+  `gates.sh --slow`.
+
+### Security
+
+- **`fix(config)!: reject non-ASCII bytes in hex colour literals`**
+  — `parse_hex_color` matched on `hex.len()` (byte length, not
+  char count), so a 6-byte input like `"#5ƙa7b"` (4 ASCII chars
+  + a 2-byte UTF-8 char) hit the 6-digit arm and tried
+  `&hex[0..2]` across a UTF-8 char boundary, panicking at
+  `core::str::slice_error_fail`. Discovered by the
+  `cargo-fuzz toml_config` target running against the v1.0-cycle
+  main push — the v0.4 Phase-4 cargo-fuzz scaffold paying off.
+  `parse_hex_color` now gates on `hex.is_ascii()` ahead of the
+  byte-range slices, returning a clean `Err("hex colour must be
+  ASCII, got ...")` surfaced through the TOML deserialiser.
+  Regression test `color_hex_non_ascii_errors` pins the shape
+  directly. Marked semver-break-class for visibility even though
+  panics aren't part of the SemVer contract; previously-panicking
+  inputs are not in any documented theme.
+
 ## [1.0.0] - 2026-05-31
 
 Theme: **Stability commitment.** No code changes from v0.4.0 (`664aba0`).
