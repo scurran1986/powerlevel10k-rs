@@ -18,16 +18,32 @@ green on stable Rust **1.88**.
 
 ## Build / test / lint
 
+The canonical sweep is `./gates.sh` — runs the full CI main-push matrix
+locally with exit-code-safe execution (no `cargo X | tail` pipe-mask
+trap). Default mirrors CI's fast gates in ~2 min on a warm cache;
+`--slow` adds miri + `cargo-semver-checks`.
+
 ```bash
-cargo build --workspace
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all -- --check
-cargo doc --no-deps --workspace --locked
+./gates.sh            # fast gates (fmt / build / clippy / test / doc / deny / machete)
+./gates.sh --slow     # + miri + semver-checks (~5–10 min more)
 ```
 
-CI runs the same on Ubuntu + macOS. Don't ship a slice without all five
-clean.
+The individual commands behind those gates, in CI-execution order:
+
+```bash
+cargo fmt --all -- --check
+cargo build --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --locked
+cargo deny check
+cargo machete
+```
+
+CI runs the same on Ubuntu + macOS. Don't ship a slice without `./gates.sh`
+clean. **Never** declare gates green from a `cargo X | tail` output — that
+pipe swallows cargo's exit code and the v1.0 swarm walked into it again
+even though it's gotcha #1 in `STATE.md`.
 
 - **Toolchain is pinned** to `1.88.0` in `rust-toolchain.toml`. Don't bump
   casually — the floor is set by transitive deps (clap_derive 4.6 needs
