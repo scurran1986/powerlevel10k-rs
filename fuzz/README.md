@@ -98,6 +98,33 @@ libFuzzer writes the failing input to `artifacts/<target>/crash-<sha>`.
   repro. Fix in a separate slice; do not couple a hotfix to a fuzz
   scaffold PR.
 
+## Findings
+
+Real bugs the scaffold has caught — kept as institutional memory so
+future contributors know the targets pull weight.
+
+### 2026-05-31 — `toml_config`: non-ASCII bytes panic the hex-colour Visitor
+
+**Status:** closed by commit `0083197`. Surfaced by the first
+v1.0.0-cycle main-push CI run; the fuzz scaffold had been live since
+v0.4 Phase 4 (`3572860`) and would have caught the same bug on v0.4.0.
+
+`parse_hex_color` in `crates/p10k-rs-config/src/lib.rs` matched on
+`hex.len()` (byte length, not char count). A 6-byte input like
+`"#5ƙa7b"` — 4 ASCII chars plus a 2-byte UTF-8 char — landed in the
+6-digit arm and tried `&hex[0..2]`, splitting the `ƙ` mid-byte and
+panicking at `core::str::slice_error_fail`.
+
+The fix gates on `hex.is_ascii()` before the byte-range slices,
+returning a clean `Err("hex colour must be ASCII, got ...")` surfaced
+through the TOML deserialiser. Regression test
+`color_hex_non_ascii_errors` pins the offending shape directly. No
+documented theme exercised the panicking input; user impact zero.
+
+The crash artifact remains at
+`fuzz/artifacts/toml_config/crash-6ab25fae2e8799c58e2e3f8c636aea47669f4627`
+if reproduction is ever needed.
+
 ## CI
 
 `.github/workflows/fuzz.yml` runs every target for `-max_total_time=60`

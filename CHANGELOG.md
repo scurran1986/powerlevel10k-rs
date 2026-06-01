@@ -62,6 +62,15 @@ shipped so the local-vs-CI gate divergence that hid them is closed.
   '1.88.0-...' toolchain". Workflow now invokes via
   `cargo +nightly miri test`. Same workaround applied in
   `gates.sh --slow`.
+- **`fix(segments)`** — `node_version` walker test
+  `walk_returns_false_when_missing` un-`#[ignore]`d via a
+  private `has_package_json_bounded` helper. The test had been
+  flaky on developer machines with a stray `/tmp/package.json`
+  because the walk reached `/tmp` and tripped on it. Production
+  behaviour unchanged (callers still pass `None` for `stop_at`);
+  test passes scratch's parent as the boundary. Closes the
+  `/tmp/package.json` gotcha (#2 in STATE.md). Test count
+  684 → 685 passing; ignored 3 → 2.
 
 ### Security
 
