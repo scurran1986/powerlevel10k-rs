@@ -85,7 +85,7 @@ sha2 = "0.10"
 # phase 4 (ahead/behind) will add `features = ["revision"]`.
 # Bumped as a single dep — gitoxide is pre-1.0 so version is
 # exact-pinned and bumps are reviewed.
-gix = { version = "=0.83.0", default-features = false, features = ["sha1", "status"] }
+gix = { version = "=0.84.0", default-features = false, features = ["sha1", "status"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Daily-rotating file appender + non-blocking writer for the diagnostics
