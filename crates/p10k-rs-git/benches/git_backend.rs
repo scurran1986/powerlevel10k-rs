@@ -47,8 +47,10 @@
 
 use std::path::PathBuf;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+// criterion 0.7 deprecated its own `black_box` in favour of `std::hint::black_box`.
+use criterion::{criterion_group, criterion_main, Criterion};
 use p10k_rs_git::{Backend as _, GixBackend, ShellOut};
+use std::hint::black_box;
 
 /// Walk two parent directories from this crate's manifest dir to
 /// reach the workspace root. The bench targets the *workspace's*
