@@ -118,7 +118,12 @@ impl Segment for Context {
             plain_len,
             state: Some(state),
             icon: Some(DEFAULT_ICON),
-            background: Some(default_bg),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                Some(state),
+                default_bg,
+            )),
         }
     }
 }

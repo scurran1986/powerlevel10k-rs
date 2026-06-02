@@ -75,7 +75,12 @@ impl Segment for Terraform {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("magenta".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("magenta".into()),
+            )),
         }
     }
 }

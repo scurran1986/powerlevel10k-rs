@@ -309,7 +309,12 @@ fn render_payload(ctx: &RenderCtx<'_>, payload: &AiStatusPayload) -> SegmentOutp
         plain_len,
         state: None,
         icon: Some(DEFAULT_ICON),
-        background: Some(Color::Named("magenta".into())),
+        background: Some(style::resolve_bg(
+            ctx.config,
+            "ai_status",
+            None,
+            Color::Named("magenta".into()),
+        )),
     }
 }
 

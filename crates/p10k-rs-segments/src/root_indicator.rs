@@ -62,7 +62,12 @@ impl Segment for RootIndicator {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("red".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("red".into()),
+            )),
         }
     }
 }

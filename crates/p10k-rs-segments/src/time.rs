@@ -53,7 +53,12 @@ impl Segment for Time {
             plain_len: 10, // "X HH:MM:SS" — icon glyph (1) + space (1) + 8 chars
             state: None,
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("brightblack".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("brightblack".into()),
+            )),
         }
     }
 }

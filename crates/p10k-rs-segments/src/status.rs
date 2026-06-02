@@ -62,7 +62,12 @@ impl Segment for Status {
             plain_len,
             state: Some("error"),
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("red".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                Some(state_tag),
+                Color::Named("red".into()),
+            )),
         }
     }
 }
