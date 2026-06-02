@@ -34,6 +34,13 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+    # dtolnay/rust-toolchain is tagged by *Rust version*, not action
+    # semver: `@1.88.0` deliberately pins the MSRV gate to Rust 1.88.0.
+    # Dependabot misreads those tags as releases and "bumps" the pin to
+    # a nonexistent toolchain (e.g. 1.100.0 → 404). Ignore it; the MSRV
+    # ref is moved by hand when the policy floor changes.
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       patch-and-minor:
         update-types: [patch, minor]
