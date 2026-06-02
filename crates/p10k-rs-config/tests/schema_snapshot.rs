@@ -103,12 +103,20 @@ impl<'a> SortedAi<'a> {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "insta::get_cargo_workspace shells out to `cargo metadata`; outside the miri syscall-free scope per workflows/miri.yml"
+)]
 fn config_default_is_frozen() {
     let cfg = Config::default();
     insta::assert_yaml_snapshot!(SortedConfig::from(&cfg));
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "insta::get_cargo_workspace shells out to `cargo metadata`; outside the miri syscall-free scope per workflows/miri.yml"
+)]
 fn config_kitchen_sink_is_frozen() {
     let src = include_str!("../../../themes/lean.toml");
     let cfg = Config::from_toml(src).expect("lean theme parses");
