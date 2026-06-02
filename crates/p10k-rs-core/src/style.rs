@@ -60,6 +60,19 @@ pub fn render_bg(
     sgr_bg(&color, config.colors)
 }
 
+/// Resolve a segment's background to a [`Color`], honouring config
+/// overrides — the colour itself, not the SGR escape [`render_bg`] emits.
+///
+/// Precedence matches [`render_bg`]. Segments must stash *this* value in
+/// [`SegmentOutput::background`](crate::SegmentOutput) rather than the raw
+/// default: the powerline-separator renderer reads that field to colour
+/// the chevron between adjacent chips, so a hardcoded default there leaves
+/// the separator mismatched whenever a theme overrides the chip colour.
+#[must_use]
+pub fn resolve_bg(config: &Config, segment: &str, state: Option<&str>, default: Color) -> Color {
+    resolve(config, segment, state, Side::Bg, default)
+}
+
 /// Resolve a segment's icon glyph, honouring per-state and per-segment
 /// overrides.
 ///
@@ -448,6 +461,46 @@ mod tests {
         let bg = render_bg(&cfg, "dir", None, Color::Named("black".into()));
         assert_eq!(fg, "\x1b[38;5;1m");
         assert_eq!(bg, "\x1b[48;5;4m");
+    }
+
+    #[test]
+    fn resolve_bg_returns_override_color_not_default() {
+        // The powerline separator reads `SegmentOutput.background` (a
+        // `Color`), not the SGR string `render_bg` emits. `resolve_bg`
+        // must return the config-resolved colour so separators match the
+        // chip — the bug was segments stashing the hardcoded default in
+        // `out.background`, leaving rainbow chevrons between overridden
+        // chips.
+        let cfg = cfg_with(
+            "schema_version = 1\n\
+             [segment.dir]\n\
+             background = \"red\"\n",
+        );
+        let bg = resolve_bg(&cfg, "dir", None, Color::Named("blue".into()));
+        assert_eq!(bg, Color::Named("red".into()));
+    }
+
+    #[test]
+    fn resolve_bg_falls_back_to_default_without_override() {
+        let cfg = cfg_with("schema_version = 1\n");
+        let bg = resolve_bg(&cfg, "dir", None, Color::Named("blue".into()));
+        assert_eq!(bg, Color::Named("blue".into()));
+    }
+
+    #[test]
+    fn resolve_bg_honours_state_override() {
+        let cfg = cfg_with(
+            "schema_version = 1\n\
+             [segment.vcs]\n\
+             background = \"yellow\"\n\
+             [segment.vcs.states.dirty]\n\
+             background = \"magenta\"\n",
+        );
+        let dirty = resolve_bg(&cfg, "vcs", Some("dirty"), Color::Named("green".into()));
+        let clean = resolve_bg(&cfg, "vcs", Some("clean"), Color::Named("green".into()));
+        assert_eq!(dirty, Color::Named("magenta".into()));
+        // No "clean" state override → segment-level "yellow" wins.
+        assert_eq!(clean, Color::Named("yellow".into()));
     }
 
     #[test]

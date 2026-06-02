@@ -91,7 +91,12 @@ impl Segment for Dir {
             plain_len,
             state: Some(state_tag),
             icon: Some(default_icon),
-            background: Some(default_bg),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                Some(state_tag),
+                default_bg,
+            )),
         }
     }
 }
@@ -585,6 +590,26 @@ mod tests {
             out.text
         );
         assert_eq!(out.background, Some(Color::Named("blue".into())));
+    }
+
+    #[test]
+    fn background_override_reaches_output_for_separator() {
+        // Regression: the powerline-separator renderer colours the
+        // chevron between chips from `SegmentOutput.background`. A theme
+        // overriding the dir chip colour must see that override in
+        // `out.background`, not the hardcoded "blue" default — otherwise
+        // the separator keeps the old colour and rainbow triangles show
+        // between overridden chips.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [segment.dir]\n\
+             background = \"red\"\n",
+        )
+        .unwrap();
+        let env = EnvSnapshot::default();
+        let path = writable_scratch();
+        let out = Dir.render(&ctx(&cfg, &env, &path));
+        assert_eq!(out.background, Some(Color::Named("red".into())));
     }
 
     #[test]

@@ -71,7 +71,12 @@ impl Segment for Anaconda {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("green".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("green".into()),
+            )),
         }
     }
 }

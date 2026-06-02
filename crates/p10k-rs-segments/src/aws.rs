@@ -72,7 +72,12 @@ impl Segment for Aws {
             plain_len,
             state: None,
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("yellow".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("yellow".into()),
+            )),
         }
     }
 }

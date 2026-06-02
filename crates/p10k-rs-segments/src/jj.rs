@@ -134,7 +134,12 @@ impl Segment for Jj {
             plain_len,
             state: Some(state),
             icon: Some(DEFAULT_ICON),
-            background: Some(Color::Named("green".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                Some(state),
+                Color::Named("green".into()),
+            )),
         }
     }
 }

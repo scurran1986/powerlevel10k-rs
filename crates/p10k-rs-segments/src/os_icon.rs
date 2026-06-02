@@ -81,7 +81,12 @@ impl Segment for OsIcon {
             plain_len: 1,
             state: None,
             icon: None,
-            background: Some(Color::Named("brightblack".into())),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                None,
+                Color::Named("brightblack".into()),
+            )),
         }
     }
 }

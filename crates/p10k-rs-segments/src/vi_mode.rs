@@ -72,7 +72,12 @@ impl Segment for ViMode {
             plain_len,
             state: Some(state_tag),
             icon: Some(DEFAULT_ICON),
-            background: Some(default_bg),
+            background: Some(style::resolve_bg(
+                ctx.config,
+                self.name(),
+                Some(state_tag),
+                default_bg,
+            )),
         }
     }
 }
