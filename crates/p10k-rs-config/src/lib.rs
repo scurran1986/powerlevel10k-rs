@@ -1358,6 +1358,10 @@ left = ["dir"]
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "creates tempfiles; outside the miri syscall-free scope per workflows/miri.yml"
+    )]
     fn load_default_falls_back_on_parse_error() {
         let _guard = P10K_RS_CONFIG_ENV_LOCK
             .lock()
@@ -1392,6 +1396,10 @@ left = ["dir"]
 
     #[test]
     #[cfg(unix)]
+    #[cfg_attr(
+        miri,
+        ignore = "uses real file ownership checks; outside the miri syscall-free scope per workflows/miri.yml"
+    )]
     fn load_from_path_accepts_owner_only_0o600() {
         // Happy path: a config we own at mode 0o600 (`chmod 600`) loads
         // cleanly. The cap is 0o644, so 0o600 is comfortably under it.
@@ -1408,6 +1416,10 @@ left = ["dir"]
 
     #[test]
     #[cfg(unix)]
+    #[cfg_attr(
+        miri,
+        ignore = "uses real file ownership checks; outside the miri syscall-free scope per workflows/miri.yml"
+    )]
     fn load_from_path_accepts_owner_only_0o644() {
         // 0o644 is the realistic "umask 022" default for files dropped
         // into ~/.config. Must pass.
@@ -1424,6 +1436,10 @@ left = ["dir"]
 
     #[test]
     #[cfg(unix)]
+    #[cfg_attr(
+        miri,
+        ignore = "uses real file ownership checks; outside the miri syscall-free scope per workflows/miri.yml"
+    )]
     fn load_from_path_refuses_world_writable() {
         // World-writable (0o666 or 0o646) must trip Insecure. The
         // attacker would otherwise edit the config and steer the
