@@ -167,6 +167,10 @@ const ANSI8_BG_TABLE: [&str; 10] = [
 /// derefs and `Display`s like a `&str`.
 #[must_use]
 pub fn sgr_fg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
+    // `Color::None` foreground means "terminal default" — same as a reset.
+    if matches!(color, Color::None) {
+        return Cow::Borrowed(reset_fg());
+    }
     match (resolve_to_palette(color, mode), mode) {
         (Palette::Ansi8(n), _) => {
             Cow::Borrowed(ANSI8_FG_TABLE.get(n as usize).copied().unwrap_or(""))
@@ -179,6 +183,11 @@ pub fn sgr_fg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
 /// Background counterpart to [`sgr_fg`].
 #[must_use]
 pub fn sgr_bg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
+    // `Color::None` background paints no chip — emit nothing so the
+    // segment text rides the terminal's own background (lean rendering).
+    if matches!(color, Color::None) {
+        return Cow::Borrowed("");
+    }
     match (resolve_to_palette(color, mode), mode) {
         (Palette::Ansi8(n), _) => {
             Cow::Borrowed(ANSI8_BG_TABLE.get(n as usize).copied().unwrap_or(""))
@@ -212,6 +221,10 @@ fn resolve_to_palette(color: &Color, mode: ColorMode) -> Palette {
         // `ColorMode` is `#[non_exhaustive]`; future variants degrade to
         // Ansi256 as the safe default.
         (Color::Rgb([r, g, b]), _) => Palette::Ansi256(rgb_to_256(*r, *g, *b)),
+        // `sgr_fg`/`sgr_bg` short-circuit `Color::None` before calling
+        // this, so this arm is unreachable in practice; map to the
+        // "default" slot (code 9 → `\x1b[39m`/`\x1b[49m`) for safety.
+        (Color::None, _) => Palette::Ansi8(9),
     }
 }
 
@@ -461,6 +474,21 @@ mod tests {
         let bg = render_bg(&cfg, "dir", None, Color::Named("black".into()));
         assert_eq!(fg, "\x1b[38;5;1m");
         assert_eq!(bg, "\x1b[48;5;4m");
+    }
+
+    #[test]
+    fn sgr_bg_none_emits_nothing() {
+        // `Color::None` background paints no chip — the SGR is empty so
+        // the segment text rides the terminal's own background.
+        assert_eq!(sgr_bg(&Color::None, ColorMode::TrueColor), "");
+        assert_eq!(sgr_bg(&Color::None, ColorMode::Ansi8), "");
+    }
+
+    #[test]
+    fn sgr_fg_none_falls_back_to_default_fg() {
+        // `Color::None` foreground means "terminal default" — same byte
+        // sequence as `reset_fg`.
+        assert_eq!(sgr_fg(&Color::None, ColorMode::TrueColor), reset_fg());
     }
 
     #[test]

@@ -395,8 +395,7 @@ pub struct StateOverrides {
 /// (`Color::Named("blue".into())` becomes `Cow::Borrowed("blue")` via
 /// `From<&'static str>`). User-supplied values from TOML deserialize as
 /// `Cow::Owned` and behave like a `String` — same memory cost, same API.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Color {
     /// Named color (Powerlevel9k compat).
     Named(Cow<'static, str>),
@@ -404,6 +403,31 @@ pub enum Color {
     Indexed(u8),
     /// Truecolor `[r, g, b]`.
     Rgb([u8; 3]),
+    /// Explicit "no colour" — the string `"none"` in TOML. As a
+    /// `background` it opts the segment out of the chip fill so the
+    /// renderer draws no powerline arrow around it (lean rendering); as
+    /// a `foreground` it resolves to the terminal default. Distinct from
+    /// an *absent* colour, which falls back to the segment's built-in
+    /// default.
+    None,
+}
+
+// Hand-written `Serialize` (the derive can't emit the untagged inner
+// values *and* spell `None` as the string `"none"`). Mirrors the
+// `Deserialize` visitor: name → string, index → int, rgb → array,
+// `None` → `"none"`.
+impl Serialize for Color {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Color::Named(name) => serializer.serialize_str(name),
+            Color::Indexed(i) => serializer.serialize_u8(*i),
+            Color::Rgb(rgb) => rgb.serialize(serializer),
+            Color::None => serializer.serialize_str("none"),
+        }
+    }
 }
 
 /// Parse a hex colour literal. Accepts `#rgb` (shorthand) and `#rrggbb`
@@ -475,6 +499,9 @@ impl<'de> Deserialize<'de> for Color {
             where
                 E: serde::de::Error,
             {
+                if s == "none" {
+                    return Ok(Color::None);
+                }
                 match parse_hex_color(s).map_err(E::custom)? {
                     Some(rgb) => Ok(Color::Rgb(rgb)),
                     None => Ok(Color::Named(Cow::Owned(s.to_owned()))),
@@ -485,6 +512,9 @@ impl<'de> Deserialize<'de> for Color {
             where
                 E: serde::de::Error,
             {
+                if s == "none" {
+                    return Ok(Color::None);
+                }
                 match parse_hex_color(&s).map_err(E::custom)? {
                     Some(rgb) => Ok(Color::Rgb(rgb)),
                     None => Ok(Color::Named(Cow::Owned(s))),
@@ -1622,6 +1652,26 @@ left = ["dir"]
             parse_color("\"wheat4\""),
             Color::Named(Cow::Owned("wheat4".to_owned()))
         );
+    }
+
+    #[test]
+    fn color_none_parses_to_none_variant() {
+        // `background = "none"` opts a segment out of the chip fill. It
+        // must parse to the dedicated `Color::None`, not the literal
+        // `Color::Named("none")` (which would resolve to a bogus colour).
+        assert_eq!(parse_color("\"none\""), Color::None);
+    }
+
+    #[test]
+    fn color_none_round_trips_through_serialize() {
+        // The schema snapshot + any config re-emission must round-trip
+        // `Color::None` back to the string `"none"`, not `null`.
+        #[derive(serde::Serialize)]
+        struct Wrap {
+            c: Color,
+        }
+        let s = toml::to_string(&Wrap { c: Color::None }).expect("serialize");
+        assert_eq!(s.trim(), "c = \"none\"");
     }
 
     #[test]
