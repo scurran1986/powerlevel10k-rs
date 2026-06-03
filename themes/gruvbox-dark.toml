@@ -20,17 +20,26 @@ right = ["status", "command_execution_time", "time"]
 glyph = "╭─"
 foreground = "#83a598"      # blue
 
+# Filled segments ride a single dark "bg1" surface (#3c3836), one step
+# up from bg0, so the warm aqua/green/orange foregrounds stay high-
+# contrast and the powerline chevrons blend into one seamless dark
+# ribbon. prompt_char stays unfilled.
+
 [segment.context]
 foreground = "#fabd2f"      # yellow
+background = "#3c3836"
 
 [segment.dir]
 foreground = "#83a598"
+background = "#3c3836"
 
 [segment.vcs]
 foreground = "#b8bb26"      # green
+background = "#3c3836"
 
 [segment.vcs.states.dirty]
 foreground = "#fabd2f"
+background = "#3c3836"
 
 [segment.prompt_char]
 foreground = "#b8bb26"
@@ -40,9 +49,13 @@ foreground = "#fb4934"      # red
 
 [segment.status.states.error]
 foreground = "#fb4934"
+background = "#3c3836"
 
 [segment.command_execution_time]
 foreground = "#fe8019"      # orange
+background = "#3c3836"
 
 [segment.time]
-foreground = "#928374"      # grey
+# #928374 ("grey") is too dim on the bg1 chip; fg "#ebdbb2" reads.
+foreground = "#ebdbb2"
+background = "#3c3836"
