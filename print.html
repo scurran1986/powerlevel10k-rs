@@ -1,0 +1,3148 @@
+<!DOCTYPE HTML>
+<html lang="en" class="navy sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>powerlevel10k-rs</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Rust port and spiritual successor to Powerlevel10k. Single static binary, declarative TOML config, multi-shell prompt, with gitstatusd-class git latency as the load-bearing performance claim.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-0392ca55.css">
+        <link rel="stylesheet" href="css/chrome-fc474251.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "navy";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-d455d421.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-5eaa123e.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('navy')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">powerlevel10k-rs</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/scurran1986/powerlevel10k-rs" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p><code>powerlevel10k-rs</code> is a Rust port and spiritual successor to
+<a href="https://github.com/romkatv/powerlevel10k">Powerlevel10k</a>. A single static binary, declarative TOML config,
+multi-shell prompt, with <code>gitstatusd</code>-class git latency as the
+load-bearing performance claim.</p>
+<p>Upstream Powerlevel10k appears unmaintained per its own issue tracker.
+That is exactly why this project exists. The original gave a generation
+of shell users instant prompts, transient prompts, show-on-command, and
+sub-millisecond git status; this port keeps that feature set on a stack
+that can ship binaries, run on stable Rust, and pull conservative
+dependencies.</p>
+<p>The architecture is deliberately boring. The render pipeline is pure
+and I/O-free (<code>p10k-rs-core</code>); the schema is data only (<code>p10k-rs-config</code>);
+the only crate with an <code>unsafe</code> budget is the git backend
+(<code>p10k-rs-git</code>), which talks to a long-lived <code>gitstatusd</code> daemon over
+FIFOs per <a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/adr/0001-git-backend.md">ADR-0001</a>. Anything attacker-controlled — branch names,
+cwd, segment icons from TOML — passes through <code>SafeText</code> before it hits
+the prompt.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="quick-start"><a class="header" href="#quick-start">Quick start</a></h1>
+<p>One line. Clones the repo to <code>~/.local/share/powerlevel10k-rs</code>, builds
+the binary, wires zsh:</p>
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/scurran1986/powerlevel10k-rs/main/get.sh | bash
+</code></pre>
+<p>Open a new zsh terminal — the prompt is live.</p>
+<blockquote>
+<p><strong>WSL2 + Windows Terminal users:</strong> if segment icons render as <code>◆</code>
+diamonds while the <code>▶</code> chevrons look fine, you need a Nerd Font
+installed on the <strong>Windows</strong> side. See
+<a href="#wsl2--windows-terminal">WSL2 + Windows Terminal</a>.</p>
+</blockquote>
+<p>Requirements: <code>cargo</code> (install via <a href="https://rustup.rs">rustup</a>), <code>zsh</code>,
+<code>git</code>, <code>curl</code>. The installer drops the binary at <code>~/.cargo/bin/p10k-rs</code>,
+appends an <code>eval "$(p10k-rs init zsh)"</code> line to <code>~/.zshrc</code>, and
+symlinks <code>gitstatusd</code> next to the binary if a canonical install is on
+<code>PATH</code> (otherwise the slow <code>git</code> shell-out fallback kicks in).</p>
+<p>Re-piping the same command upgrades an existing install. To uninstall:</p>
+<pre><code class="language-bash">~/.local/share/powerlevel10k-rs/install.sh --uninstall
+</code></pre>
+<h2 id="install-flags"><a class="header" href="#install-flags">Install flags</a></h2>
+<p>The underlying <code>install.sh</code> accepts a few overrides:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>--shell zsh</code></td><td>Explicit shell selection (default <code>zsh</code>; only <code>zsh</code> is wired today)</td></tr>
+<tr><td><code>--no-rc</code></td><td>Build + install binary, leave the shell rc file alone</td></tr>
+<tr><td><code>--no-build</code></td><td>Skip the <code>cargo build</code> step (use an existing binary)</td></tr>
+<tr><td><code>--uninstall</code></td><td>Reverse: remove the rc line and the binary</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>fish</code> and <code>bash</code> init scripts ship but their installer wiring lands in
+a later slice — see <a href="#per-shell-init">Per-shell init</a> for what
+each shell currently supports.</p>
+<h2 id="importing-an-existing-powerlevel10k-config"><a class="header" href="#importing-an-existing-powerlevel10k-config">Importing an existing Powerlevel10k config</a></h2>
+<pre><code class="language-bash">p10k-rs import ~/.p10k.zsh &gt; ~/.config/p10k-rs/config.toml
+</code></pre>
+<p>Best-effort textual translation — does not execute your zsh config.
+Unrecognised variables are reported to stderr.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wsl2--windows-terminal"><a class="header" href="#wsl2--windows-terminal">WSL2 + Windows Terminal</a></h1>
+<p>If you run <code>p10k-rs</code> inside a WSL2 distro with Windows Terminal as the
+emulator, segment icons (user, folder, branch glyphs) can render as <code>◆</code>
+placeholder diamonds even though the Powerline chevrons between
+segments (<code>▶</code>) render fine. This page is the fix.</p>
+<h2 id="the-symptom"><a class="header" href="#the-symptom">The symptom</a></h2>
+<p>The diagnostic signature is <strong>chevrons render, icons don’t</strong>:</p>
+<ul>
+<li><code>▶</code> between segments — correct.</li>
+<li><code>◆</code> (a hollow/filled diamond) where the folder, branch, or user icon
+should be — wrong. The terminal is drawing the Unicode replacement
+glyph because it can’t find the codepoint in any installed font.</li>
+</ul>
+<p>If both chevrons <em>and</em> icons are broken, you have a different problem
+(no Powerline-aware font at all). This page targets the
+chevrons-yes-icons-no case specifically.</p>
+<h2 id="why-it-happens"><a class="header" href="#why-it-happens">Why it happens</a></h2>
+<p>Windows Terminal is a Windows process. WSL2 runs your shell inside a
+Linux VM, but the rendering is done by the Windows-side terminal,
+which only sees fonts installed on Windows. Fonts you have installed
+<em>inside</em> the WSL distro are invisible to it.</p>
+<p>Most “Powerline” fonts that ship on Windows by default include the
+Powerline private-use range (<code>U+E0A0</code>–<code>U+E0BF</code>) — that’s why chevrons
+work — but <strong>not</strong> the broader Nerd Font icon set
+(<code>U+E5FA</code>–<code>U+F2FF</code> and friends) that <code>p10k-rs</code> segments use for
+folder, branch, language, and host glyphs.</p>
+<p>Installing the font inside WSL does nothing. The font has to live on
+the Windows side.</p>
+<h2 id="the-fix"><a class="header" href="#the-fix">The fix</a></h2>
+<p>Four steps. Five minutes.</p>
+<h3 id="1-download-meslolgs-nf"><a class="header" href="#1-download-meslolgs-nf">1. Download MesloLGS NF</a></h3>
+<p>Grab the four <code>.ttf</code> files from the upstream Powerlevel10k media repo:</p>
+<p><a href="https://github.com/romkatv/powerlevel10k-media">https://github.com/romkatv/powerlevel10k-media</a></p>
+<ul>
+<li><code>MesloLGS NF Regular.ttf</code></li>
+<li><code>MesloLGS NF Bold.ttf</code></li>
+<li><code>MesloLGS NF Italic.ttf</code></li>
+<li><code>MesloLGS NF Bold Italic.ttf</code></li>
+</ul>
+<p>Download them to the Windows side (not inside WSL).</p>
+<h3 id="2-install-on-windows"><a class="header" href="#2-install-on-windows">2. Install on Windows</a></h3>
+<p>Right-click each <code>.ttf</code> in Windows Explorer and pick
+<strong>Install for all users</strong>. Per-user install also works; system-wide
+avoids surprises if multiple Windows accounts hit the same WSL distro.</p>
+<h3 id="3-point-windows-terminal-at-the-font"><a class="header" href="#3-point-windows-terminal-at-the-font">3. Point Windows Terminal at the font</a></h3>
+<p>Open Windows Terminal → <strong>Settings</strong> → <strong>Open JSON file</strong>. Add or
+edit the <code>defaults</code> profile font face:</p>
+<pre><code class="language-json">"profiles": {
+  "defaults": {
+    "font": { "face": "MesloLGS NF" }
+  }
+}
+</code></pre>
+<p>Save. The GUI settings panel also exposes this under
+<strong>Profiles → Defaults → Appearance → Font face</strong>, but editing
+<code>settings.json</code> is faster and survives terminal upgrades cleanly.</p>
+<h3 id="4-restart-windows-terminal"><a class="header" href="#4-restart-windows-terminal">4. Restart Windows Terminal</a></h3>
+<p>Close every Windows Terminal window. Reopen. The icons should now
+render.</p>
+<h2 id="alternative-nerd-fonts"><a class="header" href="#alternative-nerd-fonts">Alternative Nerd Fonts</a></h2>
+<p>MesloLGS NF is the path of least resistance because it’s the font the
+upstream prompt and most screenshots assume, but any <strong>Nerd Font v3</strong>
+(or later) covers the same codepoint range:</p>
+<ul>
+<li>FiraCode Nerd Font</li>
+<li>JetBrainsMono Nerd Font</li>
+<li>Hack Nerd Font</li>
+</ul>
+<p>Earlier Nerd Font releases (v2.x) ship a narrower icon set and may
+still leave some <code>p10k-rs</code> glyphs as <code>◆</code>. If you’re picking a font in
+2026, pick v3.</p>
+<h2 id="verification"><a class="header" href="#verification">Verification</a></h2>
+<p>Render the prompt once without sourcing it into your shell:</p>
+<pre><code class="language-bash">p10k-rs prompt --shell zsh
+</code></pre>
+<p>Folder and branch icons should render properly. If you still see <code>◆</code>,
+double-check that Windows Terminal actually picked up the font (the
+font name in <code>settings.json</code> must match the family name exactly —
+“MesloLGS NF”, not “Meslo LGS NF” or “MesloLGS Nerd Font”).</p>
+<blockquote>
+<p>A future <code>p10k-rs doctor</code> subcommand (v0.2) will auto-detect the
+WSL + Windows Terminal combination and warn when icons in the
+active config aren’t covered by any reachable font. Until then,
+verification is manual.</p>
+</blockquote>
+<h2 id="other-terminals-on-windows"><a class="header" href="#other-terminals-on-windows">Other terminals on Windows</a></h2>
+<p>Same fix pattern, different settings location:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Terminal</th><th>Where to set the font</th></tr>
+</thead>
+<tbody>
+<tr><td>Alacritty</td><td><code>font.normal.family</code> in <code>alacritty.toml</code></td></tr>
+<tr><td>WezTerm</td><td><code>font = wezterm.font("MesloLGS NF")</code> in <code>~/.wezterm.lua</code></td></tr>
+<tr><td>VS Code integrated terminal</td><td><code>terminal.integrated.fontFamily</code> in <code>settings.json</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The font still has to be installed on Windows in all three cases for
+the same reason — these are Windows processes rendering a Linux
+shell’s output.</p>
+<h2 id="linux-and-macos-users"><a class="header" href="#linux-and-macos-users">Linux and macOS users</a></h2>
+<p>Not relevant. Native Linux and macOS terminals load fonts from the
+same OS the shell runs on, so installing the font once (via your
+package manager, Homebrew cask, or <code>~/.local/share/fonts</code>) is enough.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="windows-status"><a class="header" href="#windows-status">Windows status</a></h1>
+<p>v0.2.4 ships Unix-only. The codebase type-checks clean against
+<code>x86_64-pc-windows-msvc</code> after a three-phase Unix-API audit, but no
+Windows binary has been released yet. Phase 4 — the PowerShell installer,
+re-enabling the release matrix, and a first Windows tag run — is the
+remaining work. This page covers what works now, what doesn’t, and how it
+gets there.</p>
+<h2 id="feature-status"><a class="header" href="#feature-status">Feature status</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>Unix</th><th>Windows</th></tr>
+</thead>
+<tbody>
+<tr><td>Prompt rendering</td><td>✅</td><td>✅</td></tr>
+<tr><td>Git status via gitstatusd daemon</td><td>✅</td><td>❌ — FIFO IPC; falls back to ShellOut</td></tr>
+<tr><td>Git status via ShellOut</td><td>✅</td><td>✅</td></tr>
+<tr><td>Git status via gix backend</td><td>✅</td><td>✅</td></tr>
+<tr><td><code>dir</code> writable probe</td><td>✅ <code>access(W_OK)</code></td><td>⚠️ <code>metadata().permissions().readonly()</code> — coarse</td></tr>
+<tr><td><code>context</code> privilege awareness</td><td>✅ euid check</td><td>❌ — no euid equivalent; UAC is a different model</td></tr>
+<tr><td><code>root_indicator</code> segment</td><td>✅</td><td>❌ — same reason as above</td></tr>
+<tr><td>DECSET 2026 synchronized output probe</td><td>✅</td><td>❌</td></tr>
+<tr><td>OSC 4 truecolor palette probe</td><td>✅</td><td>❌</td></tr>
+<tr><td><code>terminal_width</code> ioctl probe</td><td>✅</td><td>❌ — falls through to <code>$COLUMNS</code> or 80</td></tr>
+<tr><td>Config file TOCTOU safety (<code>open_owned_safely</code>)</td><td>✅</td><td>⚠️ — reduced to plain <code>File::open</code>; ACL probe is a future slice</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="why-this-state"><a class="header" href="#why-this-state">Why this state</a></h2>
+<p><code>p10k-rs-core</code> historically depended unconditionally on
+<code>rustix::termios</code>, <code>std::os::fd::AsFd</code>, and <code>rustix::process::geteuid</code>
+— all Unix-only APIs. Phases 1–3 of the portability milestone audited
+every call site and wrapped them behind <code>#[cfg(unix)]</code> / <code>#[cfg(windows)]</code>
+guards, so the workspace now cross-compiles without errors. Phase 4
+(installer + release-matrix re-enable + first tag run) ships the actual
+binary.</p>
+<h2 id="building-from-source-today"><a class="header" href="#building-from-source-today">Building from source today</a></h2>
+<p>If you want to try the prompt on Windows now:</p>
+<pre><code class="language-pwsh">rustup target add x86_64-pc-windows-msvc
+cargo build --release --workspace --target x86_64-pc-windows-msvc
+</code></pre>
+<p>The binary at <code>target\x86_64-pc-windows-msvc\release\p10k-rs.exe</code> will
+render prompts. The daemon-fast git path and terminal-capability probes
+won’t work (see the table above), but the prompt itself renders correctly.</p>
+<h2 id="roadmap-to-a-shipped-windows-binary"><a class="header" href="#roadmap-to-a-shipped-windows-binary">Roadmap to a shipped Windows binary</a></h2>
+<p>Phase 4 items, in order:</p>
+<ol>
+<li><strong><code>install.ps1</code></strong> — PowerShell installer parallel to the existing
+<code>install.sh</code></li>
+<li><strong>Re-enable the release matrix</strong> — the <code>x86_64-pc-windows-msvc</code> entries
+in <code>.github/workflows/release.yml</code> are scaffolded but inert; a one-line
+matrix edit re-enables them</li>
+<li><strong>First Windows tag run</strong> — validates <code>Compress-Archive</code>,
+<code>Get-FileHash</code>, and sigstore signing on <code>windows-latest</code></li>
+</ol>
+<p>No dates. Phase 4 lands when it lands.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="#wsl2--windows-terminal">WSL2 + Windows Terminal</a> — recommended path until
+the native Windows binary ships</li>
+<li><a href="#doctor-subcommand">doctor subcommand</a> — runtime self-check that
+reports which backends and probes are available</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h1>
+<p>First step for anything weird:</p>
+<pre><code class="language-sh">p10k-rs doctor
+</code></pre>
+<p>Nine probes against the common fresh-install snags. See the
+<a href="#doctor-subcommand">doctor subcommand</a> reference for what each
+check covers and what the exit codes mean.</p>
+<h2 id="common-issues"><a class="header" href="#common-issues">Common issues</a></h2>
+<h3 id="glyphs-render-as--placeholders"><a class="header" href="#glyphs-render-as--placeholders">Glyphs render as <code>◆</code> placeholders</a></h3>
+<p>A Nerd Font is required for the segment icons (folder, branch,
+python, etc.). On native Linux / macOS install MesloLGS NF (or any
+Nerd Font v3) and set it as the terminal’s primary font.</p>
+<p>On WSL2 + Windows Terminal the font has to live on the <em>Windows</em> side,
+not the WSL distro:</p>
+<pre><code class="language-sh">p10k-rs install-fonts --windows
+</code></pre>
+<p>…then set Windows Terminal → Settings → your profile → Appearance →
+Font face to <code>MesloLGS NF</code>. See
+<a href="#wsl2--windows-terminal">WSL2 + Windows Terminal</a> for the full walkthrough.</p>
+<h3 id="prompt-feels-slow-or-git-state-stops-showing"><a class="header" href="#prompt-feels-slow-or-git-state-stops-showing">Prompt feels slow or git state stops showing</a></h3>
+<p>The <code>gitstatusd</code> daemon may have wedged or crashed. Diagnose:</p>
+<pre><code class="language-sh">p10k-rs daemon-health
+</code></pre>
+<p>See <a href="#daemon-health-subcommand">daemon-health subcommand</a> for the
+status / exit-code wire. The <code>precmd</code> health-check hook respawns a
+dead or wedged daemon automatically on the next prompt; if it isn’t
+recovering, your shell init likely isn’t sourcing <code>p10k-rs init zsh</code>
+correctly — <code>p10k-rs doctor</code> flags that.</p>
+<h3 id="verify-reports-a-sha256-mismatch"><a class="header" href="#verify-reports-a-sha256-mismatch"><code>verify</code> reports a sha256 mismatch</a></h3>
+<pre><code class="language-text">MISMATCH expected=… got=…
+</code></pre>
+<p>The installed <code>gitstatusd</code> binary doesn’t match the bundled supply-chain
+pin. Either you updated <code>gitstatusd</code> independently of <code>p10k-rs</code>, or
+something on PATH is shadowing the expected binary. Re-run <code>install.sh</code>
+or set <code>$P10K_RS_GITSTATUSD_BIN</code> to the correct path. See
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/SECURITY.md">SECURITY.md</a>
+for the verification recipe.</p>
+<h3 id="config-doesnt-seem-to-take-effect"><a class="header" href="#config-doesnt-seem-to-take-effect">Config doesn’t seem to take effect</a></h3>
+<pre><code class="language-sh">p10k-rs doctor    # is `config_file_present` / `config_file_parses` OK?
+</code></pre>
+<p>The resolution order is <code>$P10K_RS_CONFIG</code> → <code>$XDG_CONFIG_HOME/p10k-rs/config.toml</code>
+→ <code>~/.config/p10k-rs/config.toml</code>. If <code>config_file_parses</code> reports
+<code>ERROR</code>, the message includes the schema error from
+<code>p10k_rs_core::Config::load_from_path</code>. Truncate to the failing field
+in <a href="#schema-full">the schema reference</a>.</p>
+<h3 id="instant-prompt-feels-wrong-after-a-terminal-switch"><a class="header" href="#instant-prompt-feels-wrong-after-a-terminal-switch">Instant prompt feels wrong after a terminal switch</a></h3>
+<p>Slice 63 embeds the sanitised <code>$TERM</code> in the instant-prompt dump
+filename (<code>dump-&lt;user&gt;-&lt;term&gt;.zsh</code>), so switching terminals
+auto-invalidates the cache. If you’re seeing stale dumps anyway, check
+that <code>$TERM</code> differs between the two terminals (some terminal
+multiplexers preserve the outer <code>TERM</code>); otherwise nuke
+<code>~/.cache/p10k-rs/dump-*</code> and let the next prompt rebuild.</p>
+<h2 id="filing-a-bug"><a class="header" href="#filing-a-bug">Filing a bug</a></h2>
+<p>Include the output of all three diagnostics — they capture everything
+the maintainer is likely to ask for:</p>
+<pre><code class="language-sh">p10k-rs version --json
+p10k-rs verify --json
+p10k-rs doctor --json
+</code></pre>
+<p>File at <a href="https://github.com/scurran1986/powerlevel10k-rs/issues">https://github.com/scurran1986/powerlevel10k-rs/issues</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="upgrading-from-v01-to-v10"><a class="header" href="#upgrading-from-v01-to-v10">Upgrading from v0.1 to v1.0</a></h1>
+<p>This page covers upgrading an existing <code>p10k-rs</code> install across the v0.1 →
+v1.0 line. The short version: there are <strong>no breaking config changes</strong> in
+the 0.x → 1.0 line. Pull the new binary, re-source the init script,
+verify with <code>p10k-rs doctor</code> — done.</p>
+<h2 id="v04--v10"><a class="header" href="#v04--v10">v0.4 → v1.0</a></h2>
+<p>No user-facing migration needed. v1.0.0 is the same code as
+v0.4.0 (<code>664aba0</code>) plus the SemVer commitment and the new
+<a href="../../STABILITY.html">STABILITY.md</a> document. If your
+<code>~/.config/p10k-rs/config.toml</code> loaded under v0.4.0 it loads under
+v1.0.0 unchanged.</p>
+<p>What changed at v1.0:</p>
+<ul>
+<li><strong>SemVer is now in force</strong> for the surfaces enumerated in
+<code>STABILITY.md</code> — the binary CLI, TOML config schema, per-shell
+init protocol, release artifacts.</li>
+<li><strong>The Rust crate API stays explicitly unstable.</strong> <code>p10k-rs</code> is
+distributed as a binary; the workspace crates are not published
+to crates.io and their Rust API may break in any release.</li>
+<li><strong>No public plugin API ships at v1.0.</strong> Deferred by design;
+when a plugin API ships it will arrive in a minor release with
+its own stability contract.</li>
+</ul>
+<p>If you ran v0.4.0 successfully, <code>git pull</code> (or your distribution
+channel’s equivalent) and re-run your shell’s init script. That’s
+it.</p>
+<h2 id="tldr"><a class="header" href="#tldr">TL;DR</a></h2>
+<pre><code class="language-sh"># 1. install the new binary (one of these, per your packaging channel)
+cargo install p10k-rs            # crates.io
+brew upgrade p10k-rs              # Homebrew
+scoop update p10k-rs              # Scoop
+# or download the signed release tarball from the Releases page
+
+# 2. rewrite the init script in your shell rc with the new binary path
+eval "$(p10k-rs init zsh)"        # or bash / fish / pwsh / nu
+
+# 3. confirm everything still works
+p10k-rs doctor
+p10k-rs daemon-health
+p10k-rs verify
+</code></pre>
+<h2 id="config-compatibility"><a class="header" href="#config-compatibility">Config compatibility</a></h2>
+<p><code>schema_version = 1</code> is the only schema the 0.x line has ever shipped.
+Every config that loads on v0.1 still loads unchanged on v0.4 —
+verified by the <code>every_bundled_theme_parses</code> round-trip in
+<code>crates/p10k-rs-config/src/lib.rs</code>. New fields are additive and
+optional; defaults match the v0.1 behaviour.</p>
+<p>If <code>p10k-rs doctor</code> reports <code>config_file_parses: ERROR</code> after the
+upgrade, the message comes straight from the schema parser — see the
+<a href="#schema-full">full schema reference</a>.</p>
+<h2 id="whats-new-since-v01"><a class="header" href="#whats-new-since-v01">What’s new since v0.1</a></h2>
+<h3 id="new-shells"><a class="header" href="#new-shells">New shells</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Shell</th><th>Landed</th><th>Activation</th></tr>
+</thead>
+<tbody>
+<tr><td><code>pwsh</code> (PowerShell 7+ / 5.1)</td><td>v0.3.0</td><td><code>&amp; p10k-rs init pwsh | Invoke-Expression</code></td></tr>
+<tr><td><code>nu</code> (Nushell 0.97+)</td><td>v0.3.x</td><td>two-step save-then-source (see below)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Nushell can’t <code>eval</code> a piped string the way pwsh’s <code>Invoke-Expression</code>
+does — its parser is static, so activation is a two-step save:</p>
+<pre><code class="language-nu">mkdir ($nu.data-dir | path join vendor autoload)
+p10k-rs init nu | save -f ($nu.data-dir | path join vendor autoload p10k-rs.nu)
+</code></pre>
+<p>Per-shell parity table and reductions live in
+<a href="#per-shell-init">Per-shell init</a>.</p>
+<h3 id="bash-transient-prompt-partial"><a class="header" href="#bash-transient-prompt-partial">bash transient prompt (partial)</a></h3>
+<p>v0.3.x wires the transient-prompt contract through bash. All four
+<code>TransientPromptMode</code> variants (<code>off</code> / <code>always</code> / <code>same-dir</code> /
+<code>unique-dir</code>) are gated by the binary the same way they are in zsh and
+fish.</p>
+<p><strong>Caveat:</strong> bash exposes no reliable prompt-height count, so the cursor
+redraw only collapses <strong>single-row</strong> prompts with single-line input.
+Multi-row or soft-wrapped prompts decline to collapse and keep the full
+ribbon in scrollback — the same visible outcome as a KeepPrompt fall-
+through. The contract is honoured; only the terminal redraw is
+conservative. See the <a href="#per-shell-init">Per-shell init</a> parity
+table.</p>
+<h3 id="new-segment-visibility-gate-show_on_upglob"><a class="header" href="#new-segment-visibility-gate-show_on_upglob">New segment-visibility gate: <code>show_on_upglob</code></a></h3>
+<p>Joins <code>show_on_command</code> and <code>show_in_dir</code> as the third show-* gate.
+Walks the cwd’s ancestor directories (lexical, symlink-cycle-immune)
+and shows the segment when any ancestor entry’s basename matches a
+glob:</p>
+<pre><code class="language-toml">[segment.node_version]
+show_on_upglob = ["package.json", "*.lock"]
+</code></pre>
+<h3 id="new-diagnostics-cli"><a class="header" href="#new-diagnostics-cli">New diagnostics CLI</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Subcommand</th><th>Landed</th><th>Reference</th></tr>
+</thead>
+<tbody>
+<tr><td><code>p10k-rs doctor</code></td><td>v0.2.3</td><td><a href="#doctor-subcommand">doctor</a></td></tr>
+<tr><td><code>p10k-rs daemon-health</code></td><td>v0.1.8</td><td><a href="#daemon-health-subcommand">daemon-health</a></td></tr>
+<tr><td><code>p10k-rs verify</code></td><td>v0.1.5</td><td><a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/SECURITY.md">SECURITY.md</a></td></tr>
+<tr><td><code>p10k-rs version --json</code></td><td>v0.2.1</td><td>—</td></tr>
+<tr><td><code>p10k-rs prompt --json</code></td><td>v0.2.2</td><td><a href="#prompt---json-payload">prompt –json schema</a></td></tr>
+</tbody>
+</table>
+</div>
+<p>All five accept <code>--json</code> and emit a stable wire format. They’re the
+first things to reach for after an upgrade — or when filing a bug.</p>
+<h3 id="supply-chain--platform"><a class="header" href="#supply-chain--platform">Supply chain + platform</a></h3>
+<ul>
+<li><strong>Windows port closed</strong> at v0.2.6. <code>install.ps1</code> ships; the release
+pipeline produces signed <code>x86_64-pc-windows-msvc</code> and
+<code>aarch64-pc-windows-msvc</code> zips. Per-feature reductions are tabled at
+<a href="#windows-status">Windows status</a>.</li>
+<li><strong>Sigstore-signed releases.</strong> Every release artifact has a
+<code>*.cosign.bundle</code> sidecar and a <code>*.sha256</code>. SLSA build-provenance
+attestations are attached to the GitHub Release. See
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/SECURITY.md">SECURITY.md</a>
+for the verify recipe.</li>
+<li><strong><code>#![forbid(unsafe_code)]</code> on every crate.</strong> The whole workspace
+compiles with zero <code>unsafe</code> blocks — the historical “git crate has
+the unsafe budget” carve-out is gone.</li>
+</ul>
+<h3 id="internal-change-segment-authors-should-know-about"><a class="header" href="#internal-change-segment-authors-should-know-about">Internal change segment authors should know about</a></h3>
+<p><code>RenderCtx::sync_output</code> is now a producer-set field (the binary fills
+it from the <code>term_caps</code> probe) rather than a process-global lookup.
+End users feel nothing; out-of-tree code that builds against
+<code>p10k-rs-core</code> and constructs a <code>RenderCtx</code> directly needs to populate
+the new field. There is no published plugin API yet — see “Caveats”
+below.</p>
+<h2 id="upgrade-steps-in-detail"><a class="header" href="#upgrade-steps-in-detail">Upgrade steps in detail</a></h2>
+<ol>
+<li>
+<p><strong>Pull the new binary.</strong> Whatever channel you originally installed
+from. <code>cargo install p10k-rs</code> upgrades from crates.io; <code>brew upgrade</code>, <code>scoop update</code>, <code>pacman -Syu</code>, or <code>nix flake update</code> cover
+the others. The signed release tarball is the fallback.</p>
+</li>
+<li>
+<p><strong>Re-source the init script.</strong> <code>p10k-rs init &lt;shell&gt;</code> bakes the
+absolute path of the emitting binary into the script, so a binary
+move (or a packaging-channel switch) needs a re-source to pick up
+the new path. If your rc file already runs
+<code>eval "$(p10k-rs init zsh)"</code> on every shell start, you’re done.</p>
+</li>
+<li>
+<p><strong>Verify.</strong> Three commands cover everything that historically goes
+wrong on upgrade:</p>
+<pre><code class="language-sh">p10k-rs doctor          # nine probes against fresh-install snags
+p10k-rs daemon-health   # gitstatusd daemon state (zsh only)
+p10k-rs verify          # gitstatusd sha256 matches the bundled pin
+</code></pre>
+</li>
+</ol>
+<h2 id="caveats"><a class="header" href="#caveats">Caveats</a></h2>
+<ul>
+<li><strong>Plugin API: not shipped, deferred past v1.0.</strong> There is no public
+plugin surface today. The <code>Segment</code> trait uses <code>&amp;'static str</code> and
+isn’t exported as a stable extension point. v1.0 will ship without
+a frozen plugin API; it becomes an additive 1.x feature once the
+surface area is right. No 1.0 break for plugin authors — there’s
+nothing to break.</li>
+<li><strong>bash transient: single-row only</strong> (see above).</li>
+<li><strong>Nushell init unverified on a real Nushell host</strong> as of v0.3.x —
+the script passes byte-level test pins, but interactive behaviour on
+a real Nushell session is the open validation item.</li>
+</ul>
+<h2 id="rollback"><a class="header" href="#rollback">Rollback</a></h2>
+<p>Tagged releases are immutable. Reinstall any prior tag:</p>
+<pre><code class="language-sh">cargo install p10k-rs --version 0.1.10
+# or download the prior release tarball + verify the sigstore bundle
+</code></pre>
+<p>…then re-source the init script. Configs are forward- and
+backward-compatible across the 0.x line, so no config edit is needed
+to roll back.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="stability"><a class="header" href="#stability">Stability</a></h1>
+<p><code>p10k-rs</code> v1.0.0 commits to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a> for the
+surfaces below. Anything not listed here is explicitly not stable.</p>
+<h2 id="covered-by-semver"><a class="header" href="#covered-by-semver">Covered by SemVer</a></h2>
+<ul>
+<li><strong>Binary CLI.</strong> Subcommands, flags, exit codes, and stdout
+contracts of the <code>p10k-rs</code> executable: <code>prompt</code>, <code>init</code>, <code>configure</code>,
+<code>import</code>, <code>statusline</code>, <code>segment-list</code>, <code>config check</code>, <code>theme</code>,
+<code>verify</code>, <code>daemon-health</code>, <code>doctor</code>, <code>version</code>. Adding new
+subcommands / flags is non-breaking; removing or changing the
+semantics of an existing one is a major bump.</li>
+<li><strong>TOML configuration schema.</strong> Every documented field and enum
+variant under <a href="#configuration">Configuration</a> and
+<a href="#schema-full">Schema (full)</a>. Most config-facing structs
+and enums are marked <code>#[non_exhaustive]</code> so additions are
+non-breaking.</li>
+<li><strong>Per-shell init script protocol.</strong> The <code>_P10K_RS_*</code> env vars,
+<code>_p10k_rs_*</code> function names, and hook-registration order set up
+by <code>p10k-rs init &lt;shell&gt;</code> (zsh, bash, fish, pwsh, nu). Once a
+user has sourced an init script, the contract is stable.</li>
+<li><strong>Release artifacts.</strong> Sigstore-signed multi-arch binary archives
+(<code>x86_64</code>/<code>aarch64</code> Linux + macOS, <code>x86_64</code> Windows) with SBOMs
+and <code>.sig</code> / <code>.crt</code> sidecars at the GitHub release page.</li>
+</ul>
+<h2 id="explicitly-not-stable"><a class="header" href="#explicitly-not-stable">Explicitly not stable</a></h2>
+<ul>
+<li><strong>Rust crate API.</strong> The workspace crates (<code>p10k-rs</code>,
+<code>p10k-rs-core</code>, <code>p10k-rs-config</code>, …) are <strong>not</strong> published to
+crates.io and may break in any release. Consume them as a git
+dependency at your own risk.</li>
+<li><strong>Plugin API.</strong> None ships at v1.0 by design (keeping attack
+surface small was a Security-MAX goal). A plugin API may land in
+a future minor release with its own contract.</li>
+<li><strong>Internal implementation details.</strong> The <code>gitstatusd</code> wire format,
+<code>SafeText</code> field layout, instant-prompt dump file format, the
+<code>tracing</code> log format, and the FIFO / mktemp directory layout
+under <code>$XDG_RUNTIME_DIR/p10k-rs/</code> are all opaque.</li>
+<li><strong>AI host detection.</strong> The detectable host set
+(<code>ClaudeCode</code>, <code>Goose</code>, <code>Aider</code>, <code>Cursor</code>, <code>Warp</code>, <code>Generic</code>)
+may grow in minor releases. “Absent pending upstream” statusline
+contracts may flip to “present” without notice.</li>
+</ul>
+<h2 id="msrv-policy"><a class="header" href="#msrv-policy">MSRV policy</a></h2>
+<p>Minimum Supported Rust Version is <strong>stable − 2</strong>. v1.0.0 ships with
+MSRV <code>1.88.0</code>. MSRV bumps are not considered breaking; CI enforces
+the floor via <code>.github/workflows/msrv.yml</code>.</p>
+<h2 id="deprecation-policy"><a class="header" href="#deprecation-policy">Deprecation policy</a></h2>
+<p>Stable surfaces get one full minor release of deprecation
+(<code>#[deprecated]</code> for Rust items, runtime stderr warnings for
+CLI / TOML / init-script surfaces) before removal in a major
+release, with the deprecation logged in <code>CHANGELOG.md</code> and a
+migration recipe in <a href="#upgrading-from-v01-to-v10">Upgrading from v0.1</a>.</p>
+<h2 id="security"><a class="header" href="#security">Security</a></h2>
+<p>See <a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/SECURITY.md"><code>SECURITY.md</code></a>
+for the responsible-disclosure policy. Security fixes may ship in
+patch releases regardless of API stability commitments.</p>
+<hr>
+<p>For the canonical, more detailed version of this document — including
+the full subcommand exit-code table and the list of which config
+structs / enums carry <code>#[non_exhaustive]</code> — see
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/STABILITY.md"><code>STABILITY.md</code></a>
+at the repository root.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
+<p>Drop a TOML file at <code>~/.config/p10k-rs/config.toml</code>, or point
+<code>$P10K_RS_CONFIG</code> at one. Discovery order:</p>
+<ol>
+<li><code>$P10K_RS_CONFIG</code> if set.</li>
+<li><code>$XDG_CONFIG_HOME/p10k-rs/config.toml</code>.</li>
+<li><code>$HOME/.config/p10k-rs/config.toml</code>.</li>
+</ol>
+<p>A missing or broken file falls back silently to the factory default
+(byte-identical to no-config behaviour).</p>
+<p><code>[layout].left</code> picks which segments render and in what order.
+<code>[segment.&lt;name&gt;]</code> overrides per-segment foreground / background under
+the active <code>ColorMode</code>. State-specific overrides — e.g.
+<code>[segment.vcs.states.dirty]</code> — fire when the segment tags its output
+with that state.</p>
+<pre><code class="language-toml">schema_version = 1
+
+[layout]
+left = ["dir", "vcs", "command_execution_time", "status", "prompt_char"]
+
+# Colour the cwd in red instead of the default blue.
+[segment.dir]
+foreground = "red"
+
+# Magenta branch name when the working tree is dirty;
+# yellow otherwise (the default).
+[segment.vcs.states.dirty]
+foreground = "magenta"
+</code></pre>
+<p>Colour values: a Powerlevel9k-style name (<code>"blue"</code>, <code>"brightred"</code>, …),
+an ANSI 256 index (<code>0</code>–<code>255</code>), an <code>[r, g, b]</code> triple for truecolor, or
+a hex literal (<code>"#rrggbb"</code> / <code>"#rgb"</code> shorthand) that expands per CSS
+convention (<code>"#f60"</code> ≡ <code>"#ff6600"</code>). Hex literals require <code>colors = "true-color"</code> to reach the terminal as RGB; on <code>ansi256</code> they are
+quantised to the nearest palette entry.</p>
+<pre><code class="language-toml"># All four forms are equivalent for orange:
+foreground = "orange"           # named
+foreground = 214                # ANSI 256 index
+foreground = [255, 175, 0]      # [r, g, b] triple
+foreground = "#ffaf00"          # hex literal (T1.24)
+</code></pre>
+<p>See the <a href="#schema-full">full schema reference</a> for every
+recognised field and the <a href="#segments">segments catalogue</a> for
+the per-segment knobs.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="segments"><a class="header" href="#segments">Segments</a></h1>
+<p>The runtime-authoritative list lives in
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/crates/p10k-rs-segments/src/lib.rs"><code>crates/p10k-rs-segments/src/lib.rs::segment_names()</code></a>. Every
+entry below resolves through <code>build()</code> in the same file — advertisement
+matches reality, enforced by a unit test.</p>
+<p>Each segment is a <code>pub struct</code> implementing the <code>Segment</code> trait from
+<code>p10k-rs-core</code>. Per-segment styling routes through <code>p10k_rs_core::style</code>
+so <code>[segment.&lt;name&gt;].foreground</code> / <code>.background</code> / <code>.states.&lt;tag&gt;</code>
+overrides all reach the rendered prompt.</p>
+<h2 id="always-on-mvp-spec--12"><a class="header" href="#always-on-mvp-spec--12">Always-on (MVP-SPEC § 1.2)</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>dir</code></td><td>Current working directory. Cwd painted black-on-blue, <code>$HOME</code> collapsed to <code>~</code>.</td></tr>
+<tr><td><code>prompt_char</code></td><td>Trailing chevron. Green <code>❯</code> on success, red <code>❯</code> on failure.</td></tr>
+<tr><td><code>status</code></td><td>Last command exit code, hidden on success. Shows <code>✘&lt;code&gt;</code> red on non-zero <code>$?</code>.</td></tr>
+<tr><td><code>command_execution_time</code></td><td>Duration of the last foreground command. Black-on-yellow when past the 3-second threshold.</td></tr>
+<tr><td><code>background_jobs</code></td><td>Count of suspended/running background jobs. Hidden when the shell has no jobs.</td></tr>
+<tr><td><code>time</code></td><td>Current wall-clock time in <code>HH:MM:SS</code>, white.</td></tr>
+<tr><td><code>context</code></td><td><code>user@host</code> with privilege/SSH awareness. Gated by identity render rules.</td></tr>
+<tr><td><code>vi_mode</code></td><td>Vi keymap indicator: <code>INSERT</code> / <code>NORMAL</code> / <code>VISUAL</code> / <code>OPER</code>. Reads <code>$P10K_RS_VI_MODE</code>; zsh init exports it via a future <code>zle-keymap-select</code> widget. Bash / fish don’t export it today, so the segment is effectively zsh-only until those shells gain a hook.</td></tr>
+<tr><td><code>root_indicator</code></td><td>Single red lightning glyph when EUID is 0.</td></tr>
+<tr><td><code>vcs</code></td><td>Branch name black-on-green with a trailing dirty marker. Powered by <code>gitstatusd</code> on the hot path.</td></tr>
+<tr><td><code>jj</code></td><td>Jujutsu sibling to <code>vcs</code>. Auto-hidden when not inside a <code>.jj/</code> working copy, so safe to keep in the always-on group; users who never run jj pay nothing for it. Renders change-id + bookmarks + <code>divergent</code> and <code>conflicts</code> indicators parsed from <code>jj log -T</code> (slice 62).</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="auto-detected"><a class="header" href="#auto-detected">Auto-detected</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>virtualenv</code></td><td><code>(&lt;basename&gt;)</code> yellow when <code>$VIRTUAL_ENV</code> is set.</td></tr>
+<tr><td><code>anaconda</code></td><td><code>conda:&lt;name&gt;</code> green when <code>$CONDA_DEFAULT_ENV</code> is set.</td></tr>
+<tr><td><code>pyenv</code></td><td><code>py:&lt;version&gt;</code> yellow when <code>$PYENV_VERSION</code> is set.</td></tr>
+<tr><td><code>nodenv</code></td><td><code>node:&lt;version&gt;</code> green when <code>$NODENV_VERSION</code> is set.</td></tr>
+<tr><td><code>kubecontext</code></td><td><code>k8s:&lt;context&gt;</code> cyan when a kubeconfig file is readable.</td></tr>
+<tr><td><code>terraform</code></td><td><code>tf:&lt;workspace&gt;</code> magenta when a Terraform workspace can be resolved.</td></tr>
+<tr><td><code>aws</code></td><td><code>aws:&lt;profile&gt;</code> yellow when standard AWS env vars are set.</td></tr>
+<tr><td><code>os_icon</code></td><td>Always-on glyph identifying the host OS.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="useful-enough-to-bundle"><a class="header" href="#useful-enough-to-bundle">Useful enough to bundle</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_version</code></td><td><code>node:&lt;version&gt;</code> (strips leading <code>v</code>) when the cwd contains a Node project.</td></tr>
+<tr><td><code>python_version</code></td><td><code>py:&lt;version&gt;</code> yellow when the cwd resolves a Python interpreter.</td></tr>
+<tr><td><code>rust_version</code></td><td><code>rust:&lt;version&gt;</code> red when the cwd sits inside a Rust workspace.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="ai-host-slice-46"><a class="header" href="#ai-host-slice-46">AI host (slice 46)</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ai_host</code></td><td>Surfaces the active AI host (Claude Code, Aider, Cursor, …). Visible only inside a detected AI shell.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="modern-version-managers--container-context-slices-4850"><a class="header" href="#modern-version-managers--container-context-slices-4850">Modern version managers + container context (slices 48–50)</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mise</code></td><td>Cross-language version manager (formerly <code>rtx</code>). <code>rtx</code> is accepted as a deprecated alias.</td></tr>
+<tr><td><code>fnm</code></td><td><code>fnm:&lt;version&gt;</code> green when <code>$FNM_NODE_VERSION</code> is set.</td></tr>
+<tr><td><code>pixi</code></td><td><code>pixi:&lt;name&gt;</code> green when <code>$PIXI_PROJECT_NAME</code> is set.</td></tr>
+<tr><td><code>docker_context</code></td><td><code>docker:&lt;context&gt;</code> cyan when a non-default Docker context is active.</td></tr>
+</tbody>
+</table>
+</div>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="ai_host"><a class="header" href="#ai_host"><code>ai_host</code></a></h1>
+<p>AI coding-assistant host badge. Surfaces the active AI host (Claude
+Code, Aider, Cursor, Goose) as a magenta band so it’s immediately
+obvious you’re inside an agent shell.</p>
+<h2 id="when-it-appears"><a class="header" href="#when-it-appears">When it appears</a></h2>
+<p>When the binary detects one of the known AI host environments via
+env-var probes performed in <code>p10k-rs-ai</code>. Hidden when no host is
+detected (<code>HostKind::None</code> or any <code>Generic</code> variant).</p>
+<p>Detected hosts:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Host</th><th>Label</th></tr>
+</thead>
+<tbody>
+<tr><td>Claude Code</td><td><code>claude-code</code></td></tr>
+<tr><td>Aider</td><td><code>aider</code></td></tr>
+<tr><td>Cursor</td><td><code>cursor</code></td></tr>
+<tr><td>Goose</td><td><code>goose</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="default-render"><a class="header" href="#default-render">Default render</a></h2>
+<pre><code> claude-code
+</code></pre>
+<p>(cog icon + space + host label, white-on-magenta)</p>
+<h2 id="config"><a class="header" href="#config">Config</a></h2>
+<pre><code class="language-toml">[segment.ai_host]
+foreground = "white"
+background = "magenta"
+icon = ""           # default: Nerd Font v3 cog
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>white</code></td><td>Label colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>magenta</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code></code></td><td>Glyph rendered before the label</td></tr>
+</tbody>
+</table>
+</div>
+<p>Standard <code>padding</code>, <code>disabled</code>, <code>show_in_dir</code>, <code>show_on_upglob</code>,
+<code>disabled_dir_pattern</code> fields apply.</p>
+<h2 id="notes--gotchas"><a class="header" href="#notes--gotchas">Notes / gotchas</a></h2>
+<ul>
+<li>Hiding the segment per-host (e.g. “hide under Claude Code, show
+under Cursor”) goes through <code>[ai.host.&lt;name&gt;].mode = "hidden"</code>, not
+the segment block. See <a href="#troubleshooting">troubleshooting</a>.</li>
+<li><code>HostKind</code> is <code>#[non_exhaustive]</code>; future hosts land via additive
+enum variants without a schema break.</li>
+</ul>
+<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<ul>
+<li><a href="#ai_status"><code>ai_status</code></a> — paired sidecar segment that reads
+model name + context-window usage from disk.</li>
+<li><a href="#ai_status-sidecar-contract">ai_status sidecar contract</a>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="ai_status"><a class="header" href="#ai_status"><code>ai_status</code></a></h1>
+<p>AI host sidecar status. Reads a small JSON file the AI host (or a
+user-written hook) drops in <code>$XDG_RUNTIME_DIR/p10k-rs/ai/&lt;host&gt;.json</code>
+and renders the currently-active model and context-window usage.</p>
+<h2 id="when-it-appears-1"><a class="header" href="#when-it-appears-1">When it appears</a></h2>
+<p>All of the following must hold:</p>
+<ul>
+<li>An AI host is detected (same gate as <a href="#ai_host"><code>ai_host</code></a>).</li>
+<li><code>$XDG_RUNTIME_DIR</code> is set and points at a uid-private directory.</li>
+<li>A sidecar file <code>$XDG_RUNTIME_DIR/p10k-rs/ai/&lt;host&gt;.json</code> exists,
+is owner-owned, is a regular file, and is at most 16 KiB.</li>
+<li>The JSON parses cleanly.</li>
+<li><code>last_updated_unix</code> is within the last 300 seconds (5 minutes).</li>
+</ul>
+<p>Any failure renders the segment empty without logging — the host is
+presumed to have crashed or moved on.</p>
+<h2 id="default-render-1"><a class="header" href="#default-render-1">Default render</a></h2>
+<pre><code> claude-sonnet-4-6 25% [thinking]
+</code></pre>
+<p>Format: <code>&lt;icon&gt; &lt;model&gt; &lt;used%&gt; [&lt;status&gt;]</code>. Sub-tokens are omitted
+when their backing fields are absent.</p>
+<h2 id="config-1"><a class="header" href="#config-1">Config</a></h2>
+<pre><code class="language-toml">[segment.ai_status]
+foreground = "white"
+background = "magenta"
+icon = "\u{f06a9}"        # default: Nerd Font v3 robot face
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>white</code></td><td>Body colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>magenta</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f06a9}</code></td><td>Glyph rendered before the model</td></tr>
+</tbody>
+</table>
+</div>
+<p>Standard <code>padding</code>, <code>disabled</code>, <code>show_in_dir</code>, <code>show_on_upglob</code>,
+<code>disabled_dir_pattern</code> fields apply.</p>
+<h2 id="notes--gotchas-1"><a class="header" href="#notes--gotchas-1">Notes / gotchas</a></h2>
+<ul>
+<li><strong>Security posture is load-bearing.</strong> The sidecar opens through
+<code>open_owned_safely</code> on Unix — symlinks (<code>O_NOFOLLOW</code>), foreign-owned
+files, and non-regular files are refused. Reads are hard-capped at
+16 KiB.</li>
+<li><strong>No <code>/tmp</code> fallback.</strong> When <code>$XDG_RUNTIME_DIR</code> is unset the segment
+stays empty rather than reading a shared path. Users on non-systemd
+systems can export <code>XDG_RUNTIME_DIR=/run/user/$(id -u)</code> (mode <code>0o700</code>)
+at session start.</li>
+<li>Strings (<code>model</code>, <code>status</code>, <code>host</code>) pass through <code>SafeText</code> with
+byte caps (64 / 32 / 32 graphemes). A maliciously-named model
+containing ESC sequences cannot leak into the rendered prompt.</li>
+<li><code>used%</code> is clamped to <code>0..=100</code>; a zero-window or missing-count
+payload omits the percentage instead of rendering <code>NaN%</code>.</li>
+</ul>
+<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
+<ul>
+<li><a href="#ai_status-sidecar-contract">ai_status sidecar contract</a> — full JSON
+schema, writer pseudocode, and security notes.</li>
+<li><a href="#ai_host"><code>ai_host</code></a> — paired env-var-driven badge.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="anaconda"><a class="header" href="#anaconda"><code>anaconda</code></a></h1>
+<p>Conda environment indicator. Shows <code>conda:&lt;name&gt;</code> when a conda
+environment is activated.</p>
+<h2 id="when-it-appears-2"><a class="header" href="#when-it-appears-2">When it appears</a></h2>
+<p>When <code>$CONDA_DEFAULT_ENV</code> is set and non-empty. Conda’s activation
+hooks export this on <code>conda activate</code>.</p>
+<h2 id="default-render-2"><a class="header" href="#default-render-2">Default render</a></h2>
+<pre><code> conda:base
+</code></pre>
+<p>(snake icon + space + <code>conda:&lt;name&gt;</code>, black-on-green)</p>
+<h2 id="config-2"><a class="header" href="#config-2">Config</a></h2>
+<pre><code class="language-toml">[segment.anaconda]
+foreground = "black"
+background = "green"
+icon = "\u{e73c}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e73c}</code></td><td>Default Nerd Font v3 python-alt glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-2"><a class="header" href="#notes--gotchas-2">Notes / gotchas</a></h2>
+<ul>
+<li>When an environment is created via <code>conda create -p /some/path</code>,
+<code>$CONDA_DEFAULT_ENV</code> carries the full path. The segment takes the
+basename in that case (<code>/home/x/conda/myproj</code> → <code>myproj</code>).</li>
+<li>The basename passes through <code>sanitize_for_terminal</code> before render
+so a path with <code>\r</code> / ESC bytes can’t ride into the prompt.</li>
+</ul>
+<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
+<ul>
+<li><a href="#virtualenv"><code>virtualenv</code></a> — Python <code>venv</code> activator counterpart.</li>
+<li><a href="#pyenv"><code>pyenv</code></a> — pyenv shim version.</li>
+<li><a href="#pixi"><code>pixi</code></a> — conda’s lockfile-driven alternative.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="aws"><a class="header" href="#aws"><code>aws</code></a></h1>
+<p>AWS profile indicator. Shows <code>aws:&lt;profile&gt;</code> when an AWS CLI profile
+or vault session is selected.</p>
+<h2 id="when-it-appears-3"><a class="header" href="#when-it-appears-3">When it appears</a></h2>
+<p>Reads the first non-empty value from, in order:</p>
+<ol>
+<li><code>$AWS_VAULT</code> — set by aws-vault during a vault session.</li>
+<li><code>$AWS_PROFILE</code> — the standard aws-cli profile selector.</li>
+<li><code>$AWS_DEFAULT_PROFILE</code> — the legacy aws-cli name; back-compat.</li>
+</ol>
+<p>Hidden when all three are unset or empty.</p>
+<h2 id="default-render-3"><a class="header" href="#default-render-3">Default render</a></h2>
+<pre><code> aws:prod-readonly
+</code></pre>
+<p>(cloud icon + space + <code>aws:&lt;profile&gt;</code>, black-on-yellow)</p>
+<h2 id="config-3"><a class="header" href="#config-3">Config</a></h2>
+<pre><code class="language-toml">[segment.aws]
+foreground = "black"
+background = "yellow"
+icon = "\u{f270}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>yellow</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f270}</code></td><td>Default Nerd Font v3 AWS cloud glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-3"><a class="header" href="#notes--gotchas-3">Notes / gotchas</a></h2>
+<ul>
+<li>Profile names are user-controlled strings; they pass through
+<code>sanitize_for_terminal</code> so a name with control bytes can’t inject
+CR / ANSI into the prompt line.</li>
+<li><code>$AWS_VAULT</code> wins outright — that matches the actual session
+precedence (your CLI is talking to the vault, not the on-disk
+profile).</li>
+</ul>
+<h2 id="see-also-4"><a class="header" href="#see-also-4">See also</a></h2>
+<ul>
+<li><a href="#kubecontext"><code>kubecontext</code></a> — sibling cloud-context indicator.</li>
+<li><a href="#docker_context"><code>docker_context</code></a> — Docker engine selector.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="background_jobs"><a class="header" href="#background_jobs"><code>background_jobs</code></a></h1>
+<p>Count of suspended / running background jobs. Hidden when the shell
+has no jobs (the common case).</p>
+<h2 id="when-it-appears-4"><a class="header" href="#when-it-appears-4">When it appears</a></h2>
+<p>When <code>RenderCtx::jobs &gt; 0</code>. The binary fills the field from the
+<code>--jobs</code> CLI arg, which the zsh init script captures via
+<code>$#jobstates</code> at prompt-render time.</p>
+<h2 id="default-render-4"><a class="header" href="#default-render-4">Default render</a></h2>
+<pre><code> ⚙3
+</code></pre>
+<p>(cog icon + space + <code>⚙&lt;count&gt;</code>, black-on-cyan)</p>
+<h2 id="config-4"><a class="header" href="#config-4">Config</a></h2>
+<pre><code class="language-toml">[segment.background_jobs]
+foreground = "black"
+background = "cyan"
+icon = "\u{f013}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>cyan</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f013}</code></td><td>Default Nerd Font v3 cog glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-4"><a class="header" href="#notes--gotchas-4">Notes / gotchas</a></h2>
+<ul>
+<li>The <code>⚙</code> glyph in the rendered body is literal text and <strong>not</strong>
+configurable independently of <code>icon</code> today; the only way to alter it
+is a per-segment fork. File an issue if you need this.</li>
+<li>Bash today never populates <code>--jobs</code> (no clean hook); the segment
+stays hidden under bash. Tracked as gotcha #5 in <code>STATE.md</code>.</li>
+</ul>
+<h2 id="see-also-5"><a class="header" href="#see-also-5">See also</a></h2>
+<ul>
+<li><a href="#per-shell-init">Per-shell init</a> — what each shell wires.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="command_execution_time"><a class="header" href="#command_execution_time"><code>command_execution_time</code></a></h1>
+<p>Duration of the last foreground command. Hidden when the command
+took less than 3 seconds.</p>
+<h2 id="when-it-appears-5"><a class="header" href="#when-it-appears-5">When it appears</a></h2>
+<p>When <code>RenderCtx::last_duration &gt;= 3 seconds</code>. The binary fills the
+field from the <code>--last-duration</code> CLI arg, which the zsh init
+computes from <code>$EPOCHSECONDS</code> deltas in <code>preexec</code> / <code>precmd</code>.</p>
+<h2 id="default-render-5"><a class="header" href="#default-render-5">Default render</a></h2>
+<pre><code> 7s
+ 2m05s
+ 1h12m
+</code></pre>
+<p>(stopwatch icon + space + duration, black-on-yellow)</p>
+<p>Format ladder:</p>
+<ul>
+<li><code>&lt; 60s</code> → <code>NNs</code></li>
+<li><code>&lt; 60m</code> → <code>MmSSs</code></li>
+<li><code>&gt;= 60m</code> → <code>HhMMm</code></li>
+</ul>
+<h2 id="config-5"><a class="header" href="#config-5">Config</a></h2>
+<pre><code class="language-toml">[segment.command_execution_time]
+foreground = "black"
+background = "yellow"
+icon = "\u{f43a}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>yellow</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f43a}</code></td><td>Default Nerd Font v3 stopwatch glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-5"><a class="header" href="#notes--gotchas-5">Notes / gotchas</a></h2>
+<ul>
+<li>The 3-second threshold is currently hardcoded
+(<code>THRESHOLD_MS = 3000</code>). A future config field will mirror upstream
+<code>POWERLEVEL9K_COMMAND_EXECUTION_TIME_THRESHOLD</code>.</li>
+<li>Sub-second precision (<code>1.5s</code>) is not surfaced today — the zsh init
+only forwards <code>$EPOCHSECONDS</code> integer seconds. Showing <code>1.234s</code>
+without <code>$EPOCHREALTIME</code> plumbing would be a lie.</li>
+<li>Bash currently passes <code>--last-duration-ms 0</code> so the segment never
+fires under bash; see gotcha #5 in <code>STATE.md</code>.</li>
+</ul>
+<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
+<ul>
+<li><a href="#per-shell-init">Per-shell init</a>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="context"><a class="header" href="#context"><code>context</code></a></h1>
+<p><code>user@host</code> identity line with privilege / SSH awareness.</p>
+<h2 id="when-it-appears-6"><a class="header" href="#when-it-appears-6">When it appears</a></h2>
+<p>Always-on <strong>except</strong> when “you on your own machine”:
+<code>$P10K_RS_DEFAULT_USER == $USER</code>, the state is <code>local</code> (no SSH,
+not root), and no SSH env var is set. Root and SSH sessions always
+show — they’re load-bearing context for the human at the prompt.</p>
+<p>State tag (first match wins):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tag</th><th>When</th></tr>
+</thead>
+<tbody>
+<tr><td><code>root</code></td><td>EUID is 0</td></tr>
+<tr><td><code>remote</code></td><td>Any of <code>$SSH_CONNECTION</code>, <code>$SSH_CLIENT</code>, <code>$SSH_TTY</code> is set</td></tr>
+<tr><td><code>local</code></td><td>Otherwise</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="default-render-6"><a class="header" href="#default-render-6">Default render</a></h2>
+<pre><code> alice@workstation       # local — yellow bg / black fg
+ alice@server-3          # remote — yellow bg / black fg
+ root@workstation        # root — RED bg / white fg
+</code></pre>
+<h2 id="config-6"><a class="header" href="#config-6">Config</a></h2>
+<pre><code class="language-toml">[segment.context]
+foreground = "black"
+background = "yellow"
+icon = "\u{f007}"
+
+[segment.context.states.root]
+foreground = "white"
+background = "red"
+
+[segment.context.states.remote]
+foreground = "black"
+background = "yellow"
+
+[segment.context.states.local]
+foreground = "black"
+background = "yellow"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code> (local/remote), <code>white</code> (root)</td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>yellow</code> (local/remote), <code>red</code> (root)</td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f007}</code></td><td>Default Nerd Font v3 person glyph</td></tr>
+</tbody>
+</table>
+</div>
+<p>Per-state <code>[segment.context.states.&lt;tag&gt;]</code> overrides win over the
+segment block. State tags: <code>root</code>, <code>remote</code>, <code>local</code>.</p>
+<h2 id="notes--gotchas-6"><a class="header" href="#notes--gotchas-6">Notes / gotchas</a></h2>
+<ul>
+<li><code>$P10K_RS_DEFAULT_USER</code> is the hide-toggle. Set it to your
+unprivileged username; root and SSH override the hide.</li>
+<li>Both <code>$USER</code>/<code>$LOGNAME</code> and <code>$HOSTNAME</code>/<code>uname(2).nodename</code> pass
+through <code>sanitize_for_terminal</code> before render — a hostile hostname
+containing CR / ESC can’t ride into the prompt.</li>
+<li>Root wins over SSH outright (root-over-SSH is still root).</li>
+</ul>
+<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
+<ul>
+<li><a href="#root_indicator"><code>root_indicator</code></a> — single-glyph alternative.</li>
+<li><a href="#theming-and-layout">Theming</a> — per-state colour overrides.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="dir"><a class="header" href="#dir"><code>dir</code></a></h1>
+<p>Current working directory. Cwd painted black-on-blue, <code>$HOME</code>
+collapsed to <code>~</code>, with optional component truncation.</p>
+<h2 id="when-it-appears-7"><a class="header" href="#when-it-appears-7">When it appears</a></h2>
+<p>Always-on.</p>
+<h2 id="default-render-7"><a class="header" href="#default-render-7">Default render</a></h2>
+<pre><code> ~/github/powerlevel10k-rs
+</code></pre>
+<p>(folder icon + space + collapsed path, black-on-blue)</p>
+<p>Per-state palette:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>State</th><th>Background</th><th>Foreground</th><th>Icon</th></tr>
+</thead>
+<tbody>
+<tr><td><code>writable</code></td><td>blue</td><td>black</td><td>folder (<code>\u{f07b}</code>)</td></tr>
+<tr><td><code>not_writable</code></td><td>yellow</td><td>black</td><td>padlock (<code>\u{f023}</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>not_writable</code> fires when <code>access(W_OK)</code> on the cwd fails (root-owned
+dir, EACCES on parent, broken cwd, etc.). The padlock + yellow
+warning is the same shape upstream P10K’s <code>DIR_NOT_WRITABLE_*</code> ships.</p>
+<h2 id="config-7"><a class="header" href="#config-7">Config</a></h2>
+<pre><code class="language-toml">[segment.dir]
+foreground = "black"
+background = "blue"
+icon = "\u{f07b}"
+
+[segment.dir.truncate]
+strategy = "to_last"        # none / to_last / middle / to_unique
+length = 3
+
+[segment.dir.states.not_writable]
+foreground = "black"
+background = "yellow"
+icon = "\u{f023}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>blue</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f07b}</code></td><td>Default Nerd Font v3 folder glyph</td></tr>
+<tr><td><code>truncate.strategy</code></td><td>enum</td><td><code>none</code></td><td><code>none</code> / <code>to_last</code> / <code>middle</code> / <code>to_unique</code></td></tr>
+<tr><td><code>truncate.length</code></td><td>u8</td><td><code>3</code></td><td>Components to keep (<code>0</code> is treated as <code>1</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Truncation strategies:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Strategy</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>none</code></td><td>Full home-collapsed path</td></tr>
+<tr><td><code>to_last</code></td><td><code>…/&lt;last length&gt;</code></td></tr>
+<tr><td><code>middle</code></td><td><code>&lt;first&gt;/…/&lt;last length-1&gt;</code></td></tr>
+<tr><td><code>to_unique</code></td><td>Each non-final component shortened to its shortest unique prefix on disk</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-7"><a class="header" href="#notes--gotchas-7">Notes / gotchas</a></h2>
+<ul>
+<li><code>to_unique</code> issues one <code>read_dir</code> per non-final component, capped
+at 200 entries per parent. Slow on NFS / FUSE. Opt-in only.</li>
+<li>Cwd flows through <code>SafeText</code> at the binary boundary — branch and
+cwd injection vectors (<code>\r</code>, OSC, ANSI) are stripped before the
+segment sees them.</li>
+<li><code>cwd_display</code> is built once in the binary; the segment is
+zero-copy.</li>
+</ul>
+<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
+<ul>
+<li><a href="#vcs"><code>vcs</code></a> — pairs with <code>dir</code> to show repo state.</li>
+<li><a href="#schema-full">Configuration schema</a>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="docker_context"><a class="header" href="#docker_context"><code>docker_context</code></a></h1>
+<p>Docker current-context. Shows <code>docker:&lt;context&gt;</code> when a non-default
+Docker context is active.</p>
+<h2 id="when-it-appears-8"><a class="header" href="#when-it-appears-8">When it appears</a></h2>
+<p>Detection precedence:</p>
+<ol>
+<li><code>$DOCKER_CONTEXT</code> — explicit override.</li>
+<li><code>$DOCKER_HOST</code> — socket override; shows the (truncated) host string.</li>
+<li><code>~/.docker/config.json</code> <code>currentContext</code> field.</li>
+</ol>
+<p>Hidden when the resolved value is <code>default</code> (the implicit local engine)
+or unresolvable. Matches upstream P10K’s <code>DOCKER_CONTEXT_DEFAULT_FILTER</code>.</p>
+<h2 id="default-render-8"><a class="header" href="#default-render-8">Default render</a></h2>
+<pre><code> docker:remote-build
+</code></pre>
+<p>(whale icon + space + <code>docker:&lt;context&gt;</code>, black-on-cyan)</p>
+<h2 id="config-8"><a class="header" href="#config-8">Config</a></h2>
+<pre><code class="language-toml">[segment.docker_context]
+foreground = "black"
+background = "cyan"
+icon = "\u{f308}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>cyan</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f308}</code></td><td>Default Nerd Font v3 Docker whale glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-8"><a class="header" href="#notes--gotchas-8">Notes / gotchas</a></h2>
+<ul>
+<li>Context names and <code>$DOCKER_HOST</code> values pass through
+<code>sanitize_for_terminal</code> before render.</li>
+<li>Output is truncated to 40 visual chars with a trailing <code>…</code> — long
+<code>tcp://…</code> URLs don’t blow out the prompt width.</li>
+<li>The <code>~/.docker/config.json</code> parser only reads <code>currentContext</code>;
+everything else (<code>auths</code>, <code>credsStore</code>, plugins) is ignored.</li>
+</ul>
+<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
+<ul>
+<li><a href="#kubecontext"><code>kubecontext</code></a> — sibling cloud-context segment.</li>
+<li><a href="#aws"><code>aws</code></a> — AWS profile counterpart.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="fnm"><a class="header" href="#fnm"><code>fnm</code></a></h1>
+<p>Fast Node Manager version. Shows <code>fnm:&lt;version&gt;</code> when <code>fnm</code>’s shell
+integration is exporting a version.</p>
+<h2 id="when-it-appears-9"><a class="header" href="#when-it-appears-9">When it appears</a></h2>
+<p>When <code>$FNM_NODE_VERSION</code> is set and non-empty. <code>fnm env</code> exports
+this whenever it resolves to a specific version (per-directory
+<code>.node-version</code> / <code>.nvmrc</code>, <code>fnm use</code>, or a configured default).</p>
+<h2 id="default-render-9"><a class="header" href="#default-render-9">Default render</a></h2>
+<pre><code> fnm:v20.10.0
+</code></pre>
+<p>(nodejs icon + space + <code>fnm:&lt;version&gt;</code>, black-on-green)</p>
+<h2 id="config-9"><a class="header" href="#config-9">Config</a></h2>
+<pre><code class="language-toml">[segment.fnm]
+foreground = "black"
+background = "green"
+icon = "\u{f898}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f898}</code></td><td>Default Nerd Font v3 mdi-nodejs glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-9"><a class="header" href="#notes--gotchas-9">Notes / gotchas</a></h2>
+<ul>
+<li>No subprocess. The segment never shells out to <code>fnm current</code> — the
+env var is the source of truth.</li>
+<li>fnm prefixes its exported version with a leading <code>v</code>
+(e.g. <code>v20.10.0</code>); the segment renders whatever fnm emits.</li>
+<li>When <code>$FNM_VERSION_FILE_STRATEGY=local</code> keeps the version out of
+the environment the segment hides. Reading the
+<code>&lt;FNM_MULTISHELL_PATH&gt;/installation</code> symlink target was considered
+but deferred to keep MVP zero-syscall.</li>
+<li>The value passes through <code>sanitize_for_terminal</code> — a
+<code>.node-version</code> with trailing CR can’t ride into the prompt.</li>
+</ul>
+<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
+<ul>
+<li><a href="#nodenv"><code>nodenv</code></a> — nodenv counterpart.</li>
+<li><a href="#node_version"><code>node_version</code></a> — runtime-version segment.</li>
+<li><a href="#mise"><code>mise</code></a> — cross-language version manager.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="jj"><a class="header" href="#jj"><code>jj</code></a></h1>
+<p>Jujutsu VCS segment. Mirror of <a href="#vcs"><code>vcs</code></a> for <code>.jj/</code> working
+copies — shows the primary bookmark (or short change-id), with
+dirty / conflict markers.</p>
+<h2 id="when-it-appears-10"><a class="header" href="#when-it-appears-10">When it appears</a></h2>
+<p>When <code>ctx.jj.is_some()</code> — i.e. the cwd sits inside a Jujutsu working
+copy. Producer lives in <code>p10k-rs-jj</code>. Auto-hidden outside jj repos,
+so safe to keep in the always-on group; users who run only git pay
+nothing for it.</p>
+<h2 id="default-render-10"><a class="header" href="#default-render-10">Default render</a></h2>
+<pre><code> main                # clean
+ feat/widget *       # dirty (red `*`)
+ main !              # conflict
+ abcdef12            # no bookmark — short change-id fallback
+</code></pre>
+<p>(jj icon + space + label + markers, black-on-green)</p>
+<p>Per-state:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>State</th><th>When</th></tr>
+</thead>
+<tbody>
+<tr><td><code>clean</code></td><td>No dirty / conflict / divergence</td></tr>
+<tr><td><code>dirty</code></td><td>Working copy has uncommitted changes</td></tr>
+<tr><td><code>conflict</code></td><td>Unresolved conflict (<code>!</code> marker)</td></tr>
+<tr><td><code>diverged</code></td><td>Divergent change</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="config-10"><a class="header" href="#config-10">Config</a></h2>
+<pre><code class="language-toml">[segment.jj]
+foreground = "black"
+background = "green"
+icon = "\u{e702}"
+
+[segment.jj.states.dirty]
+foreground = "yellow"
+
+[segment.jj.states.conflict]
+background = "red"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Label colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e702}</code></td><td>Default git glyph (shared with <code>vcs</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-10"><a class="header" href="#notes--gotchas-10">Notes / gotchas</a></h2>
+<ul>
+<li><strong>Slow backend.</strong> <code>is_fast()</code> returns <code>false</code> — the shell-out
+backend spawns <code>jj</code> twice per render (log + status). A future
+daemon analogue (analogous to <code>gitstatusd</code> for git) would flip this
+to <code>true</code>.</li>
+<li>Visual band matches <code>vcs</code> (black-on-green) intentionally — a user
+with both in their layout reads either as “a VCS segment”. The
+icon glyph is the disambiguator. Override <code>icon</code> if you want
+glyph-level disambiguation in your TOML.</li>
+<li>Bookmark name is the preferred label; falls back to the first 8
+chars of <code>change_id</code> when no bookmark is set.</li>
+<li>The dirty <code>*</code> marker colour is currently hardcoded red and is not
+routed through <code>marker_foreground</code>. Tracked alongside <code>vcs</code> marker
+styling.</li>
+</ul>
+<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
+<ul>
+<li><a href="#vcs"><code>vcs</code></a> — git counterpart.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="kubecontext"><a class="header" href="#kubecontext"><code>kubecontext</code></a></h1>
+<p>Kubernetes current-context. Shows <code>k8s:&lt;context&gt;</code> when a kubeconfig
+is readable.</p>
+<h2 id="when-it-appears-11"><a class="header" href="#when-it-appears-11">When it appears</a></h2>
+<p>When the resolved kubeconfig contains a <code>current-context:</code> entry.
+Resolution:</p>
+<ol>
+<li><code>$KUBECONFIG</code> if set and non-empty (<strong>first</strong> colon-separated path
+only — multi-file merging is out of scope).</li>
+<li><code>~/.kube/config</code> as the fallback.</li>
+</ol>
+<h2 id="default-render-11"><a class="header" href="#default-render-11">Default render</a></h2>
+<pre><code> k8s:prod-us-east
+</code></pre>
+<p>(kubernetes wheel + space + <code>k8s:&lt;context&gt;</code>, black-on-cyan)</p>
+<h2 id="config-11"><a class="header" href="#config-11">Config</a></h2>
+<pre><code class="language-toml">[segment.kubecontext]
+foreground = "black"
+background = "cyan"
+icon = "\u{f10fe}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>cyan</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f10fe}</code></td><td>Default Nerd Font v3 kubernetes glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-11"><a class="header" href="#notes--gotchas-11">Notes / gotchas</a></h2>
+<ul>
+<li><strong>Hand-rolled YAML parse.</strong> A single line is scraped out of
+kubeconfig — no YAML crate dependency. Will not handle anchors,
+multi-line scalars, or <code>current-context:</code> appearing inside an
+unrelated string literal. 95%-correct against real-world configs.</li>
+<li><strong>No file watch.</strong> The file is re-read on every prompt. Cheap
+(one stat + small read on warm cache).</li>
+<li>Context names pass through <code>SafeText::from_untrusted</code> — anyone with
+a kubeconfig writes them, so they’re treated as untrusted.</li>
+</ul>
+<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
+<ul>
+<li><a href="#docker_context"><code>docker_context</code></a> — Docker engine counterpart.</li>
+<li><a href="#aws"><code>aws</code></a> — AWS profile counterpart.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="mise"><a class="header" href="#mise"><code>mise</code></a></h1>
+<p>Cross-language version manager indicator. Renders <code>mise</code> (or
+<code>mise:&lt;profile&gt;</code> when a profile is selected) when <code>mise</code> is active.</p>
+<p><code>rtx</code> is accepted as a deprecated alias — mise was renamed in 2024.</p>
+<h2 id="when-it-appears-12"><a class="header" href="#when-it-appears-12">When it appears</a></h2>
+<p>When <code>$MISE_DATA_DIR</code> is set and non-empty. <code>mise</code> exports this on
+activation.</p>
+<p>Profile name precedence (when present):</p>
+<ol>
+<li><code>$MISE_PROFILE</code></li>
+<li><code>$MISE_DEFAULT_TOOL_VERSIONS</code></li>
+</ol>
+<p>When neither names a profile, renders bare <code>mise</code>.</p>
+<h2 id="default-render-12"><a class="header" href="#default-render-12">Default render</a></h2>
+<pre><code> mise                  # active, no profile
+ mise:production       # active with profile
+</code></pre>
+<p>(toolbox icon + space + label, black-on-green)</p>
+<h2 id="config-12"><a class="header" href="#config-12">Config</a></h2>
+<pre><code class="language-toml">[segment.mise]
+foreground = "black"
+background = "green"
+icon = "\u{f0a9b}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f0a9b}</code></td><td>Default Nerd Font v3 mdi-tools glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-12"><a class="header" href="#notes--gotchas-12">Notes / gotchas</a></h2>
+<ul>
+<li>No subprocess. The segment never shells out to <code>mise current</code> —
+env vars are the source of truth.</li>
+<li><code>rtx</code> in your TOML resolves to the same segment via an alias arm
+in <code>build()</code>; both keys produce identical output.</li>
+<li>Profile names pass through <code>sanitize_for_terminal</code> — a hostile
+<code>.mise.toml</code> profile name with control bytes can’t ride into the
+prompt.</li>
+</ul>
+<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
+<ul>
+<li><a href="#fnm"><code>fnm</code></a>, <a href="#nodenv"><code>nodenv</code></a>, <a href="#pyenv"><code>pyenv</code></a> —
+single-language version managers.</li>
+<li><a href="#anaconda"><code>anaconda</code></a>, <a href="#pixi"><code>pixi</code></a> — env-manager peers.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="node_version"><a class="header" href="#node_version"><code>node_version</code></a></h1>
+<p>Node.js runtime version. Renders <code>node:&lt;version&gt;</code> when the cwd sits
+inside a Node project.</p>
+<h2 id="when-it-appears-13"><a class="header" href="#when-it-appears-13">When it appears</a></h2>
+<p>When the cwd (or any ancestor up to 64 levels) contains a
+<code>package.json</code> file. When enabled, spawns <code>node --version</code> with a
+500 ms wall-clock budget; renders empty on timeout, non-zero exit,
+or missing binary.</p>
+<h2 id="default-render-13"><a class="header" href="#default-render-13">Default render</a></h2>
+<pre><code> node:20.10.0
+</code></pre>
+<p>(nodejs icon + space + <code>node:&lt;version&gt;</code>, black-on-green)</p>
+<p>The leading <code>v</code> from <code>node --version</code> output is stripped.</p>
+<h2 id="config-13"><a class="header" href="#config-13">Config</a></h2>
+<pre><code class="language-toml">[segment.node_version]
+foreground = "black"
+background = "green"
+icon = "\u{e718}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e718}</code></td><td>Default Nerd Font v3 nodejs glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-13"><a class="header" href="#notes--gotchas-13">Notes / gotchas</a></h2>
+<ul>
+<li><strong>Per-prompt subprocess.</strong> Spawns <code>node --version</code> on every render
+in a Node project. Marker-gated so non-JS directories pay nothing.
+<code>LC_ALL=C</code> is set so a hostile locale can’t reshape output.</li>
+<li><strong>500 ms deadline.</strong> A wedged <code>node</code> binary (NordVPN freeze,
+hung NFS, corrupted toolchain) cannot lock the prompt — the
+segment renders empty after the deadline.</li>
+<li>Stdout is treated as untrusted — a hostile <code>$PATH</code> shadow of
+<code>node</code> cannot inject ANSI / <code>%</code>-expansion.</li>
+<li>The walker trips on <code>/tmp/package.json</code> (gotcha #2 in <code>STATE.md</code>);
+one ignored test documents this. Real fix: boundary at <code>.git</code> /
+<code>$HOME</code>.</li>
+</ul>
+<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
+<ul>
+<li><a href="#fnm"><code>fnm</code></a>, <a href="#nodenv"><code>nodenv</code></a> — version-manager
+segments that read env vars instead of spawning.</li>
+<li><a href="#mise"><code>mise</code></a> — cross-language manager.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="nodenv"><a class="header" href="#nodenv"><code>nodenv</code></a></h1>
+<p>Node.js version-manager segment. Shows <code>node:&lt;version&gt;</code> in green when
+a nodenv shim has resolved a version.</p>
+<h2 id="when-it-appears-14"><a class="header" href="#when-it-appears-14">When it appears</a></h2>
+<p>When <code>$NODENV_VERSION</code> is set and non-empty. nodenv exports this on
+shim resolution (<code>.node-version</code> walk, <code>nodenv shell</code>, or a global
+default).</p>
+<h2 id="default-render-14"><a class="header" href="#default-render-14">Default render</a></h2>
+<pre><code> node:20.11.0
+</code></pre>
+<p>(node icon + space + <code>node:&lt;version&gt;</code>, black-on-green)</p>
+<h2 id="config-14"><a class="header" href="#config-14">Config</a></h2>
+<pre><code class="language-toml">[segment.nodenv]
+foreground = "black"
+background = "green"
+icon = "\u{e718}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e718}</code></td><td>Default Nerd Font v3 <code>mdi-nodejs</code> glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-14"><a class="header" href="#notes--gotchas-14">Notes / gotchas</a></h2>
+<ul>
+<li>The segment reads <code>$NODENV_VERSION</code> directly rather than shelling out
+to <code>nodenv version-name</code> per render — that would reintroduce the
+latency tax this project exists to avoid.</li>
+<li>A hostile <code>.node-version</code> file with a CR byte would otherwise let an
+attacker overwrite the prompt line; <code>sanitize_for_terminal</code> strips
+CR / LF / ANSI / OSC before render.</li>
+</ul>
+<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
+<ul>
+<li><a href="#fnm"><code>fnm</code></a> — modern Node version-manager alternative.</li>
+<li><a href="#node_version"><code>node_version</code></a> — cwd-derived Node version
+(independent of any version manager).</li>
+<li><a href="#mise"><code>mise</code></a> — multi-language successor that handles Node
+alongside Python / Ruby / etc.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="pixi"><a class="header" href="#pixi"><code>pixi</code></a></h1>
+<p><a href="https://pixi.sh">Pixi</a> project segment. Shows <code>pixi:&lt;name&gt;</code> in green when a pixi
+project environment is active.</p>
+<h2 id="when-it-appears-15"><a class="header" href="#when-it-appears-15">When it appears</a></h2>
+<p>When <code>$PIXI_PROJECT_NAME</code> is set and non-empty. Pixi exports this
+(alongside <code>$PIXI_PROJECT_MANIFEST</code>) on <code>pixi shell</code> and <code>pixi run</code>.</p>
+<h2 id="default-render-15"><a class="header" href="#default-render-15">Default render</a></h2>
+<pre><code> pixi:my-project
+</code></pre>
+<p>(package icon + space + <code>pixi:&lt;name&gt;</code>, black-on-green)</p>
+<h2 id="config-15"><a class="header" href="#config-15">Config</a></h2>
+<pre><code class="language-toml">[segment.pixi]
+foreground = "black"
+background = "green"
+icon = "\u{f487}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f487}</code></td><td>Default Nerd Font v3 <code>mdi-package</code> glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-15"><a class="header" href="#notes--gotchas-15">Notes / gotchas</a></h2>
+<ul>
+<li>Pixi is conda’s lockfile-driven, Rust-native alternative. The segment
+exists because of upstream demand on Powerlevel10k issue #2798.</li>
+<li>Project names are usually bare identifiers, but pixi doesn’t validate
+them strongly. The name flows through <code>sanitize_for_terminal</code> before
+render so CR / LF / ANSI bytes can’t ride in.</li>
+</ul>
+<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
+<ul>
+<li><a href="#anaconda"><code>anaconda</code></a> — classic conda counterpart.</li>
+<li><a href="#mise"><code>mise</code></a> — multi-language version manager.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="pyenv"><a class="header" href="#pyenv"><code>pyenv</code></a></h1>
+<p>Active pyenv Python version segment. Shows <code>py:&lt;version&gt;</code> in yellow when
+a pyenv shim has resolved a Python version.</p>
+<h2 id="when-it-appears-16"><a class="header" href="#when-it-appears-16">When it appears</a></h2>
+<p>When <code>$PYENV_VERSION</code> is set and non-empty. pyenv exports this on
+shim resolution (<code>pyenv shell</code>, <code>pyenv local</code>, or a <code>.python-version</code>
+walk).</p>
+<h2 id="default-render-16"><a class="header" href="#default-render-16">Default render</a></h2>
+<pre><code> py:3.12.1
+</code></pre>
+<p>(python icon + space + <code>py:&lt;version&gt;</code>, black-on-yellow)</p>
+<p>Special values pass through unchanged: <code>py:system</code>, <code>py:2.7.18</code>,
+<code>py:2.7.18/envs/legacy</code> (the env-name form pyenv emits when a venv is
+attached to a base version).</p>
+<h2 id="config-16"><a class="header" href="#config-16">Config</a></h2>
+<pre><code class="language-toml">[segment.pyenv]
+foreground = "black"
+background = "yellow"
+icon = "\u{e235}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>yellow</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e235}</code></td><td>Default Nerd Font v3 python glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-16"><a class="header" href="#notes--gotchas-16">Notes / gotchas</a></h2>
+<ul>
+<li>The segment reads <code>$PYENV_VERSION</code> directly rather than shelling out
+to <code>pyenv version</code> — env-var-first matches pyenv’s own prompt
+integration and avoids a fork per render.</li>
+<li><code>$PYENV_VERSION</code> is attacker-influenceable via a malicious
+<code>.python-version</code> file or hostile parent process. The value flows
+through <code>sanitize_for_terminal</code> before render.</li>
+</ul>
+<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
+<ul>
+<li><a href="#virtualenv"><code>virtualenv</code></a> — Python <code>venv</code> counterpart.</li>
+<li><a href="#anaconda"><code>anaconda</code></a> — conda counterpart.</li>
+<li><a href="#nodenv"><code>nodenv</code></a> — Node.js version-manager analogue.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="root_indicator"><a class="header" href="#root_indicator"><code>root_indicator</code></a></h1>
+<p>Visible warning when the shell is running as root.</p>
+<h2 id="when-it-appears-17"><a class="header" href="#when-it-appears-17">When it appears</a></h2>
+<p>When the effective UID is 0 (<code>geteuid() == 0</code>). EUID, not RUID — a
+setuid-root binary that dropped privileges shouldn’t keep flashing
+red.</p>
+<h2 id="default-render-17"><a class="header" href="#default-render-17">Default render</a></h2>
+<pre><code> 
+</code></pre>
+<p>(user-secret icon, red, no label)</p>
+<p>Single glyph is enough — anything more would be noise. The colour
+carries the warning.</p>
+<h2 id="config-17"><a class="header" href="#config-17">Config</a></h2>
+<pre><code class="language-toml">[segment.root_indicator]
+foreground = "red"
+icon = "\u{f2be}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>red</code></td><td>Glyph colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f2be}</code></td><td>Default Nerd Font v3 <code>user-secret</code> glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-17"><a class="header" href="#notes--gotchas-17">Notes / gotchas</a></h2>
+<ul>
+<li>Users who never want this segment can drop <code>"root_indicator"</code> from
+<code>[layout].left</code> / <code>.right</code> in their config. It’s wired by default
+because the visual warning is load-bearing — a forgotten root shell
+has been the start of more than one outage.</li>
+<li>No background colour by default — the glyph + red foreground is
+meant to read as “raw warning,” not “ribbon segment.” Override
+<code>background</code> if you prefer a banded look.</li>
+</ul>
+<h2 id="see-also-18"><a class="header" href="#see-also-18">See also</a></h2>
+<ul>
+<li><a href="#context"><code>context</code></a> — full <code>user@host</code> rendering with SSH /
+privilege awareness.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="vcs"><a class="header" href="#vcs"><code>vcs</code></a></h1>
+<p>Version-control segment for git repositories. Branch name painted
+black-on-green, with a trailing <code>*</code> marker when the working tree is
+dirty. Powered by <code>gitstatusd</code> on the hot path; falls back to
+<code>ShellOut</code> → <code>GixBackend</code> (slice 60) when the daemon is unavailable.</p>
+<h2 id="when-it-appears-18"><a class="header" href="#when-it-appears-18">When it appears</a></h2>
+<p>When the cwd sits inside a git repository (<code>ctx.git.is_some()</code>). Hidden
+outside repos so users who shell into non-repo directories see nothing.</p>
+<h2 id="default-render-18"><a class="header" href="#default-render-18">Default render</a></h2>
+<pre><code> main                # clean
+ feat/widget *       # dirty (red `*`)
+ main !rebase        # in-progress action (red action label)
+ abcdef0            # detached HEAD — 7-char short SHA + commit glyph
+</code></pre>
+<p>(git icon + space + label + markers, black-on-green)</p>
+<p>Per-state markers:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>State</th><th>Marker</th><th>Default colour</th></tr>
+</thead>
+<tbody>
+<tr><td><code>clean</code></td><td>(none)</td><td>—</td></tr>
+<tr><td><code>dirty</code></td><td><code>*</code></td><td>red</td></tr>
+<tr><td><code>action</code></td><td><code>!&lt;action&gt;</code></td><td>red</td></tr>
+<tr><td><code>detached</code></td><td><code> &lt;sha&gt;</code></td><td>(label glyph)</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>action</code> covers rebase / merge / cherry-pick / bisect / revert / am — the
+six in-progress states <code>gitstatusd</code> reports.</p>
+<h2 id="config-18"><a class="header" href="#config-18">Config</a></h2>
+<pre><code class="language-toml">[segment.vcs]
+foreground = "black"
+background = "green"
+icon = "\u{f1d3}"
+marker_foreground = "red"   # slice 59 — recolour `*` and action label
+
+[segment.vcs.states.dirty]
+background = "yellow"
+
+[segment.vcs.states.action]
+background = "red"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>green</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{f1d3}</code></td><td>Default Nerd Font v3 git glyph</td></tr>
+<tr><td><code>marker_foreground</code></td><td>colour</td><td><code>red</code></td><td>Dirty <code>*</code> and action label colour (slice 59)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Per-state overrides via <code>[segment.vcs.states.&lt;state&gt;]</code> (<code>clean</code>,
+<code>dirty</code>, <code>action</code>, <code>detached</code>).</p>
+<h2 id="notes--gotchas-18"><a class="header" href="#notes--gotchas-18">Notes / gotchas</a></h2>
+<ul>
+<li><strong><code>gitstatusd</code> is the hot-path backend.</strong> <code>ShellOut</code> and <code>GixBackend</code>
+are fallbacks. See <a href="#render-pipeline">ADR-0001</a> for the rationale.</li>
+<li><strong>Branch and action labels pass through <code>SafeText</code></strong> at the binary
+boundary — <code>\r</code> / OSC / ANSI injection from a hostile branch name
+can’t ride into the prompt.</li>
+<li><strong>Detached HEAD</strong> renders a <code>mdi-source-commit</code> glyph + 7-char SHA
+rather than silently substituting hex for a branch name — visually
+announces “you are not on a branch.”</li>
+<li><strong>Marker colour</strong> routes through <code>marker_foreground</code> (slice 59).
+Earlier releases hardcoded red; that’s now opt-in via the field.</li>
+</ul>
+<h2 id="see-also-19"><a class="header" href="#see-also-19">See also</a></h2>
+<ul>
+<li><a href="#jj"><code>jj</code></a> — Jujutsu counterpart.</li>
+<li><a href="#daemon-health-subcommand">daemon-health subcommand</a> — diagnose
+a wedged <code>gitstatusd</code> daemon.</li>
+<li><a href="#render-pipeline">Render pipeline</a> — backend selection and fallback.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="virtualenv"><a class="header" href="#virtualenv"><code>virtualenv</code></a></h1>
+<p>Python virtual-environment segment. Shows <code>(&lt;basename&gt;)</code> in yellow when
+a <code>venv</code> (or <code>pyenv-virtualenv</code>) environment is active.</p>
+<h2 id="when-it-appears-19"><a class="header" href="#when-it-appears-19">When it appears</a></h2>
+<p>When <code>$VIRTUAL_ENV</code> is set and non-empty. Python’s <code>venv</code> activator and
+<code>pyenv-virtualenv</code> both export this on <code>source activate</code>.</p>
+<h2 id="default-render-19"><a class="header" href="#default-render-19">Default render</a></h2>
+<pre><code> (myproject)
+</code></pre>
+<p>(python icon + space + <code>(&lt;basename&gt;)</code>, black-on-yellow)</p>
+<p>The basename comes from the path: <code>/home/x/projects/api/.venv</code> →
+<code>.venv</code>. Use <code>VIRTUAL_ENV_PROMPT</code> if you want a custom label; that’s
+out of scope for this segment in the MVP.</p>
+<h2 id="config-19"><a class="header" href="#config-19">Config</a></h2>
+<pre><code class="language-toml">[segment.virtualenv]
+foreground = "black"
+background = "yellow"
+icon = "\u{e235}"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Default</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td>colour</td><td><code>black</code></td><td>Text colour</td></tr>
+<tr><td><code>background</code></td><td>colour</td><td><code>yellow</code></td><td>Ribbon colour</td></tr>
+<tr><td><code>icon</code></td><td>string</td><td><code>\u{e235}</code></td><td>Default Nerd Font v3 python glyph</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="notes--gotchas-19"><a class="header" href="#notes--gotchas-19">Notes / gotchas</a></h2>
+<ul>
+<li>The basename is attacker-influenceable in the same way <code>cwd</code> is — a
+venv at <code>/tmp/evil\rOVERWRITE/</code> would otherwise let a CR ride into the
+prompt. <code>sanitize_for_terminal</code> strips CR / LF / ANSI / OSC before
+render.</li>
+<li>The segment reads <code>$VIRTUAL_ENV</code> directly rather than threading it
+through <code>RenderCtx</code> — same hot-path trade-off as <code>anaconda</code>. Adding a
+snapshot field for one segment isn’t worth the indirection.</li>
+</ul>
+<h2 id="see-also-20"><a class="header" href="#see-also-20">See also</a></h2>
+<ul>
+<li><a href="#anaconda"><code>anaconda</code></a> — conda counterpart.</li>
+<li><a href="#pyenv"><code>pyenv</code></a> — pyenv shim version.</li>
+<li><a href="#pixi"><code>pixi</code></a> — Pixi project alternative.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="theming-and-layout"><a class="header" href="#theming-and-layout">Theming and layout</a></h1>
+<p>The prompt is a powerline ribbon: each segment renders into its own
+coloured cell, separated by glyphs that the next segment’s background
+absorbs. The ribbon shape lives in <code>[layout]</code> — <code>left</code> and <code>right</code>
+order the cells, <code>separators.left</code> / <code>separators.right</code> /
+<code>separators.subsegment</code> choose the join glyphs. All three glyph fields
+pass through <code>sanitize_for_terminal</code> at parse time, so control bytes
+like <code>\r</code> or <code>\x1b</code> are stripped before the renderer sees them.</p>
+<p>Two decorative wrappers sit around the ribbon: <code>[layout.frame]</code> draws
+corner glyphs around the prompt (default <code>╰─</code> at the bottom-left of the
+prompt-char line), and <code>[layout.ruler]</code> draws a horizontal divider above
+the prompt. Both accept a <code>glyph</code> and <code>foreground</code> colour. Per-segment
+styling rides on top of that — <code>[segment.&lt;name&gt;]</code> carries <code>foreground</code>,
+<code>background</code>, <code>icon</code>, <code>padding</code>, and <code>marker_foreground</code>, and
+<code>[segment.&lt;name&gt;.states.&lt;tag&gt;]</code> overrides those when a segment tags its
+output with that state (the canonical example is <code>vcs.states.dirty</code>
+painting the branch name red when the working tree is dirty).
+<code>marker_foreground</code> (slice 59) paints the <code>vcs</code> index markers
+(<code>* ! + ~ ? ≡</code>) independently from the branch text:</p>
+<pre><code class="language-toml">[segment.vcs]
+foreground = "green"
+marker_foreground = "yellow"   # markers use yellow; branch text uses green
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="bundled-themes"><a class="header" href="#bundled-themes">Bundled themes</a></h1>
+<p><code>p10k-rs</code> ships ten ready-made prompt themes. Each is a small TOML
+file (~30-60 lines) demonstrating a useful subset of the config
+schema. Use a theme as a starting point, then edit
+<code>~/.config/p10k-rs/config.toml</code> to taste.</p>
+<h2 id="quick-tour"><a class="header" href="#quick-tour">Quick tour</a></h2>
+<pre><code class="language-bash"># See the catalogue with one-line descriptions
+p10k-rs theme list
+
+# Inspect a theme's TOML without installing
+p10k-rs theme show catppuccin-mocha
+
+# Install — copies the theme to ~/.config/p10k-rs/config.toml.
+# An existing config is saved as ~/.config/p10k-rs/config.toml.bak first.
+p10k-rs theme install catppuccin-mocha
+
+# Force overwrite without a backup
+p10k-rs theme install rainbow --force
+</code></pre>
+<p>Reload zsh (<code>exec zsh</code>, or just open a new terminal) to see the
+change.</p>
+<h2 id="catalogue"><a class="header" href="#catalogue">Catalogue</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>One-liner</th></tr>
+</thead>
+<tbody>
+<tr><td><code>lean</code></td><td>Single-line minimal. <code>follow_terminal</code> colours, <code>compatible</code> glyphs. Best in dumb terminals.</td></tr>
+<tr><td><code>classic</code></td><td>Two-line with chevron frame. <code>ansi256</code> colours. Balanced default.</td></tr>
+<tr><td><code>rainbow</code></td><td>Powerline ribbons with chip backgrounds. <code>true-color</code> + Nerd Font v3. Upstream P10K rainbow look.</td></tr>
+<tr><td><code>pure</code></td><td>sindresorhus/pure-zsh inspired. Two-line, no frame, no chips.</td></tr>
+<tr><td><code>catppuccin-mocha</code></td><td><a href="https://github.com/catppuccin/catppuccin">Catppuccin Mocha</a> pastel palette.</td></tr>
+<tr><td><code>dracula</code></td><td><a href="https://draculatheme.com/">Dracula</a> high-contrast purple.</td></tr>
+<tr><td><code>gruvbox-dark</code></td><td><a href="https://github.com/morhetz/gruvbox">Gruvbox Dark</a> earthy retro.</td></tr>
+<tr><td><code>nord</code></td><td><a href="https://www.nordtheme.com/">Nord</a> arctic blues + greys.</td></tr>
+<tr><td><code>solarized-dark</code></td><td><a href="https://ethanschoonover.com/solarized/">Solarized Dark</a> Ethan Schoonover classic.</td></tr>
+<tr><td><code>tokyo-night</code></td><td><a href="https://github.com/enkia/tokyo-night-vscode-theme">Tokyo Night</a> cool nightscape.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Themes tagged <code>nerd-font-v3</code> assume your terminal renders a Nerd
+Font. If you don’t have one yet, <a href="https://www.nerdfonts.com/">install one</a>,
+or pick a <code>compatible</code>-mode theme — those only use box-drawing
+characters from the basic Unicode plane.</p>
+<h2 id="how-a-theme-is-structured"><a class="header" href="#how-a-theme-is-structured">How a theme is structured</a></h2>
+<p>A theme is a regular <code>config.toml</code>. The smallest possible one looks
+like:</p>
+<pre><code class="language-toml">schema_version = 1
+mode = "compatible"           # ascii / awesome / nerd-font-v2 / nerd-font-v3 / compatible
+colors = "ansi256"            # ansi8 / ansi256 / true-color / follow_terminal
+transient_prompt = "same-dir" # off / always / same-dir / unique-dir — see reference/schema.md#transientpromptmode
+
+[layout]
+left = ["dir", "vcs", "prompt_char"]
+right = ["status", "time"]
+
+[segment.dir]
+foreground = "blue"
+
+[segment.vcs.states.dirty]
+foreground = "yellow"
+</code></pre>
+<p>The full schema lives at <a href="#configuration">config/</a>; per-state
+override blocks, frame / ruler glyphs, truecolor hex literals, and
+the rest are documented there.</p>
+<h2 id="bundling-vs-on-disk"><a class="header" href="#bundling-vs-on-disk">Bundling vs. on-disk</a></h2>
+<p>Themes are committed at <a href="https://github.com/scurran1986/powerlevel10k-rs/tree/main/themes"><code>themes/</code></a>
+<strong>and</strong> embedded into the binary at build time via
+<code>include_str!</code>. So:</p>
+<ul>
+<li>A <code>cargo install</code>d build can <code>p10k-rs theme install &lt;name&gt;</code>
+without the repo on disk.</li>
+<li>A clone of the repo can also <code>cp themes/&lt;name&gt;.toml ~/.config/p10k-rs/config.toml</code> manually if preferred.</li>
+</ul>
+<p>The two paths produce byte-identical output.</p>
+<h2 id="validation"><a class="header" href="#validation">Validation</a></h2>
+<p>Every bundled theme is parsed at test time via <code>Config::from_toml</code>
+(see the <code>every_bundled_theme_parses</code> unit test in
+<code>crates/p10k-rs/src/themes.rs</code>). A theme that doesn’t deserialise
+cleanly fails CI — so anything published in this catalogue is
+guaranteed to load.</p>
+<h2 id="contributing-a-theme"><a class="header" href="#contributing-a-theme">Contributing a theme</a></h2>
+<p>Open a PR with one new <code>themes/&lt;name&gt;.toml</code> plus an entry in:</p>
+<ol>
+<li><code>themes/README.md</code> catalogue table.</li>
+<li>The <code>THEMES</code> const in <code>crates/p10k-rs/src/themes.rs</code>.</li>
+<li>The <code>catalogue_count</code> test in the same file.</li>
+<li>The catalogue table in this chapter.</li>
+</ol>
+<p>Lint locally before pushing:</p>
+<pre><code class="language-bash">p10k-rs config check --config themes/your-theme.toml
+</code></pre>
+<p>That parses and schema-validates without rendering.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="crate-layout"><a class="header" href="#crate-layout">Crate layout</a></h1>
+<p>The workspace splits along blast-radius lines: I/O-free libraries at
+the bottom, side-effecting glue and binary entry at the top. The
+dependency direction is one-way — <code>core</code> does not depend on <code>segments</code>
+or <code>git</code>.</p>
+<pre><code>crates/
+  p10k-rs            # binary entrypoint
+  p10k-rs-core       # Segment trait, render pipeline (no I/O)
+  p10k-rs-config     # TOML schema + Powerlevel9k import (data only)
+  p10k-rs-segments   # segment implementations
+  p10k-rs-git        # gitstatusd client + git shell-out fallback
+  p10k-rs-shell      # per-shell init scripts
+  p10k-rs-wizard     # `configure` TUI (stub)
+  p10k-rs-ai         # AI-host detection / OSC emission (stub)
+  p10k-rs-ipc        # FIFO plumbing
+</code></pre>
+<h2 id="p10k-rs-core"><a class="header" href="#p10k-rs-core"><code>p10k-rs-core</code></a></h2>
+<p>The render pipeline and shared types. <strong>I/O-free</strong> by design. Owns the
+<code>Segment</code> trait (<code>name()</code>, <code>render()</code>, optional <code>enabled()</code> / <code>is_fast()</code>
+gates), <code>RenderCtx</code> (per-prompt input bundle: config, shell, cwd, git,
+jobs, duration, env snapshot), <code>SegmentOutput</code>, <code>Prompt</code>, and
+<code>render_prompt()</code> — a pure function that walks segments, calls <code>enabled</code>
+then <code>render</code>, joins with a space, and runs <code>wrap_for_shell</code>.
+<code>safety::SafeText</code> and <code>style::*</code> live here too — they are the
+attacker-controlled-input chokepoint and the SGR helpers segments
+compose with. <code>Config</code> is re-exported from <code>p10k-rs-config</code> so
+<code>RenderCtx</code> can name it without dependents pulling the config crate in.</p>
+<h2 id="p10k-rs-config"><a class="header" href="#p10k-rs-config"><code>p10k-rs-config</code></a></h2>
+<p>The schema lives here. Loading, validation, defaulting, and the
+Powerlevel9k importer (<code>p10k-rs import</code>) all live here, but the crate
+is intentionally pure: no I/O for parsing — <code>Config::from_toml</code> takes a
+string. <code>Config::load_default</code> is the only function in this crate that
+touches the filesystem or environment, and it is opt-in.</p>
+<h2 id="p10k-rs-git"><a class="header" href="#p10k-rs-git"><code>p10k-rs-git</code></a></h2>
+<p>The only crate in the workspace with an <code>unsafe</code> budget, and the
+production hot path for the whole prompt. Read
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/adr/0001-git-backend.md">ADR-0001</a>
+before changing anything here. Owns the <code>Backend</code> trait, the <code>ShellOut</code>
+slow path (spawns <code>git status --porcelain=v1 --branch</code> per prompt), and
+the <code>Gitstatusd</code> fast path (client of a long-lived daemon spawned by
+the shell init script over two FIFOs). <code>GitState</code> itself lives in
+<code>p10k-rs-core</code> so <code>RenderCtx</code> can hold an <code>Option&lt;&amp;GitState&gt;</code> without a
+dependency cycle.</p>
+<h2 id="p10k-rs-segments"><a class="header" href="#p10k-rs-segments"><code>p10k-rs-segments</code></a></h2>
+<p>Thin assembly point. Per-segment logic lives in submodules; <code>lib.rs</code> is
+the public registry. <code>segment_names()</code> returns the runtime-authoritative
+list, <code>build(name)</code> constructs an instance, and a unit test enforces
+that every advertised name resolves.</p>
+<h2 id="p10k-rs-shell"><a class="header" href="#p10k-rs-shell"><code>p10k-rs-shell</code></a></h2>
+<p>Per-shell init scripts. <code>zsh</code> is fully wired today; <code>bash</code> and <code>fish</code>
+ship init scripts whose installer wiring lands in a later slice. See
+<a href="#per-shell-init">Per-shell init</a> for the feature parity table.</p>
+<h2 id="p10k-rs-ipc"><a class="header" href="#p10k-rs-ipc"><code>p10k-rs-ipc</code></a></h2>
+<p>FIFO plumbing for the gitstatusd daemon. Pre-opened, mode-checked,
+owner-checked before use — see <a href="#security-model">security</a>.</p>
+<h2 id="p10k-rs-wizard-p10k-rs-ai"><a class="header" href="#p10k-rs-wizard-p10k-rs-ai"><code>p10k-rs-wizard</code>, <code>p10k-rs-ai</code></a></h2>
+<p>Stubs today. The wizard is the future <code>p10k-rs configure</code> TUI; the AI
+crate covers host detection (<code>ai_host</code> segment) and OSC emission for
+the <code>osc7</code> / <code>osc133</code> toggles in <code>[ai]</code>.</p>
+<h2 id="p10k-rs-binary"><a class="header" href="#p10k-rs-binary"><code>p10k-rs</code> (binary)</a></h2>
+<p>Argument parsing, config discovery (via <code>Config::load_default</code>), and
+the <code>init</code> / <code>prompt</code> / <code>import</code> / <code>configure</code> subcommands. The
+factory-default 5-segment layout lives in <code>main.rs::factory_default_config()</code>
+and is byte-identical to the historical default.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="render-pipeline"><a class="header" href="#render-pipeline">Render pipeline</a></h1>
+<p><code>p10k-rs-core::render_prompt()</code> is the pure function that turns a
+<code>RenderCtx</code> plus a list of segments into a <code>Prompt { left, right, transient }</code>. It walks the configured segments in order, calls
+<code>Segment::enabled()</code> to gate them, then <code>Segment::render()</code> for each
+that survives, and joins the results with a separator before running
+<code>wrap_for_shell()</code> for the active shell’s prompt-escape rules.</p>
+<p>The shape mirrors upstream Powerlevel10k’s <code>_p9k_set_prompt</code>, but cut
+to the bone: no in-band caching, no zselect-style multiplexer, no
+<code>eval</code> of remote payloads. The MVP is synchronous — spawn-per-prompt —
+because the load-bearing latency comes from one place: <code>gitstatusd</code>.
+Anything that does not need to be async (status, prompt_char, dir,
+time, context, vi_mode, root_indicator) finishes in microseconds inside
+<code>render()</code> itself.</p>
+<h2 id="sync-vs-async"><a class="header" href="#sync-vs-async">Sync vs async</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Segment kind</th><th>Where computed</th></tr>
+</thead>
+<tbody>
+<tr><td>Static (<code>dir</code>, <code>prompt_char</code>, <code>status</code>, <code>time</code>, <code>context</code>, …)</td><td>Inline in <code>Segment::render()</code> during <code>render_prompt()</code>.</td></tr>
+<tr><td>Cached vcs (gitstatusd answered inside the sync budget)</td><td>Sync drain of the daemon FIFO. See <code>p10k-rs-git::Gitstatusd</code>.</td></tr>
+<tr><td>vcs fallback (no daemon, or daemon timeout)</td><td><code>ShellOut</code> spawns <code>git status --porcelain=v1 --branch</code>.</td></tr>
+<tr><td>Future async segments (battery, public_ip, disk_usage, …)</td><td>not in the MVP set — would land alongside a v0.3+ rayon parallel-render slice</td></tr>
+</tbody>
+</table>
+</div>
+<p>The MVP is “spawn-per-prompt synchronous”. <code>tokio</code> is explicitly out of
+scope until v0.2; the daemon already amortises the only latency that
+matters.</p>
+<h2 id="instant-prompt"><a class="header" href="#instant-prompt">Instant prompt</a></h2>
+<p>Slice 8 ships the instant-prompt cache: a dump file holds a rendered
+PROMPT/RPROMPT from the previous shell session, so the first prompt
+paints in sub-millisecond time before the real init finishes. The
+hermetic-content constraint applies — only segments whose render does
+not depend on env state or external processes are included in the
+instant dump. <code>instant_prompt = "verbose" | "quiet" | "off"</code> in
+<code>[&lt;top-level&gt;]</code> selects the behaviour.</p>
+<h2 id="reset-prompt"><a class="header" href="#reset-prompt">Reset-prompt</a></h2>
+<p>Upstream’s <code>zle .reset-prompt</code> is shell-specific. The Rust trait
+sketch in the planning notes proposes a <code>Shell::request_repaint()</code>
+method per backend; <code>zsh</code> and <code>fish</code> can do mid-edit repaint cleanly,
+<code>bash</code> flickers, and <code>nushell</code> requires polling. The MVP only refreshes
+on the next prompt cycle for non-zsh shells.</p>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further reading</a></h2>
+<ul>
+<li><code>~/.planning/powerlevel10k-rs/03-render-pipeline.md</code> — full upstream
+pipeline analysis the Rust port is modelled on.</li>
+<li><a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/adr/0001-git-backend.md">ADR-0001</a>
+— why the git backend is the only place worth being async.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="security-model"><a class="header" href="#security-model">Security model</a></h1>
+<p>The prompt sits at a privileged spot: it runs on every keystroke, it
+prints to a terminal that interprets escape sequences, and most of its
+inputs are attacker-controlled (branch names from <code>git</code>, cwd from
+filesystem, segment icons from user-edited TOML). Three primitives in
+<code>p10k-rs-core::safety</code> guard the boundary.</p>
+<h2 id="sanitize_for_terminal"><a class="header" href="#sanitize_for_terminal"><code>sanitize_for_terminal</code></a></h2>
+<p>Strips every Unicode control codepoint except horizontal tab, plus
+DEL (<code>U+007F</code>). The OSC injection vector <code>a\x1b]0;EVIL\x07b</code> becomes
+<code>a]0;EVILb</code> — the escape and the BEL terminator are gone, the literal
+glyphs survive. Run on every prompt-bound string field at TOML parse
+time (<code>Layout::separators</code>, <code>frame.glyph</code>, <code>frame.bottom_glyph</code>,
+<code>ruler.glyph</code>, every <code>segment.&lt;name&gt;.icon</code>, every state icon) so the
+renderer never sees a control byte.</p>
+<h2 id="safetext"><a class="header" href="#safetext"><code>SafeText</code></a></h2>
+<p>The newtype wrapper that says “this string passed sanitisation”. Branch
+names and cwd both pass through <code>SafeText</code> before they hit the prompt.
+<code>SafeText::from_bytes</code> handles non-UTF-8 input (branch names from <code>git</code>
+can be arbitrary bytes) by lossy-decoding then sanitising. The
+construction path is the only way to get one — there is no
+<code>SafeText::new_unchecked</code>.</p>
+<h3 id="unicode-class-hardening-t110--t111"><a class="header" href="#unicode-class-hardening-t110--t111">Unicode-class hardening (T1.10 / T1.11)</a></h3>
+<p><code>SafeText::from_untrusted_with_cap</code> (T1.10) extends the baseline ASCII
+control strip with three additional passes:</p>
+<ul>
+<li><strong>BiDi / format controls</strong> — strips Unicode general-category <code>Cf</code>
+codepoints (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069, U+FEFF, and
+the deprecated tag block U+E0000–U+E007F). These are the classes the
+forward-research threat model flagged as capable of visually inverting
+or hiding prompt content.</li>
+<li><strong>NFC normalisation</strong> — output is in Unicode Canonical Decomposition
+followed by Canonical Composition so that grapheme rendering is
+deterministic regardless of source normalisation form.</li>
+<li><strong>Grapheme-safe truncation</strong> — length caps applied via
+<code>unicode-segmentation</code> grapheme boundaries, not byte or scalar
+offsets, so multi-codepoint emoji and combining sequences are never
+split mid-glyph.</li>
+</ul>
+<p>T1.11 extended the <code>SafeText</code> chokepoint to ten segment env-var helpers
+(<code>anaconda</code>, <code>aws</code>, <code>docker_context</code>, <code>fnm</code>, <code>kubecontext</code>, <code>nodenv</code>,
+<code>pixi</code>, <code>pyenv</code>, <code>terraform</code>, <code>virtualenv</code>). Each now returns
+<code>Option&lt;SafeText&gt;</code> instead of <code>Option&lt;String&gt;</code>, making “this value is
+sanitised” a type-system invariant at the helper boundary rather than a
+convention.</p>
+<h2 id="wrap_for_shell"><a class="header" href="#wrap_for_shell"><code>wrap_for_shell</code></a></h2>
+<p>The final escape that adapts to each shell’s prompt-width-tracking
+syntax (zsh <code>%{...%}</code>, bash <code>\[...\]</code>, fish raw). Run once at the end
+of <code>render_prompt</code> — segments themselves emit raw SGR escapes; the
+wrap step turns them into shell-specific zero-width markers.</p>
+<h2 id="load-bearing-tests"><a class="header" href="#load-bearing-tests">Load-bearing tests</a></h2>
+<p>The invariants above are pinned by <code>safety::tests</code> in
+<code>crates/p10k-rs-core/src/safety.rs</code>:</p>
+<ul>
+<li><code>passes_plain_ascii_through</code></li>
+<li><code>preserves_tab</code></li>
+<li><code>strips_carriage_return</code></li>
+<li><code>strips_backspace</code></li>
+<li><code>strips_escape_and_osc_payload</code></li>
+<li><code>strips_screen_clear</code></li>
+<li><code>strips_del</code></li>
+<li><code>strips_unicode_c1_controls</code></li>
+<li><code>preserves_non_control_unicode</code></li>
+<li><code>does_not_escape_percent</code></li>
+<li><code>safe_text_strips_controls_at_construction</code></li>
+<li><code>safe_text_from_bytes_handles_non_utf8</code></li>
+<li><code>safe_text_from_bytes_strips_controls</code></li>
+<li><code>safe_text_default_is_empty</code></li>
+<li><code>safe_text_displays_as_inner_string</code></li>
+<li><code>safe_text_from_str_via_into_strips_controls</code></li>
+</ul>
+<p>A duplicate of <code>sanitize_for_terminal</code> lives in <code>p10k-rs-config</code> to
+avoid a <code>core → config → core</code> cycle; both copies are pinned to the
+same invariants. Drift would show up as a test mismatch in either
+crate.</p>
+<h2 id="fifo-security-gitstatusd"><a class="header" href="#fifo-security-gitstatusd">FIFO security (gitstatusd)</a></h2>
+<p>The daemon FIFOs in <code>p10k-rs-ipc</code> are pre-opened, mode-checked, and
+owner-checked before any read or write. The hardening landed in slice 9
+under <a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/adr/0001-git-backend.md">ADR-0001</a>
+§ Operational.</p>
+<h2 id="what-is-not-in-scope"><a class="header" href="#what-is-not-in-scope">What is <em>not</em> in scope</a></h2>
+<ul>
+<li>Sandboxing the user’s own shell config. p10k-rs is a prompt, not an
+EDR.</li>
+<li>Validating that a TOML colour name resolves to a real palette entry
+— the renderer accepts any string and falls through to a default.</li>
+<li>Defending against a malicious <code>$P10K_RS_GITSTATUSD_BIN</code> (the user
+controls their own <code>$PATH</code>).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="schema-full"><a class="header" href="#schema-full">Schema (full)</a></h1>
+<p>Source of truth:
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/crates/p10k-rs-config/src/lib.rs"><code>crates/p10k-rs-config/src/lib.rs</code></a>. The struct field rustdoc is
+the canonical spec; this page is a flat reference. <code>deny_unknown_fields</code>
+is set everywhere — typo’d keys surface a parse error rather than
+silently doing nothing.</p>
+<h2 id="top-level--config"><a class="header" href="#top-level--config">Top level — <code>Config</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>schema_version</code></td><td><code>u32</code></td><td>Schema version. Currently <code>1</code>.</td></tr>
+<tr><td><code>mode</code></td><td><code>Mode</code></td><td>Glyph mode (default <code>nerd-font-v3</code>).</td></tr>
+<tr><td><code>colors</code></td><td><code>ColorMode</code></td><td>Color emission mode (default <code>ansi256</code>).</td></tr>
+<tr><td><code>layout</code></td><td><code>Layout</code></td><td>Left/right segment lists, frame, ruler, separators.</td></tr>
+<tr><td><code>instant_prompt</code></td><td><code>InstantPromptMode</code></td><td>Instant-prompt behaviour (default <code>verbose</code>).</td></tr>
+<tr><td><code>transient_prompt</code></td><td><code>TransientPromptMode</code></td><td>Transient-prompt behaviour (default <code>off</code>).</td></tr>
+<tr><td><code>segment</code></td><td><code>HashMap&lt;String, SegmentConfig&gt;</code></td><td>Per-segment config, keyed by name. Serialised as <code>[segment.&lt;name&gt;]</code>.</td></tr>
+<tr><td><code>ai</code></td><td><code>AiConfig</code></td><td>AI integration toggles.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="mode"><a class="header" href="#mode"><code>Mode</code></a></h2>
+<p><code>ascii</code> · <code>awesome</code> · <code>nerd-font-v2</code> ·
+<code>nerd-font-v3</code> (default) · <code>compatible</code>.</p>
+<h2 id="colormode"><a class="header" href="#colormode"><code>ColorMode</code></a></h2>
+<p><code>ansi8</code> · <code>ansi256</code> (default) · <code>true-color</code>.</p>
+<h2 id="layout"><a class="header" href="#layout"><code>Layout</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>left</code></td><td><code>Vec&lt;SegmentRef&gt;</code></td><td>Ordered list of segments on the left.</td></tr>
+<tr><td><code>right</code></td><td><code>Vec&lt;SegmentRef&gt;</code></td><td>Ordered list of segments on the right.</td></tr>
+<tr><td><code>left_top_only</code></td><td><code>Vec&lt;SegmentRef&gt;</code></td><td>Subset of <code>left</code> pinned to line 1 of a multi-line prompt; the rest fall to line 2. Honoured only when the frame is active.</td></tr>
+<tr><td><code>right_top_only</code></td><td><code>Vec&lt;SegmentRef&gt;</code></td><td>Symmetric reservation for the right prompt; currently inert (RPROMPT is single-line).</td></tr>
+<tr><td><code>frame</code></td><td><code>Option&lt;FrameStyle&gt;</code></td><td>Decorative frame around the prompt.</td></tr>
+<tr><td><code>ruler</code></td><td><code>Option&lt;RulerStyle&gt;</code></td><td>Horizontal divider above the prompt.</td></tr>
+<tr><td><code>separators</code></td><td><code>Separators</code></td><td>Glyphs that join segments and subsegments.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="separators"><a class="header" href="#separators"><code>Separators</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>left</code></td><td><code>Option&lt;String&gt;</code></td><td>Glyph between segments on the left side.</td></tr>
+<tr><td><code>right</code></td><td><code>Option&lt;String&gt;</code></td><td>Glyph between segments on the right side.</td></tr>
+<tr><td><code>subsegment</code></td><td><code>Option&lt;String&gt;</code></td><td>Glyph between subsegments inside one segment.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="framestyle"><a class="header" href="#framestyle"><code>FrameStyle</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>glyph</code></td><td><code>Option&lt;String&gt;</code></td><td>Frame glyph (sanitised at parse).</td></tr>
+<tr><td><code>foreground</code></td><td><code>Option&lt;Color&gt;</code></td><td>Frame foreground colour.</td></tr>
+<tr><td><code>bottom_glyph</code></td><td><code>Option&lt;String&gt;</code></td><td>Bottom-left frame glyph on the prompt-char line. Default <code>╰─</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="rulerstyle"><a class="header" href="#rulerstyle"><code>RulerStyle</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>glyph</code></td><td><code>Option&lt;String&gt;</code></td><td>Ruler glyph (sanitised at parse).</td></tr>
+<tr><td><code>foreground</code></td><td><code>Option&lt;Color&gt;</code></td><td>Ruler foreground colour.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="segmentconfig--segmentname"><a class="header" href="#segmentconfig--segmentname"><code>SegmentConfig</code> — <code>[segment.&lt;name&gt;]</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>disabled</code></td><td><code>bool</code></td><td>Skip the segment entirely.</td></tr>
+<tr><td><code>foreground</code></td><td><code>Option&lt;Color&gt;</code></td><td>Foreground colour.</td></tr>
+<tr><td><code>background</code></td><td><code>Option&lt;Color&gt;</code></td><td>Background colour.</td></tr>
+<tr><td><code>marker_foreground</code></td><td><code>Option&lt;Color&gt;</code></td><td>Foreground colour for index markers (<code>* ! + ~ ? ≡</code>) on the <code>vcs</code> segment (slice 59). Paints markers independently from the branch text. Ignored by other segments.</td></tr>
+<tr><td><code>icon</code></td><td><code>Option&lt;String&gt;</code></td><td>Override the default icon glyph (sanitised at parse).</td></tr>
+<tr><td><code>padding</code></td><td><code>Padding</code></td><td>Whitespace cells on either side.</td></tr>
+<tr><td><code>truncate</code></td><td><code>DirTruncate</code></td><td>Cwd truncation policy (only the <code>dir</code> segment reads it).</td></tr>
+<tr><td><code>show_on_command</code></td><td><code>Option&lt;Vec&lt;String&gt;&gt;</code></td><td>Render only when the upcoming command’s first word matches one of these. Zsh-only today (<code>line-pre-redraw</code> widget); other shells get the last-command approximation per the zsh-init comment.</td></tr>
+<tr><td><code>show_in_dir</code></td><td><code>Option&lt;Vec&lt;Glob&gt;&gt;</code></td><td>Render only when the cwd matches one of these globs.</td></tr>
+<tr><td><code>show_on_upglob</code></td><td><code>Option&lt;Vec&lt;Glob&gt;&gt;</code></td><td>Render only when a file or directory matching one of these globs exists in the cwd or any ancestor directory (walking upward toward the filesystem root). Classic use: gate a language segment to its project tree, e.g. <code>["package.json"]</code>.</td></tr>
+<tr><td><code>disabled_dir_pattern</code></td><td><code>Option&lt;Glob&gt;</code></td><td>Disable the segment when the cwd matches this glob.</td></tr>
+<tr><td><code>states</code></td><td><code>HashMap&lt;String, StateOverrides&gt;</code></td><td>Per-state overrides keyed by segment-defined state tag.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="stateoverrides--segmentnamestatestag"><a class="header" href="#stateoverrides--segmentnamestatestag"><code>StateOverrides</code> — <code>[segment.&lt;name&gt;.states.&lt;tag&gt;]</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>foreground</code></td><td><code>Option&lt;Color&gt;</code></td><td>Foreground for this state.</td></tr>
+<tr><td><code>background</code></td><td><code>Option&lt;Color&gt;</code></td><td>Background for this state.</td></tr>
+<tr><td><code>icon</code></td><td><code>Option&lt;String&gt;</code></td><td>Icon override for this state (sanitised at parse).</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="padding"><a class="header" href="#padding"><code>Padding</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>left</code></td><td><code>u8</code></td><td>Whitespace cells to the left.</td></tr>
+<tr><td><code>right</code></td><td><code>u8</code></td><td>Whitespace cells to the right.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="dirtruncate"><a class="header" href="#dirtruncate"><code>DirTruncate</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>strategy</code></td><td><code>DirTruncateStrategy</code></td><td><code>none</code> (default), <code>to_last</code>, <code>middle</code>, <code>to_unique</code>.</td></tr>
+<tr><td><code>length</code></td><td><code>u8</code></td><td>Trailing components to keep (default <code>3</code>; <code>0</code> treated as <code>1</code>).</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>to_unique</code> is opt-in only — it issues one <code>read_dir</code> per non-final
+component and is meaningfully more expensive on slow filesystems.</p>
+<h2 id="color"><a class="header" href="#color"><code>Color</code></a></h2>
+<p>Untagged enum — TOML accepts four shapes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Shape</th><th>Example</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>String</td><td><code>"blue"</code>, <code>"brightred"</code>, <code>"wheat4"</code></td><td>Powerlevel9k-style name (16 P9k-compat names land).</td></tr>
+<tr><td>Integer</td><td><code>33</code>, <code>196</code></td><td>ANSI 256 index (0–255).</td></tr>
+<tr><td>Array</td><td><code>[120, 200, 0]</code></td><td>Truecolor <code>[r, g, b]</code>.</td></tr>
+<tr><td>Hex string</td><td><code>"#ff6600"</code>, <code>"#f60"</code></td><td>Truecolor hex literal (T1.24). Shorthand expands per CSS convention. <code>#</code>-prefixed strings that are not valid 3- or 6-digit hex are a parse error.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="instantpromptmode"><a class="header" href="#instantpromptmode"><code>InstantPromptMode</code></a></h2>
+<p><code>off</code> · <code>quiet</code> · <code>verbose</code> (default).</p>
+<h2 id="transientpromptmode"><a class="header" href="#transientpromptmode"><code>TransientPromptMode</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Behaviour</th></tr>
+</thead>
+<tbody>
+<tr><td><code>off</code></td><td>Transient prompt disabled. Every prompt stays at full width in scrollback. Default.</td></tr>
+<tr><td><code>always</code></td><td>Every accepted command collapses the preceding prompt to a single chevron.</td></tr>
+<tr><td><code>same-dir</code></td><td>Collapse only when the next prompt is in the same directory as the previous one. Full ribbon is kept in scrollback when you <code>cd</code>. Uses an exit-code-2 wire protocol between the binary and the zsh init (T1.8).</td></tr>
+<tr><td><code>unique-dir</code></td><td>Collapse the previous prompt iff its cwd appears in <code>{cwd} ∪ history</code>, where <code>history</code> is the cwds of all prompts strictly older than the immediate previous prompt in this shell session. The zsh init maintains a per-shell NUL-separated history file inside the slice-9 mktemp dir and forwards it via <code>--prompt-cwd-history-file</code>. Approximation of the strict “collapse all but the most recent prompt at each unique directory” rule — the strict version needs per-prompt-line-position scrollback rewriting (multi-slice ZLE engineering, deferred). The approximation collapses strictly more than <code>same-dir</code> (every same-dir match plus every revisit) without incorrectly collapsing a prompt at a truly-unique cwd.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="aiconfig--ai"><a class="header" href="#aiconfig--ai"><code>AiConfig</code> — <code>[ai]</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>osc7</code></td><td><code>bool</code></td><td>Emit OSC 7 (current working directory) sequences.</td></tr>
+<tr><td><code>osc133</code></td><td><code>bool</code></td><td>Emit OSC 133 (semantic prompt) sequences.</td></tr>
+<tr><td><code>host</code></td><td><code>HashMap&lt;String, HostConfig&gt;</code></td><td>Per-host opt-in. Serialised as <code>[ai.host.&lt;id&gt;]</code>.</td></tr>
+<tr><td><code>model</code></td><td><code>Option&lt;String&gt;</code></td><td>Active model name (schema-only, slice 61). Accepted and stored; the AI statusline render path is still a stub — this field has no visible effect until that ships.</td></tr>
+<tr><td><code>context_tokens</code></td><td><code>Option&lt;u32&gt;</code></td><td>Context window size hint in tokens (schema-only, slice 61). Same stub caveat as <code>model</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="hostconfig--aihostid"><a class="header" href="#hostconfig--aihostid"><code>HostConfig</code> — <code>[ai.host.&lt;id&gt;]</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>enabled</code></td><td><code>bool</code></td><td>Enable status JSON ingestion for this host.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="segmentref-glob"><a class="header" href="#segmentref-glob"><code>SegmentRef</code>, <code>Glob</code></a></h2>
+<p>Both are transparent <code>String</code> newtypes. <code>SegmentRef</code> stays a newtype so
+future syntax like <code>"vcs?max=3"</code> lands without a breaking change; <code>Glob</code>
+is validated lazily by the segments that read it.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="per-shell-init"><a class="header" href="#per-shell-init">Per-shell init</a></h1>
+<p>Five init scripts ship in <code>crates/p10k-rs-shell/shells/</code>. <code>zsh</code> is the
+fully-wired daily driver; <code>bash</code>, <code>fish</code>, <code>pwsh</code>, and <code>nu</code> ship working scripts
+whose installer integration is shell-specific. The binary always
+sanitises untrusted input before emission, regardless of which shell is
+sourcing the prompt.</p>
+<p>Source the right one with:</p>
+<pre><code class="language-bash"># zsh
+eval "$(p10k-rs init zsh)"
+
+# bash
+eval "$(p10k-rs init bash)"
+
+# fish
+p10k-rs init fish | source
+</code></pre>
+<pre><code class="language-powershell"># pwsh (PowerShell 7+ / 5.1)
+&amp; p10k-rs init pwsh | Invoke-Expression
+</code></pre>
+<pre><code class="language-nu"># nu (Nushell 0.97+) — two-step save-then-source (auto-sourced)
+mkdir ($nu.data-dir | path join vendor autoload)
+p10k-rs init nu | save -f ($nu.data-dir | path join vendor autoload p10k-rs.nu)
+</code></pre>
+<p>All scripts are idempotent — re-sourcing is a no-op.</p>
+<h2 id="feature-parity"><a class="header" href="#feature-parity">Feature parity</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>zsh</th><th>bash</th><th>fish</th><th>pwsh</th><th>nu</th></tr>
+</thead>
+<tbody>
+<tr><td>Left prompt</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>Right prompt (<code>RPROMPT</code>)</td><td>yes</td><td>no (bash has no native equivalent)</td><td>not wired — fish supports a <code>fish_right_prompt</code> function but our <code>init.fish</code> doesn’t define one yet</td><td>no — pwsh has no <code>RPROMPT</code> analogue; <code>[layout.right]</code> is silently dropped</td><td>yes — <code>$env.PROMPT_COMMAND_RIGHT</code> is first-class, so <code>[layout.right]</code> renders</td></tr>
+<tr><td><code>$?</code> / exit-code capture</td><td>yes</td><td>yes</td><td>yes</td><td>yes — <code>$LASTEXITCODE</code>; <code>$null</code> treated as 0</td><td>yes — <code>$env.LAST_EXIT_CODE</code>; <code>$null</code> defaulted to 0</td></tr>
+<tr><td><code>command_execution_time</code></td><td>yes</td><td>no (no clean preexec; passes <code>--last-duration-ms 0</code>)</td><td>yes (uses <code>fish_preexec</code> event)</td><td>no — no clean preexec analogue; passes <code>--last-duration-ms 0</code></td><td>yes — <code>$env.CMD_DURATION_MS</code> is native wall-clock duration</td></tr>
+<tr><td><code>gitstatusd</code> daemon backend</td><td>yes</td><td>no (FIFO plumbing is zsh-specific)</td><td>no (FIFO plumbing is zsh-specific)</td><td>no — falls back to <code>git</code> shell-out automatically</td><td>no — falls back to <code>git</code> shell-out / gitoxide automatically</td></tr>
+<tr><td><code>git</code> shell-out fallback</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>Transient prompt</td><td>yes (via ZLE widgets)</td><td>partial (Return-bind redraws collapsed prompt via cursor escapes; single-row prompts only — see caveat)</td><td>wired — Enter-key bind sets <code>_p10k_rs_transient=1</code> then <code>commandline -f repaint</code> redraws (since <code>8ad919b</code>)</td><td>no — PSReadLine’s <code>OnEnterKeyDown</code> hook exists but the redraw model differs from zsh’s <code>zle reset-prompt</code></td><td>no — <code>$env.TRANSIENT_PROMPT_COMMAND</code> exists; wiring the four modes is a later slice</td></tr>
+<tr><td>Instant prompt</td><td>yes (cached PROMPT-SUBST dump)</td><td>no (does not map onto bash’s prompt model)</td><td>no (does not map onto fish’s prompt model)</td><td>no — does not map onto pwsh’s prompt model</td><td>no — Nushell startup is fast; no dump-sourcing path</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="bash-specifics"><a class="header" href="#bash-specifics">bash specifics</a></h2>
+<ul>
+<li>Hooks via <code>PROMPT_COMMAND</code> (string form for bash 3.x–5.x compatibility).</li>
+<li>No native right prompt: any <code>[layout.right]</code> configured in TOML is
+silently dropped for bash users. A future slice may emulate
+right-alignment via cursor-position escapes; the trade-off (no
+resize handling, fragile under multiline input) is real.</li>
+<li><code>command_execution_time</code>: bash has no clean preexec hook (a <code>trap DEBUG</code> workaround interacts badly with completion and subshells), so
+the segment stays below its 3-second threshold and hides.</li>
+<li><strong>Transient prompt (partial)</strong>: bash readline has no <code>zle reset-prompt</code> (zsh) or <code>commandline -f repaint</code> (fish) hook, so there
+is no built-in way to re-render the prompt before the accepted line
+runs. The init script binds Return (<code>\C-m</code>) to a <code>bind -x</code> function
+that asks the binary for the collapsed render and overwrites the
+current prompt with cursor-control escapes, then chains <code>accept-line</code>
+so the command still executes normally. Re-sourcing rebinds cleanly
+(no stacked bindings), and the binding is only wired for interactive
+shells (<code>$-</code> contains <code>i</code>) so non-interactive sourcing stays quiet.
+The full wire contract is honored — all four <code>TransientPromptMode</code>
+variants (Off / Always / SameDir / UniqueDir) are gated by the binary
+exactly as in zsh and fish, including <code>--last-prompt-cwd</code> and the
+per-shell <code>--prompt-cwd-history-file</code> for <code>unique-dir</code>, and the
+exit-code-2 KeepPrompt fall-through leaves the full ribbon in
+scrollback. <strong>Caveat:</strong> the cursor redraw is robust only for a
+single-row prompt with single-line input (the common case). When the
+prompt spans multiple rows, or the typed line soft-wrapped past the
+terminal width, bash gives the script no reliable row count to move
+up, so the script declines to collapse and leaves the full ribbon in
+scrollback — the same visible outcome as a KeepPrompt. The binary-side
+mode gating and cwd-history round-trip are complete; only the terminal
+redraw is conservative.</li>
+</ul>
+<h2 id="fish-specifics"><a class="header" href="#fish-specifics">fish specifics</a></h2>
+<ul>
+<li>Hooks via <code>fish_prompt</code> and a <code>fish_preexec</code> event handler.</li>
+<li><code>command_execution_time</code> uses GNU coreutils <code>date +%s%3N</code> when
+available; falls back to whole-second precision on systems without
+<code>%3N</code> (macOS BSD <code>date</code>).</li>
+<li>No daemon backend or instant prompt — same reasons as bash.</li>
+</ul>
+<h2 id="powershell-pwsh"><a class="header" href="#powershell-pwsh">PowerShell (pwsh)</a></h2>
+<p>Both <code>pwsh</code> (PowerShell 7+, cross-platform) and <code>powershell</code> (Windows-only
+5.x legacy) resolve to the same init script. It targets the 5.1 / 7+
+intersection and feature-probes the rest at load time.</p>
+<h3 id="activation"><a class="header" href="#activation">Activation</a></h3>
+<p>One-liner for the current session:</p>
+<pre><code class="language-powershell">&amp; p10k-rs init pwsh | Invoke-Expression
+</code></pre>
+<p>Persistent form for <code>$PROFILE</code>:</p>
+<pre><code class="language-powershell">Invoke-Expression (&amp; p10k-rs init pwsh | Out-String)
+</code></pre>
+<p>The <code>Out-String</code> form is required in <code>$PROFILE</code> because PowerShell evaluates
+profile lines differently from interactive pipeline expressions.</p>
+<h3 id="binary-path"><a class="header" href="#binary-path">Binary path</a></h3>
+<p>The script stores the absolute path of the <code>p10k-rs</code> binary that emitted it in
+<code>$script:_P10K_RS_BIN</code>. If you move the binary after sourcing the script,
+re-run <code>&amp; p10k-rs init pwsh | Invoke-Expression</code> to rebind the path.</p>
+<h3 id="whats-reduced"><a class="header" href="#whats-reduced">What’s reduced</a></h3>
+<ul>
+<li><strong><code>gitstatusd</code> daemon</strong>: no FIFO IPC on Windows. The binary falls back to the
+<code>git</code> shell-out backend automatically — no configuration needed.</li>
+<li><strong><code>command_execution_time</code></strong>: pwsh has no clean preexec analogue. The script
+passes <code>--last-duration-ms 0</code>, so the segment stays below its threshold and
+hides — same posture as bash.</li>
+<li><strong>Transient prompt</strong>: PSReadLine exposes <code>OnEnterKeyDown</code> hooks, but the
+redraw model differs from zsh’s <code>zle reset-prompt</code>. A pwsh-native transient
+implementation is not currently planned.</li>
+<li><strong>Right-side prompt</strong>: pwsh has no <code>RPROMPT</code> equivalent. Any <code>[layout.right]</code>
+block in your TOML config is silently dropped, same as bash.</li>
+<li><strong>Instant prompt</strong>: does not map onto pwsh’s prompt model.</li>
+</ul>
+<p>For the broader Windows OS feature-cfg-gate table (euid, ioctl probes, DECSET
+support, etc.) see <a href="#windows-status">docs/src/windows.md</a>.</p>
+<h3 id="fallback-prompt"><a class="header" href="#fallback-prompt">Fallback prompt</a></h3>
+<p>On any binary failure the <code>prompt</code> function returns a minimal native prompt:</p>
+<pre><code>PS &lt;cwd&gt;&gt;
+</code></pre>
+<p>This keeps the shell usable if <code>p10k-rs</code> is missing or returns an error. The
+binary’s stderr is suppressed (<code>2&gt;$null</code>) so a broken render never replaces
+the prompt with a stack trace.</p>
+<h2 id="nushell-nu"><a class="header" href="#nushell-nu">Nushell (nu)</a></h2>
+<p>Both <code>nu</code> and <code>nushell</code> resolve to the same init script. Nushell’s parser is
+static, so it cannot <code>source</code> a string straight off a pipe the way pwsh’s
+<code>Invoke-Expression</code> can — activation is a two-step “save then source”.</p>
+<h3 id="activation-1"><a class="header" href="#activation-1">Activation</a></h3>
+<p>Nushell 0.97+ auto-sources scripts dropped into the vendor autoload directory.
+Save the script there once:</p>
+<pre><code class="language-nu">mkdir ($nu.data-dir | path join vendor autoload)
+p10k-rs init nu | save -f ($nu.data-dir | path join vendor autoload p10k-rs.nu)
+</code></pre>
+<p>Older Nushell has no autoload dir — save the script anywhere, then add a
+<code>source</code> line to your <code>config.nu</code>:</p>
+<pre><code class="language-nu">p10k-rs init nu | save -f ~/.config/nushell/p10k-rs.nu
+# then in config.nu:
+#   source ~/.config/nushell/p10k-rs.nu
+</code></pre>
+<p>The script wires <code>$env.PROMPT_COMMAND</code> (and <code>_RIGHT</code>) to closures that ask
+<code>p10k-rs prompt --shell nu</code> for a fresh ribbon on every reedline redraw.
+Re-sourcing only reassigns the same closures, so it is an idempotent no-op.</p>
+<h3 id="binary-path-1"><a class="header" href="#binary-path-1">Binary path</a></h3>
+<p>The absolute path of the <code>p10k-rs</code> binary that emitted the script is baked in
+at <code>p10k-rs init nu</code> time. If you move the binary after saving the script,
+re-run the save step to rebind the path.</p>
+<h3 id="whats-reduced--whats-gained"><a class="header" href="#whats-reduced--whats-gained">What’s reduced / what’s gained</a></h3>
+<p>Unlike bash and pwsh, Nushell exposes two features that work here:</p>
+<ul>
+<li><strong><code>command_execution_time</code></strong>: <code>$env.CMD_DURATION_MS</code> tracks wall-clock
+command duration natively, so this segment is live — no preexec workaround
+needed.</li>
+<li><strong>Right-side prompt</strong>: Nushell has a first-class
+<code>$env.PROMPT_COMMAND_RIGHT</code>, so any <code>[layout.right]</code> block in your TOML
+config renders flush to the right edge.</li>
+</ul>
+<p>The reductions match the bash/pwsh posture:</p>
+<ul>
+<li><strong><code>gitstatusd</code> daemon</strong>: no FIFO IPC wiring. The binary falls back to the
+<code>git</code> shell-out / gitoxide backend automatically — no configuration needed.</li>
+<li><strong>Transient prompt</strong>: Nushell exposes <code>$env.TRANSIENT_PROMPT_COMMAND</code>, but
+wiring the four <code>TransientPromptMode</code> variants is a later slice. The full
+ribbon stays in scrollback.</li>
+<li><strong>Instant prompt</strong>: no dump-sourcing path. Nushell startup is already fast,
+so the cold-cache mask (a zsh-specific optimisation) does not apply.</li>
+</ul>
+<h3 id="fallback-prompt-1"><a class="header" href="#fallback-prompt-1">Fallback prompt</a></h3>
+<p>On a non-zero exit from the binary the closures return a minimal native prompt:</p>
+<pre><code>&lt;cwd&gt;&gt;
+</code></pre>
+<p>built from <code>$env.PWD</code> plus <code>"&gt; "</code>. The binary’s stdout, stderr, and exit code
+are captured via <code>| complete</code>, so a transient stderr stack trace never
+replaces the prompt.</p>
+<h2 id="zsh-specifics"><a class="header" href="#zsh-specifics">zsh specifics</a></h2>
+<ul>
+<li>The only fully-wired shell. <code>install.sh</code> appends an
+<code>eval "$(p10k-rs init zsh)"</code> line to <code>~/.zshrc</code>.</li>
+<li>All four headline P10K features (instant, transient, show-on-command,
+daemon-backed git) target zsh first.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="daemon-health-subcommand"><a class="header" href="#daemon-health-subcommand">daemon-health subcommand</a></h1>
+<p>Diagnostic for the per-shell <code>gitstatusd</code> daemon-respawn channel (slice 64).
+Reports whether the daemon is healthy, wedged, dead, or channel not wired.</p>
+<h2 id="when-to-run"><a class="header" href="#when-to-run">When to run</a></h2>
+<p>Run <code>p10k-rs daemon-health</code> when:</p>
+<ul>
+<li>The prompt feels slow and you suspect daemon failure</li>
+<li>You want to confirm the daemon is alive before diving into other diagnostics</li>
+<li>You’re writing a shell script that branches on daemon state</li>
+</ul>
+<h2 id="outcomes"><a class="header" href="#outcomes">Outcomes</a></h2>
+<p>The subcommand prints one stable line and exits with a code. Parse the exit code
+in scripts; the stdout text is for manual inspection.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Outcome</th><th>Stdout</th><th>Exit</th></tr>
+</thead>
+<tbody>
+<tr><td>Healthy</td><td><code>OK pid=&lt;pid&gt; wedge=none</code></td><td>0</td></tr>
+<tr><td>Wedged</td><td><code>WEDGED pid=&lt;pid&gt; wedge_age_ms=&lt;n&gt;</code></td><td>2</td></tr>
+<tr><td>Daemon dead</td><td><code>DEAD pid=&lt;pid&gt;</code></td><td>3</td></tr>
+<tr><td>Channel not wired</td><td><code>NOT_WIRED</code></td><td>4</td></tr>
+<tr><td>I/O error</td><td><code>ERROR &lt;reason&gt;</code></td><td>5</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="what-wedged-means"><a class="header" href="#what-wedged-means">What “wedged” means</a></h2>
+<p>A <em>wedge sentinel</em> is a file touched by the daemon when it detects it cannot
+make progress on a git status request. The <code>precmd</code> health-check hook (phase 3)
+monitors this sentinel and respawns the daemon if it’s stale.</p>
+<p><code>wedge_age_ms</code> tells you how old the sentinel is. A fresh wedge (age close to 0)
+means the daemon just deadlocked; an old wedge (age &gt; 30s) suggests the respawn
+precmd hasn’t fired yet. See ADR-0001 § Follow-ups for the full daemon-respawn
+architecture.</p>
+<h2 id="what-not_wired-means"><a class="header" href="#what-not_wired-means">What <code>NOT_WIRED</code> means</a></h2>
+<p>The env vars <code>_P10K_RS_GITSTATUSD_PID_FILE</code> and <code>_P10K_RS_GITSTATUSD_WEDGE</code> are
+exported by <code>p10k-rs init zsh</code> when you source it into an interactive zsh shell.
+They point to the per-shell daemon’s PID file and wedge sentinel.</p>
+<p>Running <code>daemon-health</code> outside an interactive zsh that sourced the init
+(e.g., from a cron job, CI script, or non-zsh shell) will always print
+<code>NOT_WIRED</code>. This is correct — the daemon-respawn channel doesn’t exist in
+those contexts.</p>
+<h2 id="example-shell-script-branching"><a class="header" href="#example-shell-script-branching">Example: shell-script branching</a></h2>
+<pre><code class="language-sh">if ! p10k-rs daemon-health &gt;/dev/null; then
+  echo "p10k-rs daemon needs attention:"
+  p10k-rs daemon-health
+fi
+</code></pre>
+<p>Check the exit code to decide whether to restart the shell session or investigate
+further. Exit 2 (wedged) or 3 (dead) indicate the health-check hook should have
+respawned the daemon on the next prompt; if you see this repeatedly, file an issue.</p>
+<h2 id="--json-for-machine-readable-output"><a class="header" href="#--json-for-machine-readable-output"><code>--json</code> for machine-readable output</a></h2>
+<p>Pass <code>--json</code> to emit a single JSON object on stdout instead of the one-line text
+form. Same exit codes; same outcomes. Useful when scripting from non-shell
+consumers (Python, Go, a Prometheus textfile collector, monitoring tooling).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Outcome</th><th>JSON</th></tr>
+</thead>
+<tbody>
+<tr><td>Healthy</td><td><code>{"status":"OK","pid":&lt;n&gt;,"wedge":null}</code></td></tr>
+<tr><td>Wedged</td><td><code>{"status":"WEDGED","pid":&lt;n&gt;,"wedge_age_ms":&lt;n&gt;}</code></td></tr>
+<tr><td>Daemon dead</td><td><code>{"status":"DEAD","pid":&lt;n&gt;}</code></td></tr>
+<tr><td>Channel not wired</td><td><code>{"status":"NOT_WIRED"}</code></td></tr>
+<tr><td>I/O error</td><td><code>{"status":"ERROR","reason":"&lt;escaped&gt;"}</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>reason</code> strings are JSON-escaped (<code>"</code>, <code>\</code>, and C0 controls handled
+explicitly; non-ASCII UTF-8 passes through unchanged). The shape is part of
+the public contract — additive field changes only in future releases; existing
+fields keep their names and types.</p>
+<pre><code class="language-sh"># branch on a structured field rather than parse the text form
+status=$(p10k-rs daemon-health --json | jq -r .status)
+case "$status" in
+  OK)        ;;
+  WEDGED)    echo "daemon wedged; precmd hook should respawn next prompt" ;;
+  DEAD)      echo "daemon dead; respawn pending" ;;
+  NOT_WIRED) echo "init zsh not sourced or env vars missing" ;;
+  ERROR)     echo "I/O error reading channel state" ;;
+esac
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="doctor-subcommand"><a class="header" href="#doctor-subcommand">doctor subcommand</a></h1>
+<p>Runtime diagnostic for the common environmental snags that break a fresh
+install: missing Nerd Font glyphs, missing <code>gitstatusd</code>, broken shell
+init, stale instant-prompt cache permissions, unparseable config, OSC 7
+unsupported terminals, and the WSL + Windows font gap.</p>
+<h2 id="when-to-run-1"><a class="header" href="#when-to-run-1">When to run</a></h2>
+<ul>
+<li>First thing after a fresh install (or upgrade) on a new host</li>
+<li>When the prompt renders garbled glyphs (<code>◆</code> placeholders)</li>
+<li>When git state stops showing or feels slow</li>
+<li>Before filing a bug report — the JSON output captures everything we’d ask for</li>
+</ul>
+<h2 id="outcomes-1"><a class="header" href="#outcomes-1">Outcomes</a></h2>
+<p>Each check reports one of four statuses and contributes to the exit code:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Status</th><th>Meaning</th><th>Affects exit</th></tr>
+</thead>
+<tbody>
+<tr><td><code>OK</code></td><td>Probe passed</td><td>no</td></tr>
+<tr><td><code>WARN</code></td><td>User should look at it, but the prompt still renders</td><td>exit ≥ 1</td></tr>
+<tr><td><code>ERROR</code></td><td>Almost certainly broken — fix before expecting a working prompt</td><td>exit ≥ 2</td></tr>
+<tr><td><code>SKIP</code></td><td>Could not be evaluated in this environment</td><td>no</td></tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Exit code</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>All <code>OK</code> or <code>SKIP</code></td></tr>
+<tr><td>1</td><td>At least one <code>WARN</code>, no <code>ERROR</code></td></tr>
+<tr><td>2</td><td>At least one <code>ERROR</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="output-formats"><a class="header" href="#output-formats">Output formats</a></h2>
+<pre><code class="language-text">$ p10k-rs doctor
+[OK   ] gitstatusd_binary: found at /usr/local/bin/gitstatusd
+[WARN ] shell_init_sourced: no `_P10K_RS_GITSTATUSD_*` env vars — run `eval "$(p10k-rs init zsh)"` from your shell rc
+[SKIP ] osc7_supported: TERM_PROGRAM not set; cannot infer terminal capabilities
+doctor: warnings present (exit 1)
+</code></pre>
+<p><code>--json</code> emits a schema-versioned envelope (<code>p10krs.doctor/v1</code>) for scripts:</p>
+<pre><code class="language-text">$ p10k-rs doctor --json
+{"schema":"p10krs.doctor/v1","exit_code":1,"checks":[
+  {"name":"gitstatusd_binary","status":"OK","message":"found at …"},
+  {"name":"shell_init_sourced","status":"WARN","message":"no `_P10K_RS_GITSTATUSD_*` env vars — …"}
+]}
+</code></pre>
+<p>Field order is stable. <code>name</code> keys are snake_case so <code>jq '.checks[] | select(.status=="ERROR")'</code>
+works without quoting.</p>
+<h2 id="checks"><a class="header" href="#checks">Checks</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Probes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nerd_font_glyphs</code></td><td><code>$LANG</code> / <code>$LC_*</code> for UTF-8 locale + WSL gate</td></tr>
+<tr><td><code>gitstatusd_binary</code></td><td><code>p10k_rs_git::locate_gitstatusd()</code> matches the prompt’s lookup</td></tr>
+<tr><td><code>gitstatusd_version_pin</code></td><td>Bundled sha256 pins vs. installed binary</td></tr>
+<tr><td><code>config_file_present</code></td><td><code>$P10K_RS_CONFIG</code> / <code>$XDG_CONFIG_HOME</code> / <code>~/.config/p10k-rs/config.toml</code></td></tr>
+<tr><td><code>config_file_parses</code></td><td>Schema-validate the resolved config file</td></tr>
+<tr><td><code>shell_init_sourced</code></td><td><code>_P10K_RS_GITSTATUSD_*</code> env vars (set by <code>p10k-rs init zsh</code>)</td></tr>
+<tr><td><code>instant_prompt_cache_writable</code></td><td><code>~/.cache/p10k-rs</code> permissions and writability</td></tr>
+<tr><td><code>osc7_supported</code></td><td><code>$TERM_PROGRAM</code> against a known-good list</td></tr>
+<tr><td><code>wsl_windows_font_warning</code></td><td>WSL + Windows-side font story gap</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>nerd_font_glyphs</code> is a heuristic — it flags the obvious failure modes
+(non-UTF-8 locale, WSL) but cannot read the OS font registry from a
+TTY-only process. A <code>SKIP</code> here is not a guarantee that fonts are fine;
+verify visually that folder / branch glyphs render.</p>
+<h2 id="see-also-21"><a class="header" href="#see-also-21">See also</a></h2>
+<ul>
+<li><a href="#daemon-health-subcommand">daemon-health subcommand</a> — paired diagnostic for the gitstatusd respawn channel.</li>
+<li><a href="#per-shell-init">Per-shell init</a> — what <code>eval "$(p10k-rs init zsh)"</code> actually does.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="ai_status-sidecar-contract"><a class="header" href="#ai_status-sidecar-contract">ai_status sidecar contract</a></h1>
+<p>The <code>ai_status</code> segment surfaces the currently-active AI model and
+context-window usage in the prompt. It reads a small JSON file the AI
+host (or a user-written hook) drops in a uid-private runtime
+directory; no daemon, no network.</p>
+<h2 id="where-the-file-lives"><a class="header" href="#where-the-file-lives">Where the file lives</a></h2>
+<pre><code>$XDG_RUNTIME_DIR/p10k-rs/ai/&lt;host&gt;.json
+</code></pre>
+<p><code>&lt;host&gt;</code> is the kebab-case slug the <code>ai_host</code> segment renders:
+<code>claude-code</code>, <code>aider</code>, <code>cursor</code>, <code>goose</code>.</p>
+<p><code>$XDG_RUNTIME_DIR</code> is the systemd-managed uid-private directory
+(<code>/run/user/&lt;uid&gt;</code> on Linux). When the variable is unset the segment
+renders empty — there is no fallback to <code>/tmp</code> because that path is
+shared and would weaken the load-bearing “writer == reader uid”
+assumption. Users on systems without systemd can export
+<code>XDG_RUNTIME_DIR=/run/user/$(id -u)</code> (creating it <code>0o700</code>) at session
+start to participate.</p>
+<p>The directory tree and the file are presumed owner-only; the segment
+opens the file through <code>open_owned_safely</code>, which rejects symlinks
+(<code>O_NOFOLLOW</code>), non-regular files, and any inode whose owner uid is
+not the current effective uid (or root).</p>
+<h2 id="json-schema"><a class="header" href="#json-schema">JSON schema</a></h2>
+<pre><code class="language-json">{
+  "schema_version": 1,
+  "host": "claude-code",
+  "model": "claude-sonnet-4-6",
+  "status": "idle",
+  "context_used_tokens": 12345,
+  "context_window_tokens": 200000,
+  "last_updated_unix": 1716609600
+}
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Required</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>schema_version</code></td><td><code>u32</code></td><td>yes</td><td>Currently <code>1</code>. Reserved for future migration.</td></tr>
+<tr><td><code>host</code></td><td><code>string</code></td><td>yes</td><td>Self-identifier. Sanitised before any use.</td></tr>
+<tr><td><code>model</code></td><td><code>string</code></td><td>no</td><td>Active model name. Capped at 64 graphemes for the prompt render.</td></tr>
+<tr><td><code>status</code></td><td><code>string</code></td><td>no</td><td>Free-form: <code>"idle"</code>, <code>"thinking"</code>, <code>"tool_use"</code>, <code>"error"</code>, …. Capped at 32 graphemes.</td></tr>
+<tr><td><code>context_used_tokens</code></td><td><code>u32</code></td><td>no</td><td>Tokens used in the active context window.</td></tr>
+<tr><td><code>context_window_tokens</code></td><td><code>u32</code></td><td>no</td><td>Total token budget. Combined with <code>context_used_tokens</code> to render <code>&lt;pct&gt;%</code>.</td></tr>
+<tr><td><code>last_updated_unix</code></td><td><code>u64</code></td><td>no</td><td>Seconds since the Unix epoch. Absent or older than 300 s → segment renders empty (stale).</td></tr>
+</tbody>
+</table>
+</div>
+<p>Unknown fields are ignored. Writers MAY add keys without breaking
+older readers; readers MUST NOT trip on unrecognised fields.</p>
+<h2 id="render-shape"><a class="header" href="#render-shape">Render shape</a></h2>
+<p>When the file is fresh and parses cleanly, the segment renders:</p>
+<pre><code>&lt;icon&gt; &lt;model&gt; &lt;pct&gt;% [&lt;status&gt;]
+</code></pre>
+<p>Sub-tokens are omitted when their backing fields are absent. The
+icon, foreground, and background follow the standard
+<code>[segment.ai_status]</code> config block (see
+<a href="#schema-full">Schema</a>). Defaults: magenta background, white foreground,
+robot-face Nerd Font glyph.</p>
+<h2 id="limits-and-failure-modes"><a class="header" href="#limits-and-failure-modes">Limits and failure modes</a></h2>
+<ul>
+<li>The file is read once per prompt invocation. Reads are capped at
+<strong>16 KiB</strong>; anything larger is refused (segment renders empty).</li>
+<li>Bad JSON, missing file, oversize file, foreign-owned file, or symlink
+→ segment renders empty without panicking and without polluting
+stderr.</li>
+<li>Stale (no timestamp, or <code>last_updated_unix</code> more than <strong>300 s</strong> before
+<code>now</code>) → segment renders empty. A clock that briefly jumps backward
+causing a “future” timestamp is treated as fresh, not stale.</li>
+<li>The segment only attempts to read the sidecar when an AI host is
+detected from environment variables (<code>ai_host</code>’s detector); a shell
+outside an AI session pays nothing.</li>
+</ul>
+<h2 id="what-hosts-can-do-to-write-it"><a class="header" href="#what-hosts-can-do-to-write-it">What hosts can do to write it</a></h2>
+<p>The canonical writer is the AI host itself. Pattern (pseudocode):</p>
+<pre><code class="language-python">import json, os, pathlib, tempfile, time
+
+runtime = pathlib.Path(os.environ["XDG_RUNTIME_DIR"]) / "p10k-rs" / "ai"
+runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+payload = {
+    "schema_version": 1,
+    "host": "claude-code",
+    "model": current_model_name(),
+    "status": current_status(),
+    "context_used_tokens": session.tokens_used,
+    "context_window_tokens": session.window_size,
+    "last_updated_unix": int(time.time()),
+}
+
+dest = runtime / "claude-code.json"
+# Atomic replace: write to a temp file, fsync, then rename.
+fd, tmp = tempfile.mkstemp(dir=runtime, prefix=".claude-code.", suffix=".tmp")
+with os.fdopen(fd, "w") as f:
+    json.dump(payload, f)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, dest)
+os.chmod(dest, 0o600)
+</code></pre>
+<p>Always write through a temp file + <code>rename(2)</code> so the reader never sees
+a half-written payload. The reader’s 16 KiB cap is enforced both before
+and during the read, so a runaway writer can’t blow up the prompt path
+even if it loses the atomic-replace pattern.</p>
+<h2 id="writing-a-custom-hook"><a class="header" href="#writing-a-custom-hook">Writing a custom hook</a></h2>
+<p>The same shape works for users wiring their own hooks. For Claude Code,
+a <code>Stop</code> and <code>ToolUse</code> hook (defined in <code>.claude/settings.json</code>) can
+shell out to a tiny <code>bash</code> / <code>python</code> script that emits the JSON
+above. Example minimal Claude Code hook config:</p>
+<pre><code class="language-json">{
+  "hooks": {
+    "Stop": [
+      {"command": "$HOME/.local/bin/p10k-rs-ai-status-write"}
+    ],
+    "ToolUse": [
+      {"command": "$HOME/.local/bin/p10k-rs-ai-status-write"}
+    ]
+  }
+}
+</code></pre>
+<p>…with <code>~/.local/bin/p10k-rs-ai-status-write</code> doing the temp-file +
+<code>rename(2)</code> dance above. The segment renders the latest snapshot
+whenever the prompt redraws.</p>
+<h2 id="see-also-22"><a class="header" href="#see-also-22">See also</a></h2>
+<ul>
+<li><a href="#ai_host"><code>ai_host</code></a> — the env-var-driven badge
+that pairs with this segment.</li>
+<li><a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/PRIVACY.md"><code>PRIVACY.md</code></a>
+— what the binary writes to disk, including this sidecar path.</li>
+<li><a href="#schema-full">Configuration schema</a> — the <code>[segment.ai_status]</code>
+block (foreground / background / icon / padding).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="prompt---json-payload"><a class="header" href="#prompt---json-payload"><code>prompt --json</code> payload</a></h1>
+<p><code>p10k-rs prompt --json</code> emits a machine-readable snapshot of the
+current prompt render. Use it when you need the prompt’s state without
+parsing ANSI text — for example:</p>
+<ul>
+<li><strong>AI hosts</strong> (Claude Code, Cursor, Aider, Goose) that want to surface
+branch / dirty / cwd state alongside their own UI without screen-
+scraping the styled prompt.</li>
+<li><strong>Integration partners</strong> building IDE plugins or status-bar widgets
+that consume the same per-segment information the shell sees.</li>
+<li><strong>Debugging</strong> what the binary is actually deciding to render — every
+enabled segment shows up with its name, state, icon, background, and
+both styled + plain text.</li>
+</ul>
+<p>The wire shape is governed by JSON Schema
+<a href="https://github.com/scurran1986/powerlevel10k-rs/blob/main/docs/schema/p10krs.prompt.v1.json"><code>docs/schema/p10krs.prompt.v1.json</code></a>.
+Schema version is encoded in every payload as <code>schema_version: "p10krs.prompt/v1"</code> — a future breaking change ships behind a new
+version while keeping <code>v1</code> valid for at least one minor cycle.</p>
+<h2 id="quick-look"><a class="header" href="#quick-look">Quick look</a></h2>
+<pre><code class="language-bash">$ p10k-rs prompt --shell zsh --json --last-status 0
+{
+  "schema_version": "p10krs.prompt/v1",
+  "produced_at_unix": 1716609600,
+  "p10k_rs_version": "0.2.2",
+  "shell": "zsh",
+  "exit_status": 0,
+  "host": "claude-code",
+  "cwd": "/home/seaburdz/github/powerlevel10k-rs",
+  "ansi_text": "…full styled prompt with ANSI escapes…",
+  "plain_text": " seaburdz@host  ~/github/powerlevel10k-rs  main ❯",
+  "left": [
+    {
+      "name": "dir",
+      "ansi": "[48;…m /path[39m[49m",
+      "plain": " /path",
+      "state": "writable",
+      "icon": "",
+      "background": "blue"
+    }
+  ],
+  "right": [],
+  "git": {
+    "branch": "main",
+    "ahead": 0,
+    "behind": 0,
+    "staged": 0,
+    "unstaged": 3,
+    "untracked": 1,
+    "has_conflicts": false,
+    "action": null
+  }
+}
+</code></pre>
+<p>The JSON is pretty-printed with a trailing newline. Pipe through <code>jq</code>
+for ad-hoc queries; the shape is stable.</p>
+<h2 id="fields"><a class="header" href="#fields">Fields</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>schema_version</code></td><td>string (const)</td><td>Always <code>"p10krs.prompt/v1"</code>.</td></tr>
+<tr><td><code>produced_at_unix</code></td><td>integer</td><td>Unix seconds at payload assembly.</td></tr>
+<tr><td><code>p10k_rs_version</code></td><td>string</td><td>Binary version (matches <code>version --json</code>).</td></tr>
+<tr><td><code>shell</code></td><td>enum string</td><td><code>zsh</code> | <code>bash</code> | <code>fish</code>.</td></tr>
+<tr><td><code>exit_status</code></td><td>integer</td><td>What the shell forwarded via <code>--last-status</code>.</td></tr>
+<tr><td><code>host</code></td><td>string | null</td><td>Detected AI host short label, or <code>null</code>.</td></tr>
+<tr><td><code>cwd</code></td><td>string</td><td>Current working directory.</td></tr>
+<tr><td><code>ansi_text</code></td><td>string</td><td>Styled prompt for the requested side, escapes included.</td></tr>
+<tr><td><code>plain_text</code></td><td>string</td><td>Same with ANSI / zsh markers stripped.</td></tr>
+<tr><td><code>left</code></td><td>array of <code>Segment</code></td><td>Per-segment breakdown for <code>layout.left</code>.</td></tr>
+<tr><td><code>right</code></td><td>array of <code>Segment</code></td><td>Per-segment breakdown for <code>layout.right</code>.</td></tr>
+<tr><td><code>git</code></td><td><code>Git</code> | null</td><td>Git state for cwd, or <code>null</code> outside a repo.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="segment"><a class="header" href="#segment"><code>Segment</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>Segment id (matches the TOML config key).</td></tr>
+<tr><td><code>ansi</code></td><td>string</td><td>Styled segment output, no surrounding separators.</td></tr>
+<tr><td><code>plain</code></td><td>string</td><td>Plain-text view of <code>ansi</code>.</td></tr>
+<tr><td><code>state</code></td><td>string | null</td><td>Segment state tag (<code>ok</code>, <code>error</code>, <code>writable</code>, …).</td></tr>
+<tr><td><code>icon</code></td><td>string | null</td><td>Icon glyph the segment chose.</td></tr>
+<tr><td><code>background</code></td><td><code>Color</code> | null</td><td>Background colour (named / hex / index / <code>[r,g,b]</code>).</td></tr>
+</tbody>
+</table>
+</div>
+<p>Foreground is not surfaced per-segment today: segments render their
+own foreground inline as part of <code>ansi</code>, and the renderer doesn’t
+plumb the resolved colour back out independently. If you need the
+exact colour, parse the SGR escape inside <code>ansi</code>. A future schema
+version may promote it to a first-class field.</p>
+<h3 id="git"><a class="header" href="#git"><code>Git</code></a></h3>
+<p>Mirrors <code>p10k_rs_core::GitState</code> minus the rarely-consumed
+<code>commit</code> / <code>tag</code> / <code>stash</code> slots. All counts default to 0 when the
+backend can’t surface them (the <code>ShellOut</code> fallback, for example,
+only populates <code>branch</code> + dirty signals).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>branch</code></td><td>string</td><td>Current branch (empty when detached / unknown).</td></tr>
+<tr><td><code>ahead</code></td><td>integer</td><td>Commits ahead of upstream.</td></tr>
+<tr><td><code>behind</code></td><td>integer</td><td>Commits behind upstream.</td></tr>
+<tr><td><code>staged</code></td><td>integer</td><td>Staged changes (tree-vs-index).</td></tr>
+<tr><td><code>unstaged</code></td><td>integer</td><td>Unstaged changes (index-vs-worktree).</td></tr>
+<tr><td><code>untracked</code></td><td>integer</td><td>Untracked files.</td></tr>
+<tr><td><code>has_conflicts</code></td><td>boolean</td><td>Unmerged-stage paths present.</td></tr>
+<tr><td><code>action</code></td><td>string | null</td><td><code>merge</code> / <code>rebase</code> / <code>cherry-pick</code> / <code>revert</code> / <code>bisect</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="whats-not-in-the-payload"><a class="header" href="#whats-not-in-the-payload">What’s <em>not</em> in the payload</a></h2>
+<ul>
+<li><strong>Transient prompt.</strong> <code>--json</code> always emits the full left / right
+ribbons; the collapsed transient view is a styled-text-only concept
+that doesn’t map cleanly onto a structured snapshot.</li>
+<li><strong>Instant-prompt dump.</strong> <code>--json</code> skips the on-disk dump (<code>--dump</code>)
+even when both are passed. The dump exists to mask first-prompt
+gitstatusd latency, which doesn’t apply to a one-shot diagnostic
+invocation.</li>
+<li><strong>Foreground colour per segment.</strong> See the <code>Segment</code> table above.</li>
+</ul>
+<h2 id="stability-1"><a class="header" href="#stability-1">Stability</a></h2>
+<p>The <code>v1</code> shape is wire-stable: a payload that validates today will
+continue to validate after a <code>p10k-rs</code> minor bump. Additive changes
+(new optional fields) ship within <code>v1</code>; breaking changes ship a new
+schema version (<code>v2</code>) while keeping <code>v1</code> valid for at least one
+minor release cycle.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-c22b7243.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>
