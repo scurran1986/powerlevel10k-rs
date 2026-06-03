@@ -278,17 +278,17 @@ const POWERLINE_ARROW: char = '\u{e0b0}';
 /// "into" the prompt (towards the cursor) rather than away from it.
 const POWERLINE_ARROW_LEFT: char = '\u{e0b2}';
 
-/// Collapse a `Some(Color::None)` background to `None` for the
+/// Collapse a no-fill-sentinel background to `None` for the
 /// powerline-transition state machine.
 ///
 /// A theme sets `background = "none"` to opt a segment out of the chip
-/// fill (lean rendering). That surfaces as `Some(Color::None)` in
-/// [`SegmentOutput::background`], but every transition arm keys off
+/// fill (lean rendering). That surfaces as `Some(Color::Named("none"))`
+/// in [`SegmentOutput::background`], but every transition arm keys off
 /// "does this segment have a fill?" — so a no-fill segment must be
 /// treated identically to one with no background at all, joining with
 /// the configured separator instead of a powerline arrow.
 fn fill_bg(bg: Option<&style::Color>) -> Option<&style::Color> {
-    bg.filter(|c| !matches!(c, style::Color::None))
+    bg.filter(|c| !style::is_no_fill(c))
 }
 
 /// Render the configured prompt for the given context.
@@ -1295,10 +1295,10 @@ mod tests {
         }
     }
 
-    /// Like [`NoBgText`] but carries an explicit `Some(Color::None)`
-    /// background — the shape a real segment produces when a theme sets
-    /// `background = "none"`. The ribbon must treat it identically to an
-    /// absent background (lean join, no powerline arrow).
+    /// Like [`NoBgText`] but carries the no-fill sentinel background
+    /// (`Some(Color::Named("none"))`) — the shape a real segment produces
+    /// when a theme sets `background = "none"`. The ribbon must treat it
+    /// identically to an absent background (lean join, no powerline arrow).
     #[derive(Debug)]
     struct NoneBgText(&'static str);
     impl Segment for NoneBgText {
@@ -1311,15 +1311,17 @@ mod tests {
                 plain_len: u16::try_from(self.0.chars().count()).unwrap_or(u16::MAX),
                 state: None,
                 icon: None,
-                background: Some(style::Color::None),
+                background: Some(style::Color::Named(std::borrow::Cow::Borrowed(
+                    style::NO_FILL_NAME,
+                ))),
             }
         }
     }
 
     #[test]
     fn none_background_segments_render_lean_not_powerline() {
-        // `background = "none"` (→ Some(Color::None)) opts a segment out
-        // of the chip fill: the left ribbon must join such segments with
+        // `background = "none"` (→ Some(Color::Named("none"))) opts a
+        // segment out of the chip fill: the left ribbon must join them with
         // the configured separator and emit NO powerline arrow, exactly
         // like an absent background. This is what makes the `lean`/`pure`
         // themes render flat.
