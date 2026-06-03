@@ -20,17 +20,26 @@ right = ["status", "command_execution_time", "time"]
 glyph = "╭─"
 foreground = "#268bd2"      # blue
 
+# Filled segments ride a single Solarized "base02" highlight (#073642),
+# one step up from the base03 background, so the accent foregrounds stay
+# high-contrast and the powerline chevrons blend into one seamless dark
+# ribbon. prompt_char stays unfilled.
+
 [segment.context]
 foreground = "#b58900"      # yellow
+background = "#073642"      # base02
 
 [segment.dir]
 foreground = "#268bd2"
+background = "#073642"
 
 [segment.vcs]
 foreground = "#859900"      # green
+background = "#073642"
 
 [segment.vcs.states.dirty]
 foreground = "#b58900"
+background = "#073642"
 
 [segment.prompt_char]
 foreground = "#859900"
@@ -40,9 +49,13 @@ foreground = "#dc322f"      # red
 
 [segment.status.states.error]
 foreground = "#dc322f"
+background = "#073642"
 
 [segment.command_execution_time]
 foreground = "#cb4b16"      # orange
+background = "#073642"
 
 [segment.time]
-foreground = "#586e75"      # base01
+# base01 (#586e75) is too dim on the base02 chip; base0 (#839496) reads.
+foreground = "#839496"      # base0 (was base01 #586e75)
+background = "#073642"

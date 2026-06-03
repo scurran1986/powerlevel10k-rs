@@ -20,17 +20,26 @@ right = ["status", "command_execution_time", "time"]
 glyph = "╭─"
 foreground = "#89b4fa"      # Blue
 
+# Filled segments ride a single dark "Surface0" slate (#313244, one step
+# up from Base) so the pastel foregrounds stay high-contrast and the
+# powerline chevrons blend into one seamless dark ribbon. prompt_char
+# stays unfilled.
+
 [segment.context]
 foreground = "#fab387"      # Peach
+background = "#313244"      # Surface0
 
 [segment.dir]
 foreground = "#89b4fa"      # Blue
+background = "#313244"      # Surface0
 
 [segment.vcs]
 foreground = "#a6e3a1"      # Green
+background = "#313244"      # Surface0
 
 [segment.vcs.states.dirty]
 foreground = "#f9e2af"      # Yellow
+background = "#313244"      # Surface0
 
 [segment.prompt_char]
 foreground = "#a6e3a1"
@@ -40,9 +49,13 @@ foreground = "#f38ba8"      # Red
 
 [segment.status.states.error]
 foreground = "#f38ba8"
+background = "#313244"      # Surface0
 
 [segment.command_execution_time]
 foreground = "#fab387"      # Peach
+background = "#313244"      # Surface0
 
 [segment.time]
-foreground = "#7f849c"      # Overlay1
+# Overlay1 (#7f849c) is too dim on the Surface0 slate; Subtext0 reads.
+foreground = "#a6adc8"      # Subtext0
+background = "#313244"      # Surface0

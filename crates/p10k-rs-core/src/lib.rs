@@ -278,6 +278,19 @@ const POWERLINE_ARROW: char = '\u{e0b0}';
 /// "into" the prompt (towards the cursor) rather than away from it.
 const POWERLINE_ARROW_LEFT: char = '\u{e0b2}';
 
+/// Collapse a no-fill-sentinel background to `None` for the
+/// powerline-transition state machine.
+///
+/// A theme sets `background = "none"` to opt a segment out of the chip
+/// fill (lean rendering). That surfaces as `Some(Color::Named("none"))`
+/// in [`SegmentOutput::background`], but every transition arm keys off
+/// "does this segment have a fill?" — so a no-fill segment must be
+/// treated identically to one with no background at all, joining with
+/// the configured separator instead of a powerline arrow.
+fn fill_bg(bg: Option<&style::Color>) -> Option<&style::Color> {
+    bg.filter(|c| !style::is_no_fill(c))
+}
+
 /// Render the configured prompt for the given context.
 ///
 /// Walks `segments` in order, calls `enabled` then `render`, and weaves
@@ -569,7 +582,7 @@ fn append_ribbon(
             .segments
             .get(*name)
             .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
-        match (prev_bg, out.background.as_ref()) {
+        match (prev_bg, fill_bg(out.background.as_ref())) {
             (Some(prev), Some(next)) => {
                 left.push_str(&style::sgr_fg(prev, mode));
                 left.push_str(&style::sgr_bg(next, mode));
@@ -600,7 +613,7 @@ fn append_ribbon(
         for _ in 0..pad_right {
             left.push(' ');
         }
-        prev_bg = out.background.as_ref();
+        prev_bg = fill_bg(out.background.as_ref());
     }
 
     // Final powerline arrow into terminal-default bg after the last
@@ -704,7 +717,7 @@ fn render_right(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
             .segments
             .get(*name)
             .map_or((0, 0), |sc| (sc.padding.left, sc.padding.right));
-        match (prev_bg, seg_out.background.as_ref()) {
+        match (prev_bg, fill_bg(seg_out.background.as_ref())) {
             (None, Some(next)) => {
                 // Leading transition: fg=next_bg on default bg, then
                 // left-pointing arrow into the segment.
@@ -736,7 +749,7 @@ fn render_right(segments: &[Box<dyn Segment>], ctx: &RenderCtx<'_>) -> String {
         for _ in 0..pad_right {
             out.push(' ');
         }
-        prev_bg = seg_out.background.as_ref();
+        prev_bg = fill_bg(seg_out.background.as_ref());
     }
 
     out
@@ -1280,6 +1293,59 @@ mod tests {
                 background: None,
             }
         }
+    }
+
+    /// Like [`NoBgText`] but carries the no-fill sentinel background
+    /// (`Some(Color::Named("none"))`) — the shape a real segment produces
+    /// when a theme sets `background = "none"`. The ribbon must treat it
+    /// identically to an absent background (lean join, no powerline arrow).
+    #[derive(Debug)]
+    struct NoneBgText(&'static str);
+    impl Segment for NoneBgText {
+        fn name(&self) -> &'static str {
+            "test_none_bg"
+        }
+        fn render(&self, _ctx: &RenderCtx<'_>) -> SegmentOutput {
+            SegmentOutput {
+                text: self.0.to_string(),
+                plain_len: u16::try_from(self.0.chars().count()).unwrap_or(u16::MAX),
+                state: None,
+                icon: None,
+                background: Some(style::Color::Named(std::borrow::Cow::Borrowed(
+                    style::NO_FILL_NAME,
+                ))),
+            }
+        }
+    }
+
+    #[test]
+    fn none_background_segments_render_lean_not_powerline() {
+        // `background = "none"` (→ Some(Color::Named("none"))) opts a
+        // segment out of the chip fill: the left ribbon must join them with
+        // the configured separator and emit NO powerline arrow, exactly
+        // like an absent background. This is what makes the `lean`/`pure`
+        // themes render flat.
+        let cfg = Config::from_toml(
+            "schema_version = 1\n\
+             [layout.separators]\n\
+             left = \" | \"\n",
+        )
+        .expect("fixture parses");
+        let env = EnvSnapshot::default();
+        let cwd = Path::new("/tmp");
+        let ctx = render_ctx_for_host(&cfg, &env, cwd, HostKind::None);
+        let segs: Vec<Box<dyn Segment>> =
+            vec![Box::new(NoneBgText("A")), Box::new(NoneBgText("B"))];
+        let right: Vec<Box<dyn Segment>> = vec![];
+        let out = render_prompt(&segs, &right, &ctx).left;
+        assert!(
+            out.contains("A | B"),
+            "none-bg segments must join with the configured separator: {out:?}",
+        );
+        assert!(
+            !out.contains('\u{e0b0}'),
+            "none-bg segments must not emit a powerline arrow: {out:?}",
+        );
     }
 
     #[test]

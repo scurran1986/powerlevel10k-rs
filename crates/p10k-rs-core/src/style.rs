@@ -27,6 +27,21 @@ pub fn reset_bg() -> &'static str {
     "\x1b[49m"
 }
 
+/// The reserved colour name that means "no colour": `background = "none"`
+/// opts a segment out of the chip fill (lean rendering, no powerline
+/// arrow); `foreground = "none"` resolves to the terminal default.
+///
+/// Represented as `Color::Named("none")` rather than a dedicated `Color`
+/// variant so the public `Color` enum stays SemVer-stable for the
+/// (unpublished) library crates.
+pub const NO_FILL_NAME: &str = "none";
+
+/// True when `color` is the [`NO_FILL_NAME`] sentinel.
+#[must_use]
+pub fn is_no_fill(color: &Color) -> bool {
+    matches!(color, Color::Named(n) if n == NO_FILL_NAME)
+}
+
 /// Resolve a segment's foreground color and emit the corresponding SGR
 /// escape, honouring config overrides.
 ///
@@ -167,6 +182,10 @@ const ANSI8_BG_TABLE: [&str; 10] = [
 /// derefs and `Display`s like a `&str`.
 #[must_use]
 pub fn sgr_fg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
+    // The no-fill sentinel as a foreground means "terminal default".
+    if is_no_fill(color) {
+        return Cow::Borrowed(reset_fg());
+    }
     match (resolve_to_palette(color, mode), mode) {
         (Palette::Ansi8(n), _) => {
             Cow::Borrowed(ANSI8_FG_TABLE.get(n as usize).copied().unwrap_or(""))
@@ -179,6 +198,11 @@ pub fn sgr_fg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
 /// Background counterpart to [`sgr_fg`].
 #[must_use]
 pub fn sgr_bg(color: &Color, mode: ColorMode) -> Cow<'static, str> {
+    // The no-fill sentinel paints no chip — emit nothing so the segment
+    // text rides the terminal's own background (lean rendering).
+    if is_no_fill(color) {
+        return Cow::Borrowed("");
+    }
     match (resolve_to_palette(color, mode), mode) {
         (Palette::Ansi8(n), _) => {
             Cow::Borrowed(ANSI8_BG_TABLE.get(n as usize).copied().unwrap_or(""))
@@ -461,6 +485,25 @@ mod tests {
         let bg = render_bg(&cfg, "dir", None, Color::Named("black".into()));
         assert_eq!(fg, "\x1b[38;5;1m");
         assert_eq!(bg, "\x1b[48;5;4m");
+    }
+
+    fn none_color() -> Color {
+        Color::Named(std::borrow::Cow::Borrowed(NO_FILL_NAME))
+    }
+
+    #[test]
+    fn sgr_bg_none_emits_nothing() {
+        // The no-fill sentinel background paints no chip — the SGR is
+        // empty so the segment text rides the terminal's own background.
+        assert_eq!(sgr_bg(&none_color(), ColorMode::TrueColor), "");
+        assert_eq!(sgr_bg(&none_color(), ColorMode::Ansi8), "");
+    }
+
+    #[test]
+    fn sgr_fg_none_falls_back_to_default_fg() {
+        // The no-fill sentinel foreground means "terminal default" — same
+        // byte sequence as `reset_fg`.
+        assert_eq!(sgr_fg(&none_color(), ColorMode::TrueColor), reset_fg());
     }
 
     #[test]

@@ -399,6 +399,14 @@ pub struct StateOverrides {
 #[serde(untagged)]
 pub enum Color {
     /// Named color (Powerlevel9k compat).
+    ///
+    /// The reserved name `"none"` is the **no-fill sentinel**: as a
+    /// `background` it opts a segment out of the chip fill (lean
+    /// rendering, no powerline arrow); as a `foreground` it resolves to
+    /// the terminal default. It is kept as a `Named` value rather than a
+    /// dedicated enum variant so the public `Color` type stays
+    /// SemVer-stable across the (unpublished) library crates — adding a
+    /// variant to this exhaustive enum would be a major break.
     Named(Cow<'static, str>),
     /// Indexed 0–255 ANSI color.
     Indexed(u8),
@@ -1622,6 +1630,33 @@ left = ["dir"]
             parse_color("\"wheat4\""),
             Color::Named(Cow::Owned("wheat4".to_owned()))
         );
+    }
+
+    #[test]
+    fn color_none_is_the_no_fill_sentinel() {
+        // `background = "none"` is the no-fill sentinel. It parses to the
+        // reserved `Color::Named("none")` (the renderer treats that name
+        // specially) rather than a dedicated enum variant — keeping the
+        // public `Color` API SemVer-stable.
+        assert_eq!(
+            parse_color("\"none\""),
+            Color::Named(Cow::Owned("none".to_owned()))
+        );
+    }
+
+    #[test]
+    fn color_none_round_trips_through_serialize() {
+        // The schema snapshot + any config re-emission must round-trip
+        // the no-fill sentinel back to the string `"none"`.
+        #[derive(serde::Serialize)]
+        struct Wrap {
+            c: Color,
+        }
+        let s = toml::to_string(&Wrap {
+            c: Color::Named(Cow::Owned("none".to_owned())),
+        })
+        .expect("serialize");
+        assert_eq!(s.trim(), "c = \"none\"");
     }
 
     #[test]

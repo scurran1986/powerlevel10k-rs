@@ -20,17 +20,26 @@ right = ["status", "command_execution_time", "time"]
 glyph = "╭─"
 foreground = "#bd93f9"      # purple
 
+# Filled segments ride a single dark "Current Line" surface (#44475a)
+# so the pink/purple/green/cyan foregrounds stay high-contrast and the
+# powerline chevrons blend into one seamless dark ribbon. prompt_char
+# stays unfilled.
+
 [segment.context]
 foreground = "#ffb86c"      # orange
+background = "#44475a"
 
 [segment.dir]
 foreground = "#8be9fd"      # cyan
+background = "#44475a"
 
 [segment.vcs]
 foreground = "#50fa7b"      # green
+background = "#44475a"
 
 [segment.vcs.states.dirty]
 foreground = "#f1fa8c"      # yellow
+background = "#44475a"
 
 [segment.prompt_char]
 foreground = "#50fa7b"
@@ -40,9 +49,13 @@ foreground = "#ff5555"      # red
 
 [segment.status.states.error]
 foreground = "#ff5555"
+background = "#44475a"
 
 [segment.command_execution_time]
 foreground = "#ffb86c"      # orange
+background = "#44475a"
 
 [segment.time]
-foreground = "#6272a4"      # comment
+# #6272a4 ("comment") is too dim on the surface chip; "foreground" reads.
+foreground = "#f8f8f2"      # foreground
+background = "#44475a"

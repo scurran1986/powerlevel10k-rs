@@ -17,11 +17,18 @@ transient_prompt = "always"
 left = ["dir", "vcs", "prompt_char"]
 right = ["command_execution_time"]
 
+# `background = "none"` keeps every segment chip-free — coloured text on
+# the terminal's own background, no powerline arrows — matching Pure's
+# flat aesthetic. Segment-level "none" also covers state variants.
+# prompt_char is already unfilled.
+
 [segment.dir]
 foreground = "blue"
+background = "none"
 
 [segment.vcs]
 foreground = 8        # grey
+background = "none"
 
 [segment.vcs.states.dirty]
 foreground = "yellow"
@@ -34,3 +41,4 @@ foreground = "red"
 
 [segment.command_execution_time]
 foreground = 8        # grey
+background = "none"
