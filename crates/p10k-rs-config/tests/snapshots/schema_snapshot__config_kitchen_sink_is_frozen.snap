@@ -28,7 +28,7 @@ segment:
   command_execution_time:
     disabled: false
     foreground: yellow
-    background: ~
+    background: none
     icon: ~
     padding:
       left: 0
@@ -45,7 +45,7 @@ segment:
   dir:
     disabled: false
     foreground: blue
-    background: ~
+    background: none
     icon: ~
     padding:
       left: 0
@@ -83,7 +83,7 @@ segment:
   status:
     disabled: false
     foreground: ~
-    background: ~
+    background: none
     icon: ~
     padding:
       left: 0
@@ -104,7 +104,7 @@ segment:
   time:
     disabled: false
     foreground: white
-    background: ~
+    background: none
     icon: ~
     padding:
       left: 0
@@ -121,7 +121,7 @@ segment:
   vcs:
     disabled: false
     foreground: green
-    background: ~
+    background: none
     icon: ~
     padding:
       left: 0

@@ -17,11 +17,19 @@ transient_prompt = "off"
 left = ["dir", "vcs", "prompt_char"]
 right = ["status", "command_execution_time", "time"]
 
+# `background = "none"` opts each segment out of the chip fill so this
+# theme renders truly flat — coloured text on the terminal's own
+# background, no powerline arrows. Segment-level "none" also covers each
+# segment's state variants (e.g. vcs dirty). prompt_char is already
+# unfilled.
+
 [segment.dir]
 foreground = "blue"
+background = "none"
 
 [segment.vcs]
 foreground = "green"
+background = "none"
 
 [segment.vcs.states.dirty]
 foreground = "yellow"
@@ -32,11 +40,16 @@ foreground = "green"
 [segment.prompt_char.states.error]
 foreground = "red"
 
+[segment.status]
+background = "none"
+
 [segment.status.states.error]
 foreground = "red"
 
 [segment.command_execution_time]
 foreground = "yellow"
+background = "none"
 
 [segment.time]
 foreground = "white"
+background = "none"
