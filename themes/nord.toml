@@ -19,17 +19,25 @@ right = ["status", "command_execution_time", "time"]
 glyph = "╭─"
 foreground = "#88c0d0"      # frost 2
 
+# Filled segments ride a single dark "Polar Night" surface (#3b4252,
+# nord1) so the Snow Storm/Frost foregrounds stay high-contrast and the
+# powerline chevrons blend into one seamless dark ribbon. prompt_char stays unfilled.
+
 [segment.context]
 foreground = "#ebcb8b"      # aurora yellow
+background = "#3b4252"
 
 [segment.dir]
 foreground = "#88c0d0"
+background = "#3b4252"
 
 [segment.vcs]
 foreground = "#a3be8c"      # aurora green
+background = "#3b4252"
 
 [segment.vcs.states.dirty]
 foreground = "#ebcb8b"
+background = "#3b4252"
 
 [segment.prompt_char]
 foreground = "#a3be8c"
@@ -39,9 +47,13 @@ foreground = "#bf616a"      # aurora red
 
 [segment.status.states.error]
 foreground = "#bf616a"
+background = "#3b4252"
 
 [segment.command_execution_time]
 foreground = "#d08770"      # aurora orange
+background = "#3b4252"
 
 [segment.time]
-foreground = "#4c566a"      # polar night 4
+# #4c566a (polar night 4) is too dim on the #3b4252 chip; snow storm reads.
+foreground = "#d8dee9"      # snow storm 1
+background = "#3b4252"
