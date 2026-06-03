@@ -11,6 +11,10 @@
 Single static binary. Declarative TOML config. Multi-shell.
 `gitstatusd`-class git latency.
 
+> **Status: done.** This project is complete and no longer under
+> active development. It reached its goal at v1.0.0; no further work
+> is planned. The code remains available as-is.
+
 > **v1.0.0 — stability commitment.** `p10k-rs` now follows
 > SemVer for the surfaces listed in [STABILITY.md](STABILITY.md):
 > the binary CLI, TOML config schema, per-shell init protocol,
